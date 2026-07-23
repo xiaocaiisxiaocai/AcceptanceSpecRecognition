@@ -41,6 +41,28 @@ export const cloneMatchPreviewOverride = (
   };
 };
 
+export const discardCommittedMatchPreviewOverride = (
+  item: MatchPreviewItem,
+  value?: MatchPreviewEditOverride | null
+): MatchPreviewEditOverride | undefined => {
+  const override = cloneMatchPreviewOverride(value);
+  if (!override || !item.bestMatch) {
+    return override;
+  }
+
+  const remaining: MatchPreviewEditOverride = {
+    overrideAcceptance:
+      override.overrideAcceptance === item.bestMatch.acceptance
+        ? undefined
+        : override.overrideAcceptance,
+    overrideRemark:
+      override.overrideRemark === item.bestMatch.remark
+        ? undefined
+        : override.overrideRemark
+  };
+  return hasMatchPreviewOverrideValue(remaining) ? remaining : undefined;
+};
+
 export const collectMatchPreviewSelections = (
   items: MatchPreviewItem[],
   selectedSpecs: Map<number, MatchPreviewSelection | null>,
@@ -130,10 +152,14 @@ const buildDefaultSelectionForItem = (
 ): PersistedSelection => {
   const manualClearedField =
     existing?.manualCleared === true ? { manualCleared: true } : {};
+  const remainingOverride = discardCommittedMatchPreviewOverride(
+    item,
+    existing
+  );
   const base = {
     rowIndex: item.rowIndex,
-    overrideAcceptance: existing?.overrideAcceptance,
-    overrideRemark: existing?.overrideRemark
+    overrideAcceptance: remainingOverride?.overrideAcceptance,
+    overrideRemark: remainingOverride?.overrideRemark
   };
 
   if (!item.bestMatch || isNoAnswerPlaceholderRow(item)) {

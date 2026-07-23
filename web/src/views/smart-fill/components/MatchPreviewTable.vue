@@ -38,6 +38,7 @@ import {
   cloneMatchPreviewOverride,
   collectEditedBackfillItems,
   collectMatchPreviewSelections,
+  discardCommittedMatchPreviewOverride,
   hasManualFillOverrideValue,
   hasMatchPreviewOverrideValue
 } from "./matchPreviewTable.selection";
@@ -305,7 +306,10 @@ const syncSelectionsWithItems = () => {
   props.items.forEach(item => {
     const existing = getExistingSelection(item.rowIndex);
     const existingManualCleared = getExistingManualCleared(item.rowIndex);
-    const existingOverride = getOverride(item.rowIndex);
+    const existingOverride = discardCommittedMatchPreviewOverride(
+      item,
+      getOverride(item.rowIndex)
+    );
 
     if (existingOverride) {
       nextOverrides.set(item.rowIndex, existingOverride);

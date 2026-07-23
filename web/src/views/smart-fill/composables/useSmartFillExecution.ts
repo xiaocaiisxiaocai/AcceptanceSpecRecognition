@@ -16,6 +16,7 @@ import { getRequestErrorMessage } from "@/utils/error-message";
 import type { BatchTableConfigItem } from "../components/batchTableConfig.types";
 import type SmartFillPreviewStep from "../components/SmartFillPreviewStep.vue";
 import {
+  applyBackfilledItemsToPreviewResults,
   buildSmartFillExecuteRequest,
   refreshBackfilledExecuteRequest,
   type SmartFillScope,
@@ -294,6 +295,10 @@ export function useSmartFillExecution({
           ElMessage.error(res.message || "回填验收规格失败");
           return;
         }
+        batchPreviewResults.value = applyBackfilledItemsToPreviewResults(
+          batchPreviewResults.value,
+          selected
+        );
         ElMessage.success(`已回填 ${res.data.totalCount} 条验收规格`);
       }
 

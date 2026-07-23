@@ -46,6 +46,51 @@ export type SmartFillBackfilledItem = {
   actionType: "update" | "create";
 };
 
+export const applyBackfilledItemsToPreviewResults = (
+  results: BatchTablePreviewResult[],
+  backfilledItems: SmartFillBackfilledItem[]
+): BatchTablePreviewResult[] => {
+  const updatedBySpecId = new Map(
+    backfilledItems
+      .filter(
+        (
+          item
+        ): item is SmartFillBackfilledItem & {
+          specId: number;
+          actionType: "update";
+        } => item.actionType === "update" && !!item.specId
+      )
+      .map(item => [item.specId, item])
+  );
+
+  if (updatedBySpecId.size === 0) {
+    return results;
+  }
+
+  return results.map(table => ({
+    ...table,
+    items: table.items.map(item => {
+      const updatedItem = item.bestMatch?.specId
+        ? updatedBySpecId.get(item.bestMatch.specId)
+        : undefined;
+      if (!item.bestMatch || !updatedItem) {
+        return item;
+      }
+
+      return {
+        ...item,
+        bestMatch: {
+          ...item.bestMatch,
+          acceptance:
+            updatedItem.overrideAcceptance ?? item.bestMatch.acceptance,
+          remark: updatedItem.overrideRemark ?? item.bestMatch.remark,
+          reviewApprovalToken: undefined
+        }
+      };
+    })
+  }));
+};
+
 const cloneMatchResultForExecutionHistory = (
   bestMatch?: MatchResult
 ): MatchResult | undefined => {
