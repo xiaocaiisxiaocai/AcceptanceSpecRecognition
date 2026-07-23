@@ -1528,13 +1528,13 @@ test("smart-fill 页面应解耦执行与下载权限，并在下载失败后保
     /const handleExecute = async \(\) => \{[\s\S]*ensurePermission\("btn:matching:download"/
   );
   assert.doesNotMatch(previewStepSource, /v-if="canExecuteAction"/);
-  assert.match(previewStepSource, /v-if="canExecuteFill"/);
+  assert.match(previewStepSource, /v-if="!taskId && canExecuteFill"/);
   assert.match(
     executionSource,
     /const handleDownloadLastResult = async \(\) => \{/
   );
   assert.match(executionSource, /downloadTaskResult\(taskId\.value\)/);
-  assert.match(previewStepSource, /重新下载结果/);
+  assert.match(previewStepSource, /重新下载/);
   assert.match(previewStepSource, /v-if="taskId && canDownloadFillResult"/);
 });
 
@@ -1562,7 +1562,10 @@ test("smart-fill 页面应在预览前给出 Embedding 与范围空态引导", (
   assert.match(previewBlockingSource, /当前范围内没有可用于匹配的验收规格/);
   assert.match(previewBlockingSource, /范围内无候选数据/);
   assert.match(previewBlockingSource, /Embedding 服务不可用/);
-  assert.match(previewStepSource, /v-if="!loading && previewBlockingMessage"/);
+  assert.match(
+    previewStepSource,
+    /<template v-else>[\s\S]*v-if="previewBlockingMessage"/
+  );
 });
 
 test("智能填充应按运行可用性自动选择 AI 服务", () => {

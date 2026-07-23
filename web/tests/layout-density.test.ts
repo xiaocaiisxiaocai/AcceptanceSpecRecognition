@@ -481,6 +481,14 @@ test("智能填充预览应固定工作表统计筛选区和表头并仅滚动�
     /\.match-preview-data-table__body\s*\{[^}]*flex:\s*1 1 0;[^}]*height:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s
   );
   assert.match(
+    smartFillPreviewStepSource,
+    /\.matching-loading\s*\{[^}]*display:\s*flex;[^}]*flex:\s*1;[^}]*align-items:\s*center;[^}]*justify-content:\s*center;[^}]*min-height:\s*0;/s
+  );
+  assert.match(
+    smartFillPreviewStepSource,
+    /<div v-if="loading" class="matching-loading">[\s\S]*<template v-else>[\s\S]*<BatchPreviewTabs/
+  );
+  assert.match(
     matchPreviewDataTableSource,
     /\.table-pagination\s*\{[^}]*flex:\s*0 0 auto;[^}]*justify-content:\s*flex-end;[^}]*min-height:\s*32px;/s
   );
@@ -492,6 +500,15 @@ test("智能填充预览应固定工作表统计筛选区和表头并仅滚动�
     smartFillPreviewStepSource,
     /<template #pagination-actions>[\s\S]*重新匹配[\s\S]*执行填充/
   );
+  assert.match(
+    smartFillPreviewStepSource,
+    /class="fill-complete-status"[\s\S]*填充完成[\s\S]*重新下载[\s\S]*继续填充/
+  );
+  assert.match(
+    smartFillPreviewStepSource,
+    /v-if="!taskId && canPreviewMatching"[\s\S]*v-if="!taskId && canExecuteFill"/
+  );
+  assert.doesNotMatch(smartFillPreviewStepSource, /class="fill-done-alert"/);
   assert.match(
     batchPreviewTabsSource,
     /<template #pagination-actions>[\s\S]*<slot name="pagination-actions"/
