@@ -15,31 +15,39 @@ import {
 } from "./batchTableConfig.helpers";
 import type { BatchTableConfigItem } from "./batchTableConfig.types";
 
-const props = defineProps<{
-  /** 所有可选表格 */
-  tables: TableInfo[];
-  /** 当前文件ID（用于刷新表头预览） */
-  fileId?: number;
-  /** 自定义表格预览加载器（用于非 documents 场景） */
-  previewLoader?: TablePreviewLoader;
-  /** 是否为 Excel 文件 */
-  isExcel?: boolean;
-  /** 目标表可选的来源表列表（批量回复目标配置使用） */
-  sourceTableOptions?: Array<{
-    value: number;
-    label: string;
-  }>;
-  /** 来源表字段标签 */
-  sourceTableLabel?: string;
-  /** 是否显示映射预览操作 */
-  mappingPreviewable?: boolean;
-  /** 当前正在预览的表格索引 */
-  mappingPreviewLoadingTableIndex?: number;
-  /** 当前表格对应的预览结果 */
-  mappingPreviewResults?: Record<number, BatchReplyTablePreviewResponse | null>;
-  /** 当前配置（v-model） */
-  modelValue: BatchTableConfigItem[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    /** 所有可选表格 */
+    tables: TableInfo[];
+    /** 当前文件ID（用于刷新表头预览） */
+    fileId?: number;
+    /** 自定义表格预览加载器（用于非 documents 场景） */
+    previewLoader?: TablePreviewLoader;
+    /** 是否为 Excel 文件 */
+    isExcel?: boolean;
+    /** 是否显示过滤空行控件 */
+    showFilterEmptySourceRows?: boolean;
+    /** 目标表可选的来源表列表（批量回复目标配置使用） */
+    sourceTableOptions?: Array<{
+      value: number;
+      label: string;
+    }>;
+    /** 来源表字段标签 */
+    sourceTableLabel?: string;
+    /** 是否显示映射预览操作 */
+    mappingPreviewable?: boolean;
+    /** 当前正在预览的表格索引 */
+    mappingPreviewLoadingTableIndex?: number;
+    /** 当前表格对应的预览结果 */
+    mappingPreviewResults?: Record<
+      number,
+      BatchReplyTablePreviewResponse | null
+    >;
+    /** 当前配置（v-model） */
+    modelValue: BatchTableConfigItem[];
+  }>(),
+  { showFilterEmptySourceRows: true }
+);
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: BatchTableConfigItem[]): void;
@@ -549,7 +557,10 @@ const getPreviewResult = (tableIndex: number) => {
                   />
                 </el-select>
               </el-form-item>
-              <el-form-item label="过滤空行">
+              <el-form-item
+                v-if="props.showFilterEmptySourceRows"
+                label="过滤空行"
+              >
                 <el-switch
                   :model-value="item.filterEmptySourceRows ?? true"
                   active-text="开启"

@@ -12,6 +12,7 @@ import SmartStructureRangeEditorDrawer from "./SmartStructureRangeEditorDrawer.v
 import {
   buildSmartConfigConfirmRequest,
   canConfirmSmartStructureTable,
+  filterSmartStructureIssuesForRegions,
   formatSmartStructurePercent,
   getSmartStructureDecisionTag,
   getSmartStructureFieldLabel,
@@ -295,10 +296,13 @@ const isCoveredHeaderIssue = (issue: SmartConfigRecognitionIssue) => {
 
 const allIssues = computed(() => {
   const seen = new Set<string>();
-  return [
-    ...(props.table.issues ?? []),
-    ...activeRegions.value.flatMap(region => region.issues ?? [])
-  ].filter(issue => {
+  return filterSmartStructureIssuesForRegions(
+    [
+      ...(props.table.issues ?? []),
+      ...activeRegions.value.flatMap(region => region.issues ?? [])
+    ],
+    activeRegions.value
+  ).filter(issue => {
     if (isCoveredHeaderIssue(issue)) return false;
     const key = `${issue.code}-${issue.field ?? ""}-${issue.message}`;
     if (seen.has(key)) return false;

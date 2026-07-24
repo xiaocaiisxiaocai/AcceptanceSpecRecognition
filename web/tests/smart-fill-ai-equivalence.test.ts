@@ -240,19 +240,10 @@ test("主表与详情区不应再用本地风险信号覆盖 authoritative decis
   assert.doesNotMatch(decisionSummarySource, /return "核对差异后再填充";/);
 });
 
-test("llm-stream 非2xx或无 body 时应先收口中断行，且 filterEmptySourceRows helper 不应重复声明", () => {
-  const smartFillPageSource = readProjectFile(
-    "web/src/views/smart-fill/index.vue"
-  );
+test("llm-stream 非2xx或无 body 时应先收口中断行", () => {
   const llmStreamSource = readProjectFile(
     "web/src/views/smart-fill/composables/useSmartFillLlmStream.ts"
   );
-  const helperCount = (
-    smartFillPageSource.match(/const getEffectiveFilterEmptySourceRows =/g) ??
-    []
-  ).length;
-
-  assert.equal(helperCount, 1);
   assert.match(
     llmStreamSource,
     /if \(!response\.ok \|\| !response\.body\) \{[\s\S]*finalizeInterruptedLlmStreamRows\([\s\S]*llmStreamController\.value === controller/
@@ -1297,7 +1288,7 @@ test("SSE 事件缺少 tableIndex 时应直接丢弃，不能再跨表按 rowInd
   );
 });
 
-test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () => {
+test("批量链路应在请求边界强制过滤空白源行", () => {
   const smartFillPageSource = readProjectFile(
     "web/src/views/smart-fill/index.vue"
   );
@@ -1308,18 +1299,22 @@ test("批量链路应让表级 filterEmptySourceRows 回退到全局配置", () 
     "web/src/views/smart-fill/smartFillExecution.helpers.ts"
   );
 
-  assert.match(
-    smartFillPageSource,
-    /const getEffectiveFilterEmptySourceRows = \(\s*tableConfig:\s*\{[\s\S]*?filterEmptySourceRows\?: boolean;[\s\S]*?\}\s*\) =>[\s\S]*tableConfig\.filterEmptySourceRows \?\?[\s\S]*matchConfig\.value\.filterEmptySourceRows \?\?[\s\S]*true/
-  );
+  assert.doesNotMatch(smartFillPageSource, /getEffectiveFilterEmptySourceRows/);
+  assert.match(previewRequestSource, /filterEmptySourceRows:\s*true/);
   assert.match(
     previewRequestSource,
-    /filterEmptySourceRows:\s*getEffectiveFilterEmptySourceRows\(t\)/
+    /config:\s*\{\s*\.\.\.matchConfig\.value,\s*filterEmptySourceRows:\s*true\s*\}/
   );
+  assert.doesNotMatch(
+    previewRequestSource,
+    /getEffectiveFilterEmptySourceRows/
+  );
+  assert.match(executionHelperSource, /filterEmptySourceRows:\s*true/);
   assert.match(
     executionHelperSource,
-    /filterEmptySourceRows:\s*resolveFilterEmptySourceRows\(config\)/
+    /config:\s*\{\s*\.\.\.matchConfig,\s*highConfidenceThreshold,\s*filterEmptySourceRows:\s*true\s*\}/
   );
+  assert.doesNotMatch(executionHelperSource, /resolveFilterEmptySourceRows/);
 });
 
 test("智能填充前端不应再暴露旧的 suggestion 配置或结果字段", () => {
@@ -1571,8 +1566,15 @@ test("smart-fill 页面应在预览前给出 Embedding 与范围空态引导", (
     "web/src/views/smart-fill/components/MatchConfig.vue"
   );
 
-  assert.match(matchConfigSource, /embeddingStatusText/);
-  assert.match(matchConfigSource, /llmStatusText/);
+  assert.match(matchConfigSource, /loadRuntimeAiSelectionsSettled/);
+  assert.match(matchConfigSource, /waitForRuntimeAiSelection/);
+  assert.match(matchConfigSource, /embeddingSelection/);
+  assert.match(matchConfigSource, /llmSelection/);
+  assert.match(matchConfigSource, /hasAvailableEmbeddingService/);
+  assert.match(matchConfigSource, /hasAvailableLlmService/);
+  assert.doesNotMatch(matchConfigSource, /label="Embedding 服务"/);
+  assert.doesNotMatch(matchConfigSource, /label="LLM 服务"/);
+  assert.doesNotMatch(matchConfigSource, /label="过滤空行"/);
   assert.doesNotMatch(matchConfigSource, /本地规则拦截/);
   assert.doesNotMatch(matchConfigSource, /品牌配置/);
 

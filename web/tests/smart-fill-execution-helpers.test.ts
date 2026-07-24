@@ -83,7 +83,7 @@ test("智能填充执行请求 helper 应只包含有选择项的表格并生成
   const matchConfig: MatchConfig = {
     minScoreThreshold: 0.9,
     highConfidenceThreshold: 0.8,
-    filterEmptySourceRows: true
+    filterEmptySourceRows: false
   };
 
   const request = buildSmartFillExecuteRequest({
@@ -99,7 +99,7 @@ test("智能填充执行请求 helper 应只包含有选择项的表格并生成
         headerRowStart: 1,
         headerRowCount: 1,
         dataStartRow: 2,
-        filterEmptySourceRows: undefined
+        filterEmptySourceRows: false
       },
       {
         tableIndex: 1,
@@ -125,18 +125,17 @@ test("智能填充执行请求 helper 应只包含有选择项的表格并生成
     ]),
     matchConfig,
     highConfidenceThreshold: 0.97,
-    previewResults,
-    resolveFilterEmptySourceRows: config =>
-      config.filterEmptySourceRows ?? false
+    previewResults
   });
 
   assert.ok(request);
   assert.equal(request.fileId, 88);
   assert.equal(request.customerId, 1);
   assert.equal(request.config?.highConfidenceThreshold, 0.97);
+  assert.equal(request.config?.filterEmptySourceRows, true);
   assert.equal(request.tables.length, 1);
   assert.equal(request.tables[0].tableIndex, 0);
-  assert.equal(request.tables[0].filterEmptySourceRows, false);
+  assert.equal(request.tables[0].filterEmptySourceRows, true);
   assert.deepEqual(request.tables[0].mappings, [
     {
       rowIndex: 2,
@@ -166,8 +165,7 @@ test("智能填充执行请求 helper 在无文件或无选择项时应返回 nu
     ],
     matchConfig: {},
     highConfidenceThreshold: 0.98,
-    previewResults,
-    resolveFilterEmptySourceRows: () => true
+    previewResults
   };
 
   assert.equal(
@@ -232,8 +230,7 @@ test("回填更新现有规格后应同步执行请求，避免继续携带失�
     ]),
     matchConfig: {},
     highConfidenceThreshold: 0.98,
-    previewResults,
-    resolveFilterEmptySourceRows: () => true
+    previewResults
   });
 
   assert.ok(request);

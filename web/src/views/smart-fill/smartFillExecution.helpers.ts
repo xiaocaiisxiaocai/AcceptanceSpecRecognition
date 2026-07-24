@@ -159,8 +159,7 @@ export const buildSmartFillExecuteRequest = ({
   allSelections,
   matchConfig,
   highConfidenceThreshold,
-  previewResults,
-  resolveFilterEmptySourceRows
+  previewResults
 }: {
   uploadedFileId?: number;
   scope: SmartFillScope;
@@ -169,9 +168,6 @@ export const buildSmartFillExecuteRequest = ({
   matchConfig: MatchConfig;
   highConfidenceThreshold: number;
   previewResults: BatchTablePreviewResult[];
-  resolveFilterEmptySourceRows: (tableConfig: {
-    filterEmptySourceRows?: boolean;
-  }) => boolean;
 }): BatchExecuteFillRequest | null => {
   const tables = selectedConfigs
     .map(config => {
@@ -189,7 +185,7 @@ export const buildSmartFillExecuteRequest = ({
         dataStartRow: config.dataStartRow,
         dataEndRow: config.dataEndRow,
         regions: config.regions,
-        filterEmptySourceRows: resolveFilterEmptySourceRows(config),
+        filterEmptySourceRows: true,
         mappings: selections.map(s => ({
           rowIndex: s.rowIndex,
           specId: s.specId,
@@ -214,7 +210,8 @@ export const buildSmartFillExecuteRequest = ({
     machineModelId: scope.machineModelId,
     config: {
       ...matchConfig,
-      highConfidenceThreshold
+      highConfidenceThreshold,
+      filterEmptySourceRows: true
     },
     previewTables: buildExecutionHistoryPreviewTables(
       previewResults,

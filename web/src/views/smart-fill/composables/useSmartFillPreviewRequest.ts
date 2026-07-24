@@ -23,9 +23,6 @@ type UseSmartFillPreviewRequestOptions = {
   getScope: () => SmartFillScope;
   stopLlmStream: () => void;
   startLlmStream: () => void;
-  getEffectiveFilterEmptySourceRows: (tableConfig: {
-    filterEmptySourceRows?: boolean;
-  }) => boolean;
   getPrePreviewBlockingMessage: () => string;
   resetPreviewState: () => void;
   markPreviewEmptyResults: () => void;
@@ -60,7 +57,6 @@ export function useSmartFillPreviewRequest({
   getScope,
   stopLlmStream,
   startLlmStream,
-  getEffectiveFilterEmptySourceRows,
   getPrePreviewBlockingMessage,
   resetPreviewState,
   markPreviewEmptyResults,
@@ -144,12 +140,12 @@ export function useSmartFillPreviewRequest({
           dataStartRow: t.dataStartRow,
           dataEndRow: t.dataEndRow,
           regions: t.regions,
-          filterEmptySourceRows: getEffectiveFilterEmptySourceRows(t)
+          filterEmptySourceRows: true
         })),
         customerId: scope.customerId,
         processId: scope.processId,
         machineModelId: scope.machineModelId,
-        config: matchConfig.value
+        config: { ...matchConfig.value, filterEmptySourceRows: true }
       };
       const doRequest = onSendPreview
         ? (data: typeof requestData, ctrl: AbortController) =>

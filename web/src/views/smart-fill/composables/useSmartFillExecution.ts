@@ -40,9 +40,6 @@ type UseSmartFillExecutionOptions = {
   canDownloadFillResult: ComputedRef<boolean>;
   batchPreviewTabsRef: Ref<SmartFillPreviewStepRef>;
   getScope: () => SmartFillScope;
-  getEffectiveFilterEmptySourceRows: (tableConfig: {
-    filterEmptySourceRows?: boolean;
-  }) => boolean;
   pendingExecuteRequest: Ref<BatchExecuteFillRequest | null>;
   selectedBackfillCandidates: ComputedRef<SmartFillBackfillCandidate[]>;
   closeBackfillDialog: () => void;
@@ -67,7 +64,6 @@ export function useSmartFillExecution({
   canDownloadFillResult,
   batchPreviewTabsRef,
   getScope,
-  getEffectiveFilterEmptySourceRows,
   pendingExecuteRequest,
   selectedBackfillCandidates,
   closeBackfillDialog,
@@ -165,8 +161,7 @@ export function useSmartFillExecution({
       allSelections: allSelections as Map<number, SmartFillSelection[]>,
       matchConfig: matchConfig.value,
       highConfidenceThreshold: getHighConfidenceThreshold(),
-      previewResults: batchPreviewResults.value,
-      resolveFilterEmptySourceRows: getEffectiveFilterEmptySourceRows
+      previewResults: batchPreviewResults.value
     });
     if (!request) return null;
 

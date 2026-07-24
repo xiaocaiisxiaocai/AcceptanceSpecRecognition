@@ -13,9 +13,13 @@ import {
   SMART_FILL_STEP_RECOGNITION_REVIEW,
   SMART_FILL_STEP_UPLOAD_SCOPE,
   shouldSelectSmartFillTableByDefault,
+  syncSmartFillDraftConfig,
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
-import type { SmartConfigRecognizedTable } from "@/api/smart-config";
+import type {
+  SmartConfigConfirmRequest,
+  SmartConfigRecognizedTable
+} from "@/api/smart-config";
 import type { TableInfo } from "@/api/document";
 
 const tableInfo = (index: number): TableInfo => ({
@@ -203,6 +207,101 @@ describe("smartFill.smartRecognition", () => {
       headerRowCount: 1,
       dataStartRow: 3
     });
+  });
+
+  it("补齐必填列的范围草稿应生成可手动勾选且默认未选中的填充配置", () => {
+    const source = recognizedTable({
+      decision: "NeedConfirm",
+      recommendation: "Optional",
+      acceptanceColumnIndex: undefined
+    });
+    const draft: SmartConfigConfirmRequest = {
+      customerId: 7,
+      fileId: 11,
+      tableIndex: 0,
+      headers: source.headers,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      dataEndRowIndex: 2,
+      isSpecificationOnly: false,
+      userModifiedStructure: true,
+      learnedColumns: [],
+      regions: [
+        {
+          regionId: "table-0-region-0",
+          regionIndex: 0,
+          headers: source.headers,
+          projectColumnIndex: 0,
+          specificationColumnIndex: 1,
+          acceptanceColumnIndex: 2,
+          remarkColumnIndex: 3,
+          headerRowIndex: 0,
+          headerRowCount: 1,
+          dataStartRowIndex: 1,
+          dataEndRowIndex: 2,
+          isSpecificationOnly: false
+        }
+      ]
+    };
+
+    const configs = syncSmartFillDraftConfig({
+      isExcelFile: true,
+      table: source,
+      tableInfos: [tableInfo(0)],
+      configs: [],
+      draft
+    });
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0]).toMatchObject({
+      tableIndex: 0,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      dataStartRow: 3,
+      dataEndRow: 4,
+      selected: false
+    });
+  });
+
+  it("未修改的 Reject 草稿不得生成可勾选配置", () => {
+    const source = recognizedTable({
+      decision: "Reject",
+      recommendation: "Skip",
+      skipReason: "后端判定不是业务表"
+    });
+    const draft: SmartConfigConfirmRequest = {
+      customerId: 7,
+      fileId: 11,
+      tableIndex: 0,
+      headers: source.headers,
+      projectColumnIndex: 0,
+      specificationColumnIndex: 1,
+      acceptanceColumnIndex: 2,
+      remarkColumnIndex: 3,
+      headerRowIndex: 0,
+      headerRowCount: 1,
+      dataStartRowIndex: 1,
+      isSpecificationOnly: false,
+      userModifiedStructure: false,
+      learnedColumns: []
+    };
+
+    expect(
+      syncSmartFillDraftConfig({
+        isExcelFile: true,
+        table: source,
+        tableInfos: [tableInfo(0)],
+        configs: [],
+        draft
+      })
+    ).toEqual([]);
   });
 
   it("只有识别确认页中的已选表全部无需确认时才允许进入匹配配置", () => {

@@ -24,6 +24,7 @@ const emit = defineEmits<{
       :file-id="uploadedFileId"
       :is-excel="isExcelFile"
       :tables="allTables"
+      :show-filter-empty-source-rows="false"
       @update:model-value="emit('update:batchTableConfigs', $event)"
     />
 

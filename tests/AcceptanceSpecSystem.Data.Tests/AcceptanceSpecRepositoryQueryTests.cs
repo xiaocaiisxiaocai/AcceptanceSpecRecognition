@@ -7,6 +7,59 @@ namespace AcceptanceSpecSystem.Data.Tests;
 public class AcceptanceSpecRepositoryQueryTests : TestBase
 {
     [Fact]
+    public async Task GetPagedWithFilterAsync_ShouldUseIdAsStableDescendingTieBreaker()
+    {
+        var repo = new AcceptanceSpecRepository(Context);
+        var customer = new Customer
+        {
+            Name = "稳定排序客户",
+            CreatedAt = DateTime.UtcNow
+        };
+        var wordFile = new WordFile
+        {
+            FileName = "stable-order.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = Array.Empty<byte>(),
+            UploadedAt = DateTime.UtcNow
+        };
+        Context.Customers.Add(customer);
+        Context.WordFiles.Add(wordFile);
+        await Context.SaveChangesAsync();
+
+        var importedAt = DateTime.UtcNow;
+        Context.AcceptanceSpecs.AddRange(
+            new AcceptanceSpec
+            {
+                Id = 100,
+                CustomerId = customer.Id,
+                Project = "较早主键",
+                Specification = "相同导入时间",
+                WordFileId = wordFile.Id,
+                ImportedAt = importedAt
+            },
+            new AcceptanceSpec
+            {
+                Id = 200,
+                CustomerId = customer.Id,
+                Project = "较晚主键",
+                Specification = "相同导入时间",
+                WordFileId = wordFile.Id,
+                ImportedAt = importedAt
+            });
+        await Context.SaveChangesAsync();
+
+        var result = await repo.GetPagedWithFilterAsync(new AcceptanceSpecQueryOptions
+        {
+            IsAll = true,
+            CustomerId = customer.Id,
+            Page = 1,
+            PageSize = 20
+        });
+
+        result.Items.Select(item => item.Id).Should().Equal(200, 100);
+    }
+
+    [Fact]
     public async Task GetPagedWithFilterAsync_ShouldApplyScopeKeywordAndPagination()
     {
         var repo = new AcceptanceSpecRepository(Context);

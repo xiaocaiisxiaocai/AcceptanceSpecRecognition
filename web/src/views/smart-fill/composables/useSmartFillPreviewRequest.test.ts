@@ -31,18 +31,21 @@ function createState(sendPreview: ReturnType<typeof vi.fn>) {
       {
         selected: true,
         tableIndex: 0,
-        regions: []
+        regions: [],
+        filterEmptySourceRows: false
       }
     ] as any),
     batchPreviewResults,
-    matchConfig: ref({ exactMatchOnly: true } as any),
+    matchConfig: ref({
+      exactMatchOnly: true,
+      filterEmptySourceRows: false
+    } as any),
     loading: ref(false),
     taskId: ref("existing-task"),
     lastDownloadFailed: ref(true),
     getScope: () => ({}),
     stopLlmStream: vi.fn(),
     startLlmStream: vi.fn(),
-    getEffectiveFilterEmptySourceRows: () => true,
     getPrePreviewBlockingMessage: () => "",
     resetPreviewState,
     markPreviewEmptyResults: vi.fn(),
@@ -101,5 +104,23 @@ describe("useSmartFillPreviewRequest", () => {
 
     expect(batchPreviewResults.value).toEqual(newResults);
     expect(clearPreviewDetail).toHaveBeenCalledOnce();
+  });
+
+  it("预览请求应强制过滤空白源行", async () => {
+    const sendPreview = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { tables: newResults, totalMatched: 1 }
+    });
+    const { state } = createState(sendPreview);
+
+    await state.doPreview();
+
+    expect(sendPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ filterEmptySourceRows: true }),
+        tables: [expect.objectContaining({ filterEmptySourceRows: true })]
+      }),
+      expect.any(AbortController)
+    );
   });
 });

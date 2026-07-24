@@ -7,6 +7,7 @@ import {
   createSmartStructureSummary,
   excelColumnLabelToNumber,
   findNearestSmartStructureHeaderRowIndex,
+  filterSmartStructureIssuesForRegions,
   formatDisplayIndexFromZeroBased,
   formatDisplayRowRange,
   getRecognizedTableInfo,
@@ -77,6 +78,43 @@ describe("sortSmartStructureTablesByIndex", () => {
       sortSmartStructureTablesByIndex(tables).map(item => item.tableIndex)
     ).toEqual([0, 1, 8, 10]);
     expect(tables.map(item => item.tableIndex)).toEqual([10, 1, 0, 8]);
+  });
+});
+
+describe("filterSmartStructureIssuesForRegions", () => {
+  it("用户补齐列映射后应移除对应旧缺列问题并保留其他问题", () => {
+    const issues = [
+      {
+        code: "MissingProjectColumn",
+        severity: "Warning" as const,
+        message: "缺少项目列"
+      },
+      {
+        code: "MissingAcceptanceColumn",
+        severity: "Warning" as const,
+        message: "缺少验收列"
+      },
+      {
+        code: "MissingRemarkColumn",
+        severity: "Info" as const,
+        message: "未识别备注列"
+      },
+      {
+        code: "RoutingRule.7",
+        severity: "Info" as const,
+        message: "业务路由提示"
+      }
+    ];
+
+    const filtered = filterSmartStructureIssuesForRegions(issues, [
+      {
+        ...table({}),
+        regionId: "table-0-region-0",
+        regionIndex: 0
+      }
+    ]);
+
+    expect(filtered).toEqual([issues[3]]);
   });
 });
 

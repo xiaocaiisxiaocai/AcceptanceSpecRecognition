@@ -1,10 +1,12 @@
 import type { TableInfo } from "@/api/document";
 import type {
+  SmartConfigConfirmRequest,
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import type { BatchTableConfigItem } from "./components/batchTableConfig.types";
 import {
+  applySmartConfigConfirmRequestToTable,
   getRecognizedTableInfo,
   toActualRowNumber
 } from "@/views/shared/smart-structure-recognition";
@@ -185,6 +187,49 @@ export const buildSmartFillConfigsFromRecognizedTables = ({
         mappingAutoDetected: true
       };
     });
+};
+
+export const syncSmartFillDraftConfig = ({
+  isExcelFile,
+  table,
+  tableInfos,
+  configs,
+  draft
+}: {
+  isExcelFile: boolean;
+  table: SmartConfigRecognizedTable;
+  tableInfos: TableInfo[];
+  configs: BatchTableConfigItem[];
+  draft: SmartConfigConfirmRequest | null;
+}): BatchTableConfigItem[] => {
+  const previous = configs.find(
+    config => config.tableIndex === table.tableIndex
+  );
+  const remaining = configs.filter(
+    config => config.tableIndex !== table.tableIndex
+  );
+  const canApplyDraft =
+    draft &&
+    (draft.userModifiedStructure ||
+      (table.decision !== "Reject" && table.recommendation !== "Skip"));
+  const effectiveTable = canApplyDraft
+    ? applySmartConfigConfirmRequestToTable(table, draft)
+    : table;
+  const [next] = buildSmartFillConfigsFromRecognizedTables({
+    isExcelFile,
+    tables: [effectiveTable],
+    tableInfos
+  });
+
+  if (!next) return remaining.sort((a, b) => a.tableIndex - b.tableIndex);
+
+  return [
+    ...remaining,
+    {
+      ...next,
+      selected: previous?.selected ?? false
+    }
+  ].sort((a, b) => a.tableIndex - b.tableIndex);
 };
 
 /** 将高级配置回写到识别结构，确保摘要、确认学习与实际预览共用一份区域真相。 */

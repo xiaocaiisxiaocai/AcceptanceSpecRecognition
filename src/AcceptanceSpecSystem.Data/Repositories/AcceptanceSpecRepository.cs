@@ -138,6 +138,7 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
         var total = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(s => s.ImportedAt)
+            .ThenByDescending(s => s.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);

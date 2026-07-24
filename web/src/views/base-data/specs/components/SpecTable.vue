@@ -45,6 +45,7 @@ const tableData = ref<AcceptanceSpec[]>([]);
 const loading = ref(false);
 const total = ref(0);
 const selectedRows = ref<AcceptanceSpec[]>([]);
+let latestLoadRequestId = 0;
 
 const queryParams = reactive({
   page: 1,
@@ -163,9 +164,11 @@ const buildGroupRequestParams = (): SpecListRequest => {
 };
 
 const loadData = async () => {
+  const requestId = ++latestLoadRequestId;
   loading.value = true;
   try {
     const res = await getSpecList(buildRequestParams());
+    if (requestId !== latestLoadRequestId) return;
     if (res.code === 0) {
       tableData.value = res.data.items;
       total.value = res.data.total;
@@ -173,9 +176,12 @@ const loadData = async () => {
       ElMessage.error(res.message);
     }
   } catch {
+    if (requestId !== latestLoadRequestId) return;
     ElMessage.error("加载数据失败");
   } finally {
-    loading.value = false;
+    if (requestId === latestLoadRequestId) {
+      loading.value = false;
+    }
   }
 };
 
@@ -452,15 +458,34 @@ const groupLabel = () => {
   parts.push(props.processName || "未指定制程");
   return parts.join(" / ");
 };
+
+const scopeBreadcrumbItems = computed(() =>
+  queryParams.globalSearch
+    ? ["验收规格", "全局搜索"]
+    : [
+        props.customerName || "未选择客户",
+        props.machineModelName || "未指定机型",
+        props.processName || "未指定制程"
+      ]
+);
 </script>
 
 <template>
   <div class="spec-table">
-    <div class="group-label">
-      <el-tag type="info" size="large" effect="plain">
-        {{ queryParams.globalSearch ? "全局搜索" : groupLabel() }}
-      </el-tag>
-    </div>
+    <nav class="scope-breadcrumb" aria-label="当前验收规格范围">
+      <el-breadcrumb separator="/">
+        <el-breadcrumb-item
+          v-for="(item, index) in scopeBreadcrumbItems"
+          :key="`${index}-${item}`"
+        >
+          <span
+            :class="{ 'is-current': index === scopeBreadcrumbItems.length - 1 }"
+          >
+            {{ item }}
+          </span>
+        </el-breadcrumb-item>
+      </el-breadcrumb>
+    </nav>
 
     <div class="toolbar">
       <div class="toolbar-left">
@@ -511,56 +536,10 @@ const groupLabel = () => {
         @selection-change="handleSelectionChange"
       >
         <el-table-column v-if="canBatchDelete" type="selection" width="50" />
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column
-          v-if="queryParams.globalSearch"
-          prop="customerName"
-          label="客户"
-          min-width="160"
-          show-overflow-tooltip
-        >
-          <template #default="{ row }">
-            <span class="line-clamp-1" :title="row.customerName">{{
-              row.customerName
-            }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="queryParams.globalSearch"
-          prop="machineModelName"
-          label="机型"
-          min-width="120"
-        >
-          <template #default="{ row }">
-            <span
-              v-if="row.machineModelName"
-              class="line-clamp-1"
-              :title="row.machineModelName"
-              >{{ row.machineModelName }}</span
-            >
-            <span v-else class="text-gray-400">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          v-if="queryParams.globalSearch"
-          prop="processName"
-          label="制程"
-          min-width="120"
-        >
-          <template #default="{ row }">
-            <span
-              v-if="row.processName"
-              class="line-clamp-1"
-              :title="row.processName"
-              >{{ row.processName }}</span
-            >
-            <span v-else class="text-gray-400">-</span>
-          </template>
-        </el-table-column>
         <el-table-column
           prop="project"
           label="项目"
-          min-width="180"
+          width="140"
           show-overflow-tooltip
         >
           <template #default="{ row }">
@@ -569,16 +548,11 @@ const groupLabel = () => {
             }}</span>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="specification"
-          label="规格内容"
-          min-width="260"
-          show-overflow-tooltip
-        >
+        <el-table-column prop="specification" label="规格内容" min-width="260">
           <template #default="{ row }">
-            <span class="line-clamp-1" :title="row.specification">{{
-              row.specification
-            }}</span>
+            <div class="specification-multiline" :title="row.specification">
+              {{ row.specification }}
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="acceptance" label="验收标准" min-width="150">
@@ -630,7 +604,7 @@ const groupLabel = () => {
       <el-pagination
         v-model:current-page="queryParams.page"
         v-model:page-size="queryParams.pageSize"
-        :page-sizes="[100, 200, 500, 1000]"
+        :page-sizes="[100, 200, 500]"
         :total="total"
         layout="total, sizes, prev, pager, next, jumper"
         @size-change="handleSizeChange"
@@ -763,8 +737,22 @@ const groupLabel = () => {
   min-height: 0;
 }
 
-.group-label {
+.scope-breadcrumb {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 2px;
   margin-bottom: 4px;
+}
+
+.scope-breadcrumb :deep(.el-breadcrumb__inner) {
+  font-weight: 400;
+  color: var(--app-text-secondary);
+}
+
+.scope-breadcrumb .is-current {
+  font-weight: 600;
+  color: var(--app-text-primary);
 }
 
 .toolbar {
@@ -799,5 +787,11 @@ const groupLabel = () => {
   overflow: hidden;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+}
+
+.specification-multiline {
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 </style>

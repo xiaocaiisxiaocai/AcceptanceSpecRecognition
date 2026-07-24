@@ -224,7 +224,14 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
-            entity.HasIndex(e => new { e.CustomerId, e.ProcessId, e.MachineModelId });
+            entity.HasIndex(e => new
+            {
+                e.CustomerId,
+                e.ProcessId,
+                e.MachineModelId,
+                e.ImportedAt,
+                e.Id
+            });
             entity.HasIndex(e => e.ImportedAt);
             entity.HasIndex(e => e.WordFileId);
             entity.HasIndex(e => e.OwnerOrgUnitId);

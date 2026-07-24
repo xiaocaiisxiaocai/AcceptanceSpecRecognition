@@ -17,7 +17,6 @@ import {
   defaultMatchConfig
 } from "@/api/matching";
 import type { AiServiceSelection } from "@/api/ai-service";
-import { getDistinctAiServiceModel } from "@/views/shared/ai-service-display";
 import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
 import {
   getRuntimeAiPurposeResult,
@@ -25,10 +24,7 @@ import {
   waitForRuntimeAiSelection,
   type RuntimeAiSelectionRefreshResult
 } from "@/utils/runtime-ai-selection-loader";
-import {
-  getRuntimeAiSelectionStatusText,
-  isRuntimeAiSelectionAvailable
-} from "@/utils/runtime-ai-selection";
+import { isRuntimeAiSelectionAvailable } from "@/utils/runtime-ai-selection";
 import { applyMatchConfigRuntimeAiSelections } from "./match-config-ai-selection";
 
 const props = defineProps<{
@@ -55,21 +51,6 @@ const hasAvailableEmbeddingService = computed(() =>
 );
 const hasAvailableLlmService = computed(() =>
   isRuntimeAiSelectionAvailable(llmSelection.value)
-);
-const embeddingServiceModel = computed(() =>
-  getDistinctAiServiceModel(
-    embeddingSelection.value.name,
-    embeddingSelection.value.model
-  )
-);
-const llmServiceModel = computed(() =>
-  getDistinctAiServiceModel(llmSelection.value.name, llmSelection.value.model)
-);
-const embeddingStatusText = computed(() =>
-  getRuntimeAiSelectionStatusText(embeddingSelection.value, "Embedding")
-);
-const llmStatusText = computed(() =>
-  getRuntimeAiSelectionStatusText(llmSelection.value, "LLM")
 );
 const matchingModeOptions: Array<{
   label: string;
@@ -167,7 +148,11 @@ watch(
   () => props.modelValue,
   val => {
     if (isInternalUpdate) return;
-    const source = { ...defaultMatchConfig, ...val };
+    const source = {
+      ...defaultMatchConfig,
+      ...val,
+      filterEmptySourceRows: true
+    };
     for (const key of matchConfigSyncKeys) {
       syncMatchConfigField(key, source);
     }
@@ -356,66 +341,6 @@ defineExpose({
             />
           </div>
         </el-form-item>
-        <el-form-item label="Embedding 服务">
-          <div
-            v-if="hasAvailableEmbeddingService"
-            class="automatic-service"
-            role="status"
-            aria-live="polite"
-          >
-            <span>自动使用</span>
-            <strong>{{ embeddingSelection.name }}</strong>
-            <small v-if="embeddingServiceModel">
-              {{ embeddingServiceModel }}
-            </small>
-          </div>
-          <el-alert
-            v-else
-            :type="
-              loadingAiServices || embeddingSelection.status === 'checking'
-                ? 'info'
-                : 'warning'
-            "
-            :closable="false"
-            show-icon
-            :title="embeddingStatusText"
-            :description="
-              config.exactMatchOnly
-                ? '当前已开启仅精确匹配，可继续预览完全一致命中；如需语义召回，请启用 Embedding 服务。'
-                : '运行状态确认可用前不能执行语义匹配；请稍后重试，或开启上方仅精确匹配。'
-            "
-            class="service-status-alert"
-          />
-        </el-form-item>
-        <el-form-item label="LLM 服务">
-          <div
-            v-if="allowLlm && hasAvailableLlmService"
-            class="automatic-service"
-            role="status"
-            aria-live="polite"
-          >
-            <span>自动使用</span>
-            <strong>{{ llmSelection.name }}</strong>
-            <small v-if="llmServiceModel">{{ llmServiceModel }}</small>
-          </div>
-          <el-alert
-            v-else-if="allowLlm"
-            type="info"
-            :closable="false"
-            show-icon
-            :title="llmStatusText"
-            description="当前仍可执行 Embedding 召回和证据重排；仅在 LLM 运行状态确认可用后启用 AI 复核。"
-            class="service-status-alert"
-          />
-          <el-alert
-            v-else
-            type="info"
-            :closable="false"
-            show-icon
-            title="当前账号没有 LLM 复核权限"
-            class="service-status-alert"
-          />
-        </el-form-item>
         <el-row :gutter="20">
           <el-col :xs="24" :md="12">
             <el-form-item label="匹配链路">
@@ -447,18 +372,6 @@ defineExpose({
                     item => item.value === config.matchingMode
                   )?.hint ?? "保持现有匹配方式"
                 }}
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item label="过滤空行">
-              <el-switch
-                v-model="config.filterEmptySourceRows"
-                active-text="开启"
-                inactive-text="关闭"
-              />
-              <div class="form-inline-tip">
-                关闭后会保留项目列和规格列都为空的行
               </div>
             </el-form-item>
           </el-col>
@@ -976,34 +889,6 @@ export default {
 
 .service-status-alert {
   margin-top: 12px;
-}
-
-.automatic-service {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  width: 100%;
-  max-width: 400px;
-  min-height: 40px;
-  padding: 8px 11px;
-  background: var(--el-fill-color-extra-light);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-}
-
-.automatic-service span,
-.automatic-service small {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-}
-
-.automatic-service strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 13px;
-  color: var(--app-text-primary);
-  white-space: nowrap;
 }
 
 .exact-match-option {

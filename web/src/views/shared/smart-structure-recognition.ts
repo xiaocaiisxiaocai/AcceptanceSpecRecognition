@@ -4,6 +4,7 @@ import type {
   SmartConfigDecision,
   SmartConfigRecommendation,
   SmartConfigRecognizedField,
+  SmartConfigRecognitionIssue,
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
@@ -24,6 +25,33 @@ export type SmartStructureSummary = {
 };
 
 type ElementPlusTagType = "success" | "warning" | "danger" | "info";
+
+export const filterSmartStructureIssuesForRegions = (
+  issues: SmartConfigRecognitionIssue[],
+  regions: SmartConfigRecognizedRegion[]
+) => {
+  if (regions.length === 0) return issues;
+
+  const resolvedCodes = new Set<string>();
+  if (
+    regions.every(
+      region => region.isSpecificationOnly || region.projectColumnIndex != null
+    )
+  ) {
+    resolvedCodes.add("MissingProjectColumn");
+  }
+  if (regions.every(region => region.specificationColumnIndex != null)) {
+    resolvedCodes.add("MissingSpecificationColumn");
+  }
+  if (regions.every(region => region.acceptanceColumnIndex != null)) {
+    resolvedCodes.add("MissingAcceptanceColumn");
+  }
+  if (regions.every(region => region.remarkColumnIndex != null)) {
+    resolvedCodes.add("MissingRemarkColumn");
+  }
+
+  return issues.filter(issue => !resolvedCodes.has(issue.code));
+};
 
 export type SmartStructureDisplayGroup = {
   key: "recommended" | "needConfirm" | "skip";

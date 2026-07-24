@@ -66,6 +66,7 @@ import {
   SMART_FILL_STEP_PREVIEW,
   SMART_FILL_STEP_RECOGNITION_REVIEW,
   SMART_FILL_STEP_UPLOAD_SCOPE,
+  syncSmartFillDraftConfig,
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
 import { runSmartFillConfirmSelection } from "./smartFill.confirmSelection";
@@ -158,13 +159,6 @@ const {
   startPreviewProgressPolling,
   markPreviewProgressCompleted
 } = useSmartFillPreviewProgress({ selectedTableCount });
-
-const getEffectiveFilterEmptySourceRows = (tableConfig: {
-  filterEmptySourceRows?: boolean;
-}) =>
-  tableConfig.filterEmptySourceRows ??
-  matchConfig.value.filterEmptySourceRows ??
-  true;
 
 // 详情弹窗
 const detailVisible = ref(false);
@@ -414,7 +408,6 @@ const {
   canDownloadFillResult,
   batchPreviewTabsRef,
   getScope: getCurrentScope,
-  getEffectiveFilterEmptySourceRows,
   pendingExecuteRequest,
   selectedBackfillCandidates,
   closeBackfillDialog,
@@ -447,7 +440,6 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
     getScope: getCurrentScope,
     stopLlmStream,
     startLlmStream,
-    getEffectiveFilterEmptySourceRows,
     getPrePreviewBlockingMessage,
     resetPreviewState,
     markPreviewEmptyResults,
@@ -789,6 +781,13 @@ const handleSmartStructureDraftChange = (
     ...smartConfirmDrafts.value,
     [table.tableIndex]: request
   };
+  batchTableConfigs.value = syncSmartFillDraftConfig({
+    isExcelFile: isExcelFile.value,
+    table,
+    tableInfos: allTables.value,
+    configs: batchTableConfigs.value,
+    draft: request
+  });
 };
 
 const executeSelectedSmartStructureConfirmation = async () => {

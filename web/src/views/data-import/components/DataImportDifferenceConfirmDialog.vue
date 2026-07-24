@@ -296,3 +296,5 @@ const emit = defineEmits<{
     </template>
   </DataImportDifferenceDialog>
 </template>
+
+<style scoped src="./DataImportDifferenceConfirmDialog.styles.css"></style>
