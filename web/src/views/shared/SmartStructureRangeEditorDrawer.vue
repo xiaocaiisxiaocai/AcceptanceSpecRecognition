@@ -772,22 +772,15 @@ const saveRanges = async () => {
 <template>
   <el-drawer
     v-model="visible"
+    class="smart-structure-range-drawer"
     title="调整识别范围"
     size="min(760px, 94vw)"
     append-to-body
     destroy-on-close
   >
-    <div class="range-editor-intro">
-      <strong>
-        {{ isExcelFile ? "直接修改 Excel 范围" : "按表格中的真实行号调整" }}
-      </strong>
-      <span>
-        {{
-          isExcelFile
-            ? "输入单列 A1 范围，例如 C9:C112；同一区域的起止行需一致。"
-            : "修改后下方行列范围会同步变化；区域之间不能重叠。"
-        }}
-      </span>
+    <div v-if="!isExcelFile" class="range-editor-intro">
+      <strong>按表格中的真实行号调整</strong>
+      <span> 修改后下方行列范围会同步变化；区域之间不能重叠。 </span>
     </div>
 
     <div class="region-editor-list">
@@ -1091,6 +1084,15 @@ const saveRanges = async () => {
 </template>
 
 <style scoped>
+:global(.smart-structure-range-drawer .el-drawer__header) {
+  padding: 10px 16px;
+  margin-bottom: 0;
+}
+
+:global(.smart-structure-range-drawer .el-drawer__body) {
+  padding-top: 8px;
+}
+
 .range-editor-intro {
   display: flex;
   flex-direction: column;

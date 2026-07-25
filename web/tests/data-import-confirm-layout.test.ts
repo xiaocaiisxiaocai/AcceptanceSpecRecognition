@@ -675,7 +675,6 @@ test("范围抽屉保存期间取消后不得提交旧保存请求", () => {
 });
 
 test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映射", () => {
-  assert.match(rangeEditorSource, /直接修改 Excel 范围/);
   assert.match(rangeEditorSource, /v-model="draft\.projectRange"/);
   assert.match(rangeEditorSource, /v-model="draft\.specificationRange"/);
   assert.match(rangeEditorSource, /v-model="draft\.acceptanceRange"/);
@@ -718,6 +717,22 @@ test("Excel 范围抽屉应把每个区域精简为单行四范围编辑器", ()
   assert.match(rangeEditorSource, /aria-label="验收范围"/);
   assert.match(rangeEditorSource, /aria-label="备注范围"/);
   assert.doesNotMatch(rangeEditorSource, /class="excel-range-context"/);
+});
+
+test("Excel 范围抽屉应隐藏说明并压缩顶部标题栏", () => {
+  assert.match(
+    rangeEditorSource,
+    /v-if="!isExcelFile"\s+class="range-editor-intro"/
+  );
+  assert.match(rangeEditorSource, /class="smart-structure-range-drawer"/);
+  assert.match(
+    rangeEditorSource,
+    /smart-structure-range-drawer \.el-drawer__header[\s\S]*margin-bottom:\s*0/
+  );
+  assert.match(
+    rangeEditorSource,
+    /smart-structure-range-drawer \.el-drawer__body[\s\S]*padding-top:\s*8px/
+  );
 });
 
 test("智能确认卡应保留 A1 范围并移除重复高级行列表单", () => {
