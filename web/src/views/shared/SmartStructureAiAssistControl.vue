@@ -9,13 +9,14 @@ import {
   watch
 } from "vue";
 import { useRouter } from "vue-router";
-import {
-  getAiServiceSelection,
-  type AiServiceSelection
-} from "@/api/ai-service";
+import type { AiServiceSelection } from "@/api/ai-service";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import { hasPerms } from "@/utils/auth";
 import { createAiSelectionRetryController } from "@/utils/ai-selection-retry";
+import {
+  getRuntimeAiPurposeResult,
+  loadRuntimeAiSelectionsSettled
+} from "@/utils/runtime-ai-selection-loader";
 import { getDistinctAiServiceModel } from "./ai-service-display";
 import { resolveAiAssistSelectionState } from "./ai-selection-state";
 
@@ -30,37 +31,53 @@ const emit = defineEmits<{
 }>();
 
 const router = useRouter();
-const selection = ref<AiServiceSelection>({ status: "checking" });
+const llmSelection = ref<AiServiceSelection>({ status: "checking" });
+const embeddingSelection = ref<AiServiceSelection>({ status: "checking" });
 const loading = ref(true);
-const loadError = ref("");
 let requestController: AbortController | undefined;
 let lastLoadStartedAt = 0;
 const hasServices = computed(
   () =>
-    selection.value.status === "available" && selection.value.serviceId != null
+    llmSelection.value.status === "available" &&
+    llmSelection.value.serviceId != null &&
+    embeddingSelection.value.status === "available" &&
+    embeddingSelection.value.serviceId != null
 );
-const selectedService = computed(() =>
-  selection.value.status === "available" ? selection.value : undefined
+const llmServiceModel = computed(() =>
+  getDistinctAiServiceModel(llmSelection.value.name, llmSelection.value.model)
 );
-const selectedServiceModel = computed(() =>
+const embeddingServiceModel = computed(() =>
   getDistinctAiServiceModel(
-    selectedService.value?.name,
-    selectedService.value?.model
+    embeddingSelection.value.name,
+    embeddingSelection.value.model
   )
 );
 const canConfigureAiServices = computed(() =>
   hasPerms("page:config:ai-services")
 );
-const unavailableTitle = computed(() => {
-  if (selection.value.status === "checking") {
-    return loadError.value
-      ? `${loadError.value}，正在重试；完成前仍可使用规则识别`
-      : "正在检测 LLM 服务可用性；完成前仍可使用规则识别";
+
+const getUnavailableStatusText = (
+  selection: AiServiceSelection,
+  label: "LLM" | "Embedding"
+) => {
+  if (selection.status === "available" && selection.serviceId != null) {
+    return "";
   }
-  if (selection.value.message) return selection.value.message;
-  return canConfigureAiServices.value
-    ? "当前没有可用的 LLM 服务，请先完成 AI 服务配置"
-    : "当前没有可用的 LLM 服务，已使用规则识别；请联系管理员配置";
+  if (selection.message) return selection.message;
+  return selection.status === "checking"
+    ? `正在检测 ${label} 服务可用性`
+    : `当前没有可用的 ${label} 服务`;
+};
+
+const unavailableTitle = computed(() => {
+  const statuses = [
+    getUnavailableStatusText(llmSelection.value, "LLM"),
+    getUnavailableStatusText(embeddingSelection.value, "Embedding")
+  ].filter(Boolean);
+  const action = canConfigureAiServices.value
+    ? "请完成 AI 服务配置或重新检测"
+    : "已使用规则识别；请联系管理员配置";
+  return `${statuses.join("；")}；${action}`;
 });
 
 const goToAiServices = () => router.push("/config/ai-services");
@@ -74,25 +91,30 @@ const loadServices = async (resetRetry = true) => {
   const controller = new AbortController();
   requestController = controller;
   loading.value = true;
-  loadError.value = "";
   try {
-    const response = await getAiServiceSelection("llm", controller.signal);
+    const results = await loadRuntimeAiSelectionsSettled(
+      ["embedding", "llm"],
+      controller.signal
+    );
     if (requestController !== controller) return;
-    if (response.code !== 0) {
-      const unavailableSelection: AiServiceSelection = {
-        status: "unavailable",
-        message: response.message || "LLM 服务当前不可用"
-      };
-      selection.value = unavailableSelection;
-      aiSelectionRetry.schedule([unavailableSelection]);
-      emit("update:serviceId", undefined);
-      if (props.enabled) emit("update:enabled", false);
+
+    const llmResult = getRuntimeAiPurposeResult(results, "llm");
+    const embeddingResult = getRuntimeAiPurposeResult(results, "embedding");
+    if (!llmResult || !embeddingResult) return;
+    if (
+      llmResult.kind === "cancelled" ||
+      embeddingResult.kind === "cancelled"
+    ) {
       return;
     }
 
-    selection.value = response.data;
-    aiSelectionRetry.schedule([response.data]);
-    const next = resolveAiAssistSelectionState(response.data);
+    llmSelection.value = llmResult.selection;
+    embeddingSelection.value = embeddingResult.selection;
+    aiSelectionRetry.schedule([llmSelection.value, embeddingSelection.value]);
+    const next = resolveAiAssistSelectionState(
+      llmSelection.value,
+      embeddingSelection.value
+    );
     if (props.enabled !== next.enabled) emit("update:enabled", next.enabled);
     if (props.serviceId !== next.serviceId) {
       emit("update:serviceId", next.serviceId);
@@ -104,9 +126,12 @@ const loadServices = async (resetRetry = true) => {
     ) {
       return;
     }
-    selection.value = { status: "checking" };
-    loadError.value = getRequestErrorMessage(error, "加载 LLM 服务失败");
-    aiSelectionRetry.schedule([selection.value]);
+    const message = getRequestErrorMessage(error, "加载 AI 服务失败");
+    llmSelection.value = { status: "checking", message };
+    embeddingSelection.value = { status: "checking", message };
+    aiSelectionRetry.schedule([llmSelection.value, embeddingSelection.value]);
+    if (props.enabled) emit("update:enabled", false);
+    if (props.serviceId != null) emit("update:serviceId", undefined);
   } finally {
     if (requestController === controller) loading.value = false;
   }
@@ -127,9 +152,10 @@ watch([() => props.enabled, () => props.serviceId], ([enabled, serviceId]) => {
   if (
     enabled &&
     serviceId == null &&
-    selectedService.value?.serviceId != null
+    hasServices.value &&
+    llmSelection.value.serviceId != null
   ) {
-    emit("update:serviceId", selectedService.value.serviceId);
+    emit("update:serviceId", llmSelection.value.serviceId);
   }
 });
 
@@ -161,20 +187,40 @@ onBeforeUnmount(stopPendingSelection);
     </div>
 
     <div
-      v-if="enabled && selectedService"
+      v-if="enabled && hasServices"
       class="structure-ai-service"
       role="status"
     >
       <span class="structure-ai-service-label">自动使用</span>
-      <span class="structure-ai-service-name">{{ selectedService.name }}</span>
-      <span v-if="selectedServiceModel" class="structure-ai-service-model">
-        {{ selectedServiceModel }}
-      </span>
+      <div class="structure-ai-service-list">
+        <div class="structure-ai-service-row">
+          <span class="structure-ai-purpose">LLM</span>
+          <span class="structure-ai-service-name">{{ llmSelection.name }}</span>
+          <span v-if="llmServiceModel" class="structure-ai-service-model">
+            {{ llmServiceModel }}
+          </span>
+        </div>
+        <div class="structure-ai-service-row">
+          <span class="structure-ai-purpose">Embedding</span>
+          <span class="structure-ai-service-name">
+            {{ embeddingSelection.name }}
+          </span>
+          <span v-if="embeddingServiceModel" class="structure-ai-service-model">
+            {{ embeddingServiceModel }}
+          </span>
+        </div>
+      </div>
     </div>
 
     <div v-if="!hasServices" class="structure-ai-unavailable">
       <el-alert
-        :type="selection.status === 'checking' || loading ? 'info' : 'warning'"
+        :type="
+          llmSelection.status === 'checking' ||
+          embeddingSelection.status === 'checking' ||
+          loading
+            ? 'info'
+            : 'warning'
+        "
         :closable="false"
         :title="unavailableTitle"
         class="structure-ai-alert"
@@ -229,12 +275,29 @@ onBeforeUnmount(stopPendingSelection);
 .structure-ai-service {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   margin-top: 12px;
   font-size: 13px;
 }
 
 .structure-ai-service-label {
+  padding-top: 2px;
+  color: var(--el-text-color-secondary);
+}
+
+.structure-ai-service-list {
+  display: grid;
+  gap: 6px;
+}
+
+.structure-ai-service-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.structure-ai-purpose {
+  min-width: 72px;
   color: var(--el-text-color-secondary);
 }
 

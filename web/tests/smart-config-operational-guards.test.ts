@@ -39,7 +39,7 @@ test("智能识别读取表格列表后应回写上传文件表格状态", () =>
   assert.match(source, /tableCount:\s*tables\.length/);
 });
 
-test("两个智能结构识别入口应默认启用并自动采用首个可用 LLM", () => {
+test("两个智能结构识别入口应仅在 LLM 与 Embedding 均可用时自动启用", () => {
   const dataImportSource = readProjectFile(
     "web/src/views/data-import/composables/useDataImportPage.ts"
   );
@@ -53,10 +53,13 @@ test("两个智能结构识别入口应默认启用并自动采用首个可用 L
 
   assert.match(dataImportSource, /enableStructureLlmAssistance = ref\(true\)/);
   assert.match(smartFillSource, /enableStructureLlmAssistance = ref\(true\)/);
-  assert.match(controlSource, /getAiServiceSelection\("llm"/);
   assert.match(
     controlSource,
-    /resolveAiAssistSelectionState\(response\.data\)/
+    /loadRuntimeAiSelectionsSettled\(\s*\["embedding",\s*"llm"\]/
+  );
+  assert.match(
+    controlSource,
+    /resolveAiAssistSelectionState\(\s*llmSelection\.value,\s*embeddingSelection\.value\s*\)/
   );
   assert.match(controlSource, /emit\("update:enabled", next\.enabled\)/);
   assert.match(controlSource, /emit\("update:serviceId", next\.serviceId\)/);
@@ -80,7 +83,10 @@ test("两个智能结构识别入口应默认启用并自动采用首个可用 L
   assert.match(controlSource, /关闭后仍可识别，确认后仍会学习/);
   assert.doesNotMatch(controlSource, /AI 增强结构识别/);
   assert.match(controlSource, /自动使用/);
-  assert.match(controlSource, /v-if="selectedServiceModel"/);
+  assert.match(controlSource, />LLM</);
+  assert.match(controlSource, />Embedding</);
+  assert.match(controlSource, /llmServiceModel/);
+  assert.match(controlSource, /embeddingServiceModel/);
   assert.match(controlSource, /\/config\/ai-services/);
   assert.match(controlSource, /去配置 AI 服务/);
   assert.doesNotMatch(smartFillSource, /请先选择一个可用的 LLM 服务/);

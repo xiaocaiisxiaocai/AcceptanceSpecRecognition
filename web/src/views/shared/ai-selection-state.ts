@@ -1,4 +1,5 @@
 import type { AiServiceSelection } from "@/api/ai-service";
+import { isRuntimeAiSelectionAvailable } from "@/utils/runtime-ai-selection";
 
 export interface AiAssistSelectionState {
   enabled: boolean;
@@ -9,13 +10,10 @@ export const resolveAiAssistSelectionState = (
   llmSelection: AiServiceSelection,
   embeddingSelection: AiServiceSelection
 ): AiAssistSelectionState => {
-  const llmReady =
-    llmSelection.status === "available" && llmSelection.serviceId != null;
-  const embeddingReady =
-    embeddingSelection.status === "available" &&
-    embeddingSelection.serviceId != null;
-
-  if (!llmReady || !embeddingReady) {
+  if (
+    !isRuntimeAiSelectionAvailable(llmSelection) ||
+    !isRuntimeAiSelectionAvailable(embeddingSelection)
+  ) {
     return { enabled: false, serviceId: undefined };
   }
 
