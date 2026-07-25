@@ -277,6 +277,38 @@ test("智能结构确认卡片应把项目列放在规格列之前", () => {
   assert.ok(projectIndex < specificationIndex, "项目列必须位于规格列之前");
 });
 
+test("智能结构确认卡片的字段范围应在桌面端四列单行展示", () => {
+  assert.match(
+    confirmCardSource,
+    /\.range-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/
+  );
+  assert.doesNotMatch(
+    confirmCardSource,
+    /\.range-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2/
+  );
+});
+
+test("智能结构确认卡片应在纵向区间端点显示完整动态坐标", () => {
+  assert.match(
+    confirmCardSource,
+    /column:\s*formatColumnCoordinate\(columnIndex\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.startRow\s*\}\}/
+  );
+  assert.match(confirmCardSource, /class="range-interval-line"/);
+  assert.match(
+    confirmCardSource,
+    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.endRow\s*\}\}/
+  );
+  assert.doesNotMatch(confirmCardSource, /field\.columnLabel/);
+  assert.doesNotMatch(
+    confirmCardSource,
+    /<code v-for="range in field\.ranges"/
+  );
+});
+
 test("确认卡应移除冗余表头标签，并按区域分别展示字段映射", () => {
   assert.doesNotMatch(confirmCardSource, /card-summary-strip/);
   assert.match(confirmCardSource, /const showRecognitionEvidence = computed/);

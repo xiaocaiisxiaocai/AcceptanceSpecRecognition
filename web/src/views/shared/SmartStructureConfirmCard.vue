@@ -139,12 +139,12 @@ const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
   }));
 };
 
-const formatColumnRange = (
+const buildColumnRangeSummary = (
   columnIndex: number | null | undefined,
   startRowIndex: number,
   endRowIndex: number | null | undefined
 ) => {
-  if (columnIndex == null) return "-";
+  if (columnIndex == null) return null;
   const startRow = (props.tableInfo?.usedRangeStartRow ?? 1) + startRowIndex;
   const resolvedEndRowIndex = resolveSmartStructureRegionEndRowIndex(
     { dataStartRowIndex: startRowIndex, dataEndRowIndex: endRowIndex },
@@ -152,13 +152,11 @@ const formatColumnRange = (
   );
   const endRow =
     (props.tableInfo?.usedRangeStartRow ?? 1) + resolvedEndRowIndex;
-  if (!props.isExcelFile) {
-    return `第 ${columnIndex + 1} 列（第 ${startRow}–${endRow} 行）`;
-  }
-  const column = toExcelColumnLabel(
-    (props.tableInfo?.usedRangeStartColumn ?? 1) + columnIndex
-  );
-  return `${column}${startRow}:${column}${endRow}`;
+  return {
+    column: formatColumnCoordinate(columnIndex),
+    startRow,
+    endRow
+  };
 };
 
 const rangeSummaryFields = computed(() =>
@@ -167,23 +165,27 @@ const rangeSummaryFields = computed(() =>
     { label: "规格列", key: "specificationColumnIndex" },
     { label: "验收列", key: "acceptanceColumnIndex" },
     { label: "备注列", key: "remarkColumnIndex" }
-  ].map(field => ({
-    label: field.label,
-    ranges: activeRegions.value
-      .map(region =>
-        formatColumnRange(
+  ].map(field => {
+    const ranges = activeRegions.value
+      .map((region, regionIndex) => {
+        const range = buildColumnRangeSummary(
           region[field.key as keyof typeof region] as number | null | undefined,
           region.dataStartRowIndex,
           region.dataEndRowIndex
-        )
-      )
-      .filter(range => range !== "-"),
-    emptyText:
-      field.key === "projectColumnIndex" &&
-      activeRegions.value.every(region => region.isSpecificationOnly)
-        ? "仅规格表"
-        : "未识别"
-  }))
+        );
+        return range ? { ...range, key: `${field.key}-${regionIndex}` } : null;
+      })
+      .filter(range => range !== null);
+    return {
+      label: field.label,
+      ranges,
+      emptyText:
+        field.key === "projectColumnIndex" &&
+        activeRegions.value.every(region => region.isSpecificationOnly)
+          ? "仅规格表"
+          : "未识别"
+    };
+  })
 );
 
 const regionSummaryItems = computed(() =>
@@ -595,7 +597,20 @@ const emitConfirm = () => {
         >
           <span class="range-label">{{ field.label }}</span>
           <div class="range-values">
-            <code v-for="range in field.ranges" :key="range">{{ range }}</code>
+            <div
+              v-for="range in field.ranges"
+              :key="range.key"
+              class="range-interval"
+              :aria-label="`${range.column}${range.startRow} 到 ${range.column}${range.endRow}`"
+            >
+              <span class="range-interval-value"
+                >{{ range.column }}{{ range.startRow }}</span
+              >
+              <span class="range-interval-line" aria-hidden="true" />
+              <span class="range-interval-value"
+                >{{ range.column }}{{ range.endRow }}</span
+              >
+            </div>
             <span v-if="field.ranges.length === 0" class="range-empty">{{
               field.emptyText
             }}</span>
@@ -843,11 +858,11 @@ const emitConfirm = () => {
   color: var(--app-text-secondary);
 }
 
-.region-header-ranges,
-.range-values {
+.region-header-ranges {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-end;
 }
 
 .range-summary-tools {
@@ -857,38 +872,49 @@ const emitConfirm = () => {
   align-items: flex-end;
 }
 
-.region-header-ranges {
-  justify-content: flex-end;
-}
-
 .range-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px 18px;
 }
 
 .range-row {
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
 }
 
 .range-label {
   font-size: 12px;
+  font-weight: 600;
   color: var(--app-text-secondary);
 }
 
-.range-values code {
-  padding: 3px 7px;
+.range-values {
+  display: grid;
+  gap: 14px;
+}
+
+.range-interval {
+  display: grid;
+  justify-items: center;
+  min-width: 28px;
+}
+
+.range-interval-value {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
   font-weight: 700;
   color: var(--app-primary);
-  background: var(--app-bg-card);
-  border: 1px solid var(--app-border);
-  border-radius: 5px;
+}
+
+.range-interval-line {
+  width: 1px;
+  height: 18px;
+  margin: 3px 0;
+  background: var(--app-text-secondary);
 }
 
 .range-empty {
