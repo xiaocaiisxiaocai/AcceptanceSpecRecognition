@@ -683,11 +683,11 @@ test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映�
   assert.match(rangeEditorSource, /parseExcelA1ColumnRange/);
   assert.match(
     rangeEditorSource,
-    /draft\.dataStartRow = firstRange\.startRow;[\s\S]*draft\.dataEndRow = firstRange\.endRow;/
+    /draft\.dataStartRow = primaryRange\.startRow;[\s\S]*draft\.dataEndRow = primaryRange\.endRow;/
   );
   assert.match(
     rangeEditorSource,
-    /relativeColumnIndex = parsed\.columnNumber - baseColumn\.value/
+    /definition\.setColumnIndex\(parsed\.columnNumber - baseColumn\.value\)/
   );
   assert.match(
     rangeEditorSource,
@@ -703,6 +703,21 @@ test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映�
     /draft\.headerStartRow = headerRow;[\s\S]*draft\.headerEndRow = headerRow;/
   );
   assert.match(rangeEditorSource, /<template v-else>[\s\S]*表头起始行/);
+});
+
+test("Excel 范围抽屉应把每个区域精简为单行四范围编辑器", () => {
+  assert.match(rangeEditorSource, /class="excel-region-row"/);
+  assert.match(rangeEditorSource, /class="excel-region-index"/);
+  assert.match(rangeEditorSource, /class="excel-region-fields"/);
+  assert.match(
+    rangeEditorSource,
+    /grid-template-columns:\s*28px repeat\(4,\s*minmax\(0,\s*1fr\)\) auto/
+  );
+  assert.match(rangeEditorSource, /aria-label="项目范围"/);
+  assert.match(rangeEditorSource, /aria-label="规格范围"/);
+  assert.match(rangeEditorSource, /aria-label="验收范围"/);
+  assert.match(rangeEditorSource, /aria-label="备注范围"/);
+  assert.doesNotMatch(rangeEditorSource, /class="excel-range-context"/);
 });
 
 test("智能确认卡应保留 A1 范围并移除重复高级行列表单", () => {

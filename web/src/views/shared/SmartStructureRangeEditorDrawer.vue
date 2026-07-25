@@ -795,8 +795,9 @@ const saveRanges = async () => {
         v-for="(draft, index) in drafts"
         :key="draft.source.regionId"
         class="region-editor-card"
+        :class="{ 'region-editor-card--excel': isExcelFile }"
       >
-        <header class="region-editor-header">
+        <header v-if="!isExcelFile" class="region-editor-header">
           <div>
             <span class="region-number">{{ index + 1 }}</span>
             <strong>区域 {{ index + 1 }}</strong>
@@ -813,118 +814,121 @@ const saveRanges = async () => {
         </header>
 
         <template v-if="isExcelFile">
-          <div class="excel-range-context">
-            <span>
-              表头：第 {{ draft.headerStartRow
-              }}{{
-                draft.headerEndRow === draft.headerStartRow
-                  ? ""
-                  : `–${draft.headerEndRow}`
-              }}
-              行
-            </span>
-            <span>系统会从 A1 范围反算行列，并向上寻找最近有效表头</span>
-          </div>
-
-          <div class="a1-range-grid">
-            <label>
-              <span>项目范围（仅规格表可留空）</span>
-              <el-input
-                v-model="draft.projectRange"
-                placeholder="例如 C9:C112"
-                clearable
-                :aria-invalid="!!getRangeFieldError(index, 'projectRange')"
-                :aria-describedby="
-                  getRangeFieldError(index, 'projectRange')
-                    ? getRangeFieldErrorId(index, 'projectRange')
-                    : undefined
-                "
-                @input="draft.rangeError = ''"
-                @blur="normalizeRangeInput(draft, 'projectRange')"
-              />
-              <span
-                v-if="getRangeFieldError(index, 'projectRange')"
-                :id="getRangeFieldErrorId(index, 'projectRange')"
-                class="range-field-error"
-                role="alert"
-              >
-                {{ getRangeFieldError(index, "projectRange") }}
-              </span>
-            </label>
-            <label>
-              <span>规格范围</span>
-              <el-input
-                v-model="draft.specificationRange"
-                placeholder="例如 D9:D112"
-                clearable
-                :aria-invalid="
-                  !!getRangeFieldError(index, 'specificationRange')
-                "
-                :aria-describedby="
-                  getRangeFieldError(index, 'specificationRange')
-                    ? getRangeFieldErrorId(index, 'specificationRange')
-                    : undefined
-                "
-                @input="draft.rangeError = ''"
-                @blur="normalizeRangeInput(draft, 'specificationRange')"
-              />
-              <span
-                v-if="getRangeFieldError(index, 'specificationRange')"
-                :id="getRangeFieldErrorId(index, 'specificationRange')"
-                class="range-field-error"
-                role="alert"
-              >
-                {{ getRangeFieldError(index, "specificationRange") }}
-              </span>
-            </label>
-            <label>
-              <span>验收范围</span>
-              <el-input
-                v-model="draft.acceptanceRange"
-                placeholder="例如 I9:I112"
-                clearable
-                :aria-invalid="!!getRangeFieldError(index, 'acceptanceRange')"
-                :aria-describedby="
-                  getRangeFieldError(index, 'acceptanceRange')
-                    ? getRangeFieldErrorId(index, 'acceptanceRange')
-                    : undefined
-                "
-                @input="draft.rangeError = ''"
-                @blur="normalizeRangeInput(draft, 'acceptanceRange')"
-              />
-              <span
-                v-if="getRangeFieldError(index, 'acceptanceRange')"
-                :id="getRangeFieldErrorId(index, 'acceptanceRange')"
-                class="range-field-error"
-                role="alert"
-              >
-                {{ getRangeFieldError(index, "acceptanceRange") }}
-              </span>
-            </label>
-            <label>
-              <span>备注范围（可选）</span>
-              <el-input
-                v-model="draft.remarkRange"
-                placeholder="例如 J9:J112"
-                clearable
-                :aria-invalid="!!getRangeFieldError(index, 'remarkRange')"
-                :aria-describedby="
-                  getRangeFieldError(index, 'remarkRange')
-                    ? getRangeFieldErrorId(index, 'remarkRange')
-                    : undefined
-                "
-                @input="draft.rangeError = ''"
-                @blur="normalizeRangeInput(draft, 'remarkRange')"
-              />
-              <span
-                v-if="getRangeFieldError(index, 'remarkRange')"
-                :id="getRangeFieldErrorId(index, 'remarkRange')"
-                class="range-field-error"
-                role="alert"
-              >
-                {{ getRangeFieldError(index, "remarkRange") }}
-              </span>
-            </label>
+          <div class="excel-region-row">
+            <span class="excel-region-index">{{ index + 1 }}</span>
+            <div class="excel-region-fields">
+              <div class="excel-region-field">
+                <el-input
+                  v-model="draft.projectRange"
+                  aria-label="项目范围"
+                  placeholder="项目范围"
+                  size="small"
+                  clearable
+                  :aria-invalid="!!getRangeFieldError(index, 'projectRange')"
+                  :aria-describedby="
+                    getRangeFieldError(index, 'projectRange')
+                      ? getRangeFieldErrorId(index, 'projectRange')
+                      : undefined
+                  "
+                  @input="draft.rangeError = ''"
+                  @blur="normalizeRangeInput(draft, 'projectRange')"
+                />
+                <span
+                  v-if="getRangeFieldError(index, 'projectRange')"
+                  :id="getRangeFieldErrorId(index, 'projectRange')"
+                  class="range-field-error"
+                  role="alert"
+                >
+                  {{ getRangeFieldError(index, "projectRange") }}
+                </span>
+              </div>
+              <div class="excel-region-field">
+                <el-input
+                  v-model="draft.specificationRange"
+                  aria-label="规格范围"
+                  placeholder="规格范围"
+                  size="small"
+                  clearable
+                  :aria-invalid="
+                    !!getRangeFieldError(index, 'specificationRange')
+                  "
+                  :aria-describedby="
+                    getRangeFieldError(index, 'specificationRange')
+                      ? getRangeFieldErrorId(index, 'specificationRange')
+                      : undefined
+                  "
+                  @input="draft.rangeError = ''"
+                  @blur="normalizeRangeInput(draft, 'specificationRange')"
+                />
+                <span
+                  v-if="getRangeFieldError(index, 'specificationRange')"
+                  :id="getRangeFieldErrorId(index, 'specificationRange')"
+                  class="range-field-error"
+                  role="alert"
+                >
+                  {{ getRangeFieldError(index, "specificationRange") }}
+                </span>
+              </div>
+              <div class="excel-region-field">
+                <el-input
+                  v-model="draft.acceptanceRange"
+                  aria-label="验收范围"
+                  placeholder="验收范围"
+                  size="small"
+                  clearable
+                  :aria-invalid="!!getRangeFieldError(index, 'acceptanceRange')"
+                  :aria-describedby="
+                    getRangeFieldError(index, 'acceptanceRange')
+                      ? getRangeFieldErrorId(index, 'acceptanceRange')
+                      : undefined
+                  "
+                  @input="draft.rangeError = ''"
+                  @blur="normalizeRangeInput(draft, 'acceptanceRange')"
+                />
+                <span
+                  v-if="getRangeFieldError(index, 'acceptanceRange')"
+                  :id="getRangeFieldErrorId(index, 'acceptanceRange')"
+                  class="range-field-error"
+                  role="alert"
+                >
+                  {{ getRangeFieldError(index, "acceptanceRange") }}
+                </span>
+              </div>
+              <div class="excel-region-field">
+                <el-input
+                  v-model="draft.remarkRange"
+                  aria-label="备注范围"
+                  placeholder="备注范围（可选）"
+                  size="small"
+                  clearable
+                  :aria-invalid="!!getRangeFieldError(index, 'remarkRange')"
+                  :aria-describedby="
+                    getRangeFieldError(index, 'remarkRange')
+                      ? getRangeFieldErrorId(index, 'remarkRange')
+                      : undefined
+                  "
+                  @input="draft.rangeError = ''"
+                  @blur="normalizeRangeInput(draft, 'remarkRange')"
+                />
+                <span
+                  v-if="getRangeFieldError(index, 'remarkRange')"
+                  :id="getRangeFieldErrorId(index, 'remarkRange')"
+                  class="range-field-error"
+                  role="alert"
+                >
+                  {{ getRangeFieldError(index, "remarkRange") }}
+                </span>
+              </div>
+            </div>
+            <el-button
+              class="excel-region-delete"
+              type="danger"
+              link
+              :disabled="drafts.length <= 1"
+              @click="removeRegion(index)"
+            >
+              删除
+            </el-button>
           </div>
           <p v-if="draft.rangeError" class="range-error" role="alert">
             {{ draft.rangeError }}
@@ -1118,6 +1122,12 @@ const saveRanges = async () => {
   box-shadow: 0 4px 16px rgb(15 43 77 / 5%);
 }
 
+.region-editor-card--excel {
+  padding: 9px 10px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
 .region-editor-header,
 .region-editor-header > div,
 .region-editor-foot,
@@ -1159,8 +1169,7 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid,
-.column-editor-grid,
-.a1-range-grid {
+.column-editor-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -1171,8 +1180,7 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid label,
-.column-editor-grid label,
-.a1-range-grid label {
+.column-editor-grid label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1182,23 +1190,57 @@ const saveRanges = async () => {
 }
 
 .row-editor-grid :deep(.el-input-number),
-.column-editor-grid :deep(.el-select),
-.a1-range-grid :deep(.el-input) {
+.column-editor-grid :deep(.el-select) {
   width: 100%;
 }
 
-.excel-range-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: var(--app-text-secondary);
+.excel-region-row {
+  display: grid;
+  grid-template-columns: 28px repeat(4, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: start;
 }
 
-.excel-range-context span:first-child {
-  font-weight: 600;
-  color: var(--app-text-primary);
+.excel-region-index {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--app-primary);
+  border: 1px solid currentcolor;
+  border-radius: 50%;
+}
+
+.excel-region-fields {
+  display: contents;
+}
+
+.excel-region-field {
+  min-width: 0;
+}
+
+.excel-region-field :deep(.el-input) {
+  width: 100%;
+}
+
+.excel-region-field :deep(.el-input__wrapper) {
+  padding-inline: 7px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.excel-region-field :deep(.el-input__wrapper:hover),
+.excel-region-field :deep(.el-input__wrapper.is-focus) {
+  background: var(--app-info-bg);
+  box-shadow: 0 0 0 1px var(--app-primary) inset;
+}
+
+.excel-region-delete {
+  min-height: 28px;
+  padding-inline: 2px;
 }
 
 .range-error {
@@ -1208,13 +1250,14 @@ const saveRanges = async () => {
 }
 
 .range-field-error {
-  min-height: 18px;
+  display: block;
+  margin-top: 2px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-color-danger);
 }
 
-.a1-range-grid :deep(.el-input[aria-invalid="true"] .el-input__wrapper) {
+.excel-region-field :deep(.el-input[aria-invalid="true"] .el-input__wrapper) {
   box-shadow: 0 0 0 1px var(--el-color-danger) inset;
 }
 
@@ -1263,9 +1306,19 @@ const saveRanges = async () => {
 
 @media (width <= 720px) {
   .row-editor-grid,
-  .column-editor-grid,
-  .a1-range-grid {
+  .column-editor-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .excel-region-row {
+    grid-template-columns: 28px repeat(2, minmax(0, 1fr)) auto;
+  }
+
+  .excel-region-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: 2 / 4;
+    gap: 8px;
   }
 
   .region-editor-header {
