@@ -6,14 +6,21 @@ export interface AiAssistSelectionState {
 }
 
 export const resolveAiAssistSelectionState = (
-  selection: AiServiceSelection
+  llmSelection: AiServiceSelection,
+  embeddingSelection: AiServiceSelection
 ): AiAssistSelectionState => {
-  if (selection.status !== "available" || selection.serviceId == null) {
+  const llmReady =
+    llmSelection.status === "available" && llmSelection.serviceId != null;
+  const embeddingReady =
+    embeddingSelection.status === "available" &&
+    embeddingSelection.serviceId != null;
+
+  if (!llmReady || !embeddingReady) {
     return { enabled: false, serviceId: undefined };
   }
 
   return {
     enabled: true,
-    serviceId: selection.serviceId
+    serviceId: llmSelection.serviceId
   };
 };
