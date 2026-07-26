@@ -76,9 +76,13 @@ public class SmartConfigRecognizeMultiHeaderApiTests : IClassFixture<ApiWebAppli
         table.GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
         table.GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
         table.GetProperty("decision").GetString().Should().Be(
-            "AutoApply",
-            "重复叶子表头不应触发结构 AI，实际问题：{0}",
-            table.GetProperty("issues").GetRawText());
+            "NeedConfirm",
+            "重复叶子表头中的多个验收目标需要用户选择，不能静默自动采用");
+        table.GetProperty("regions").EnumerateArray().Single()
+            .GetProperty("fieldConflicts").EnumerateArray()
+            .Should().Contain(conflict =>
+                conflict.GetProperty("field").GetString() == "Acceptance" &&
+                conflict.GetProperty("candidates").GetArrayLength() > 1);
     }
 
     [Fact]

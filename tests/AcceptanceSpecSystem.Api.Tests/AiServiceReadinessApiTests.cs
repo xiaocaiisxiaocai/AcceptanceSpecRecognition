@@ -110,7 +110,8 @@ public sealed class AiServiceReadinessApiTests
             Priority = 0,
             Endpoint = "https://example.invalid/v1",
             LlmModel = "llm-updated",
-            ApiKey = null
+            ApiKey = null,
+            RowVersion = 0
         });
 
         registry.GetSnapshot(configId, CoreAiServicePurpose.Llm).State

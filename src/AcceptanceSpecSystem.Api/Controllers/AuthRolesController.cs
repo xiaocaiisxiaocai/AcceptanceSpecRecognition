@@ -53,7 +53,7 @@ public class AuthRolesController : BaseApiController
 
         var role = await _authRoleAppService.GetByIdAsync(companyId.Value, id, cancellationToken);
         if (role == null)
-            return Error<AuthRoleDto>(404, "角色不存在");
+            return NotFoundResult<AuthRoleDto>("角色不存在");
 
         return Success(role);
     }

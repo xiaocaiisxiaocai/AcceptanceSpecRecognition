@@ -64,5 +64,52 @@ public class CrudFlowTests : IClassFixture<ApiWebApplicationFactory>
         list.Code.Should().Be(0);
         list.Data!.Total.Should().BeGreaterThanOrEqualTo(1);
     }
-}
 
+    [Fact]
+    public async Task ReferenceDataDelete_WithRelatedSpec_ShouldReturnConflictAndKeepSpec()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var customerId = await CreateReferenceDataAsync("customers", $"delete-customer-{suffix}");
+        var processId = await CreateReferenceDataAsync("processes", $"delete-process-{suffix}");
+        var machineModelId = await CreateReferenceDataAsync("machine-models", $"delete-model-{suffix}");
+
+        var createSpecResp = await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                machineModelId,
+                project = "delete-protection",
+                specification = "must remain",
+                acceptance = "OK"
+            }));
+        createSpecResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await _client.DeleteAsync($"/api/customers/{customerId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _client.DeleteAsync($"/api/processes/{processId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await _client.DeleteAsync($"/api/machine-models/{machineModelId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var listResp = await _client.GetAsync($"/api/specs?page=1&pageSize=10&customerId={customerId}");
+        var list = await listResp.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        list.Data!.Total.Should().Be(1);
+
+        var customerResp = await _client.GetAsync($"/api/customers/{customerId}");
+        var customer = await customerResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        customer.Data.GetProperty("specCount").GetInt32().Should().Be(1);
+    }
+
+    private async Task<int> CreateReferenceDataAsync(string resource, string name)
+    {
+        var response = await _client.PostAsync(
+            $"/api/{resource}",
+            ApiClientJson.ToJsonContent(new { name }));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payload = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return payload.Data.GetProperty("id").GetInt32();
+    }
+}

@@ -239,15 +239,15 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.Customer)
                   .WithMany(c => c.AcceptanceSpecs)
                   .HasForeignKey(e => e.CustomerId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.Process)
                   .WithMany(p => p.AcceptanceSpecs)
                   .HasForeignKey(e => e.ProcessId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.MachineModel)
                   .WithMany(m => m.AcceptanceSpecs)
                   .HasForeignKey(e => e.MachineModelId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.WordFile)
                   .WithMany(w => w.AcceptanceSpecs)
                   .HasForeignKey(e => e.WordFileId)
@@ -317,6 +317,11 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Name).IsUnique();
             entity.Property(e => e.IsDisabled).HasDefaultValue(false);
             entity.Property(e => e.DefaultRecallTopK).HasDefaultValue(2);
+
+            // 乐观并发控制：MySQL 无原生 rowversion 类型，采用应用侧维护的数值版本号，
+            // 由 AiServiceConfigurationAppService 在每次更新前自增；EF Core 将其作为并发令牌
+            // 附加到 UPDATE 语句的 WHERE 子句，冲突时抛出 DbUpdateConcurrencyException。
+            entity.Property(e => e.RowVersion).IsConcurrencyToken().HasDefaultValue(0u);
 
             // ApiKey 加密存储（DataProtection ValueConverter）
             if (_dataProtectionProvider != null)
@@ -636,6 +641,7 @@ public class AppDbContext : DbContext
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         RefreshColumnMappingRuleUniqueIdentities();
+        BumpAiServiceConfigRowVersions();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
@@ -647,6 +653,7 @@ public class AppDbContext : DbContext
         CancellationToken cancellationToken = default)
     {
         RefreshColumnMappingRuleUniqueIdentities();
+        BumpAiServiceConfigRowVersions();
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
@@ -657,6 +664,21 @@ public class AppDbContext : DbContext
             if (entry.State is EntityState.Added or EntityState.Modified)
             {
                 entry.Entity.RefreshUniqueIdentity();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 每次保存前将修改中的 AiServiceConfig 行版本号自增一，
+    /// 使 EF Core 生成的 UPDATE 语句携带新旧版本号，达成乐观并发校验效果。
+    /// </summary>
+    private void BumpAiServiceConfigRowVersions()
+    {
+        foreach (var entry in ChangeTracker.Entries<AiServiceConfig>())
+        {
+            if (entry.State == EntityState.Modified)
+            {
+                entry.Entity.RowVersion = unchecked(entry.Entity.RowVersion + 1);
             }
         }
     }

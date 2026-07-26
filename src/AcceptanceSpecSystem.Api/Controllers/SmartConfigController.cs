@@ -53,10 +53,6 @@ public class SmartConfigController : BaseApiController
         {
             throw;
         }
-        catch (Exception ex)
-        {
-            return Error<SmartConfigurationRecognizeResult>(500, $"识别失败：{ex.Message}");
-        }
     }
 
     [HttpPost("confirm")]
@@ -125,10 +121,6 @@ public class SmartConfigController : BaseApiController
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
-        }
-        catch (Exception ex)
-        {
-            return Error<SmartConfigurationConfirmResult>(500, $"确认失败：{ex.Message}");
         }
     }
 }

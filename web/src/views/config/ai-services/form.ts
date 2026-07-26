@@ -10,6 +10,7 @@ import { normalizePurpose } from "./utils";
 
 export interface AiServiceFormData {
   id: number;
+  rowVersion: number;
   name: string;
   serviceType: AiServiceType;
   purpose: AiServicePurpose;
@@ -37,6 +38,7 @@ export const getAiServiceSubmitSuccessMessage = (isEdit: boolean) =>
 
 export const createEmptyAiServiceFormData = (): AiServiceFormData => ({
   id: 0,
+  rowVersion: 0,
   name: "",
   serviceType: AiServiceType.Ollama,
   purpose: AiServicePurpose.Llm,
@@ -65,6 +67,7 @@ export const createEditAiServiceFormData = (
   detail: AiServiceConfigDetail
 ): AiServiceFormData => ({
   id: detail.id,
+  rowVersion: detail.rowVersion,
   name: detail.name,
   serviceType: detail.serviceType,
   purpose: normalizePurpose(detail.purpose ?? AiServicePurpose.None),
@@ -145,7 +148,10 @@ export const buildUpdateAiServicePayload = (
   formData: AiServiceFormData,
   originalApiKey: string
 ): UpdateAiServiceRequest => {
-  const payload: UpdateAiServiceRequest = buildAiServiceBasePayload(formData);
+  const payload: UpdateAiServiceRequest = {
+    ...buildAiServiceBasePayload(formData),
+    rowVersion: formData.rowVersion
+  };
   const apiKey = formData.apiKey.trim();
   if (apiKey !== originalApiKey) {
     payload.apiKey = apiKey; // 允许清空

@@ -46,7 +46,8 @@ internal static class ApplicationModelMappingExtensions
             Id = item.Id,
             Name = item.Name,
             CreatedAt = item.CreatedAt,
-            ProcessCount = item.ProcessCount
+            ProcessCount = item.ProcessCount,
+            SpecCount = item.SpecCount
         };
     }
 

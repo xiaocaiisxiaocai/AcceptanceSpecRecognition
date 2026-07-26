@@ -1,6 +1,7 @@
 import { http } from "@/utils/http";
 import type {
   ApiResponse,
+  BatchDeleteResponse,
   PagedData,
   PagedListRequestOptions,
   PagedRequest
@@ -80,9 +81,11 @@ export const deleteProcess = (id: number) => {
 
 /** 批量删除制程 */
 export const batchDeleteProcesses = (ids: number[]) => {
-  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
-    data: { ids }
-  });
+  return http.request<ApiResponse<BatchDeleteResponse>>(
+    "post",
+    `${baseUrl}/batch-delete`,
+    { data: { ids } }
+  );
 };
 
 /** 获取制程的验收规格列表 */

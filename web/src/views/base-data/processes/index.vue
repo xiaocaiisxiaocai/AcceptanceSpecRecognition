@@ -118,6 +118,12 @@ const handleDelete = async (row: Process) => {
     ElMessage.error("权限不足，无法删除制程");
     return;
   }
+  if (row.specCount > 0) {
+    ElMessage.warning(
+      `该制程下还有 ${row.specCount} 条关联验收规格，无法删除，请先清理关联数据`
+    );
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确定要删除制程"${row.name}"吗？`, "提示", {
       confirmButtonText: "确定",
@@ -154,7 +160,12 @@ const handleBatchDelete = async () => {
     );
     const res = await batchDeleteProcesses(selectedIds.value);
     if (res.code === 0) {
-      ElMessage.success(res.message || "批量删除成功");
+      const failures = res.data?.failures ?? [];
+      if (failures.length > 0) {
+        ElMessage.warning(res.message || "部分制程删除失败");
+      } else {
+        ElMessage.success(res.message || "批量删除成功");
+      }
       selectedIds.value = [];
       loadData();
     } else {

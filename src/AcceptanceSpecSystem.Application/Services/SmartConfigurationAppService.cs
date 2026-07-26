@@ -574,7 +574,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
         var regions = new List<SmartConfigurationRecognizedRegion>
         {
-            NormalizeRegionToLeafHeader(detectionTable, firstRegion)
+            firstRegion
         };
 
         var scanRow = Math.Max(firstDataEnd + 1, recognizedTable.DataStartRowIndex + 1);
@@ -687,14 +687,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
         // 若没有形成第二个可信区域，不能因为中间两个空行就静默截掉后续仍像业务数据的行。
         // 保留原范围并降级确认，让用户显式决定边界。
+        var templateStructureChanged = recognizedTable.Issues.Any(issue =>
+            string.Equals(issue.Code, "TemplateRegionStructureChanged", StringComparison.Ordinal));
         if (regions.Count == 1 &&
             recognizedTable.DataEndRowIndex.Value > firstDataEnd &&
-            Enumerable.Range(firstDataEnd + 1, recognizedTable.DataEndRowIndex.Value - firstDataEnd)
-                .Where(rowIndex => rowIndex >= 0 && rowIndex < detectionTable.Rows.Count)
-                .Any(rowIndex => LooksLikeRegionDataRow(
-                    detectionTable.Rows[rowIndex],
-                    recognizedTable,
-                    headerKeywordMatcher)))
+            (templateStructureChanged ||
+             Enumerable.Range(firstDataEnd + 1, recognizedTable.DataEndRowIndex.Value - firstDataEnd)
+                 .Where(rowIndex => rowIndex >= 0 && rowIndex < detectionTable.Rows.Count)
+                 .Any(rowIndex => LooksLikeRegionDataRow(
+                     detectionTable.Rows[rowIndex],
+                     recognizedTable,
+                     headerKeywordMatcher))))
         {
             var preservedRegion = CreateRegion(
                 recognizedTable,
@@ -704,7 +707,6 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 recognizedTable.HeaderRowCount,
                 recognizedTable.DataStartRowIndex,
                 recognizedTable.DataEndRowIndex.Value);
-            preservedRegion = NormalizeRegionToLeafHeader(detectionTable, preservedRegion);
             preservedRegion = AddRegionIssue(
                 preservedRegion,
                 "UnassignedDataAfterGap",
@@ -1010,6 +1012,72 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private static int GetPersistedTemplateRegionCount(DocumentTemplate template) =>
         template.Regions.Count > 0 ? template.Regions.Count : 1;
+
+    private static bool HasExactSingleRegionTemplateHeaders(
+        DocumentTemplate template,
+        IReadOnlyList<string> currentHeaders)
+    {
+        if (GetPersistedTemplateRegionCount(template) != 1)
+        {
+            return false;
+        }
+
+        try
+        {
+            var templateHeaders = System.Text.Json.JsonSerializer.Deserialize<List<string>>(
+                template.HeadersJson);
+            return templateHeaders is not null &&
+                   templateHeaders.Count == currentHeaders.Count &&
+                   templateHeaders.Select(NormalizeConfirmedHeader).SequenceEqual(
+                       currentHeaders.Select(NormalizeConfirmedHeader),
+                       StringComparer.OrdinalIgnoreCase);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static SmartConfigurationRecognizedTable AlignSingleRegionTemplateToCurrentHeader(
+        SmartConfigurationRecognizedTable recognized,
+        DocumentTemplate template,
+        HeaderProfile headerProfile,
+        TableInfo? tableInfo,
+        TableData tableData)
+    {
+        var persistedRegion = template.Regions.SingleOrDefault();
+        var persistedDataStart = persistedRegion?.DataStartRowIndex ?? template.DataStartRowIndex;
+        var persistedDataEnd = persistedRegion?.DataEndRowIndex ?? template.DataEndRowIndex;
+        var dataStart = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount;
+        var totalRowCount = GetTotalRowCount(tableInfo, tableData);
+        int? dataEnd = null;
+        if (totalRowCount > dataStart)
+        {
+            var lastRowIndex = totalRowCount - 1;
+            dataEnd = persistedDataEnd.HasValue
+                ? Math.Clamp(
+                    persistedDataEnd.Value + dataStart - persistedDataStart,
+                    dataStart,
+                    lastRowIndex)
+                : lastRowIndex;
+        }
+
+        var region = recognized.Regions.Single() with
+        {
+            HeaderRowIndex = headerProfile.HeaderRowIndex,
+            HeaderRowCount = headerProfile.HeaderRowCount,
+            DataStartRowIndex = dataStart,
+            DataEndRowIndex = dataEnd
+        };
+        return recognized with
+        {
+            HeaderRowIndex = region.HeaderRowIndex,
+            HeaderRowCount = region.HeaderRowCount,
+            DataStartRowIndex = region.DataStartRowIndex,
+            DataEndRowIndex = region.DataEndRowIndex,
+            Regions = [region]
+        };
+    }
 
     private static void AuditRegionCoverage(
         TableData detectionTable,
@@ -1577,15 +1645,24 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             (Field: "Specification", Column: table.SpecificationColumnIndex),
             (Field: "Acceptance", Column: table.AcceptanceColumnIndex),
             (Field: "Remark", Column: table.RemarkColumnIndex)
-        }.Select(item => new SmartConfigurationRecognizedField
+        }.Select(item =>
         {
-            Field = item.Field,
-            ColumnIndex = item.Column,
-            Header = item.Column.HasValue && item.Column.Value >= 0 && item.Column.Value < headers.Count
-                ? headers[item.Column.Value]
-                : null,
-            Confidence = item.Column.HasValue ? table.Confidence : 0,
-            Source = regionIndex == 0 ? table.Source : "RepeatedHeader"
+            var originalField = table.Fields.FirstOrDefault(field =>
+                string.Equals(field.Field, item.Field, StringComparison.OrdinalIgnoreCase));
+            return new SmartConfigurationRecognizedField
+            {
+                Field = item.Field,
+                ColumnIndex = item.Column,
+                Header = item.Column.HasValue && item.Column.Value >= 0 && item.Column.Value < headers.Count
+                    ? headers[item.Column.Value]
+                    : null,
+                Confidence = item.Column.HasValue
+                    ? originalField?.Confidence ?? table.Confidence
+                    : 0,
+                Source = regionIndex == 0
+                    ? originalField?.Source ?? table.Source
+                    : "RepeatedHeader"
+            };
         }).ToList();
 
         var issues = new List<SmartConfigurationRecognitionIssue>();
@@ -1749,19 +1826,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
             var hasGroupedHeaderContext =
                 CountRepeatedValueGroups(tableData.Rows[anchorRowIndex]) >= 2;
-            var followingRowIndex = firstCandidate + 1;
-            var followedByBusinessData =
-                followingRowIndex < tableData.Rows.Count &&
-                !headerKeywordMatcher.IsCompleteHeader(tableData.Rows[followingRowIndex]);
-            return hasGroupedHeaderContext || followedByBusinessData
+            return hasGroupedHeaderContext
                 ? AdvanceAcrossIdenticalCandidates(tableData, candidates, firstCandidate)
                 : null;
         }
 
         if (nearestAtOrBeforeAnchor.Value == anchorRowIndex &&
             anchorRowIndex > 0 &&
-            CountRepeatedValueGroups(tableData.Rows[anchorRowIndex - 1]) == 0 &&
-            headerKeywordMatcher.IsCompleteHeader(tableData.Rows[anchorRowIndex - 1]))
+            CountRepeatedValueGroups(tableData.Rows[anchorRowIndex - 1]) < 2 &&
+            LooksLikeLeadingHeaderGroupRow(
+                tableData.Rows[anchorRowIndex - 1],
+                headerKeywordMatcher))
         {
             return null;
         }
@@ -2494,21 +2569,41 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 new List<(SmartConfigurationRecognizedTable Table, DocumentTemplate Template)>();
             foreach (var template in templateCandidates)
             {
+                var alignSingleRegionToCurrentHeader =
+                    HasExactSingleRegionTemplateHeaders(template, headers);
+                var templateMapping = SmartConfigurationRecognizedTableFactory.ToColumnMappingResult(template);
+                if (alignSingleRegionToCurrentHeader)
+                {
+                    templateMapping.Mapping.HeaderRowIndex = headerProfile.HeaderRowIndex;
+                    templateMapping.Mapping.HeaderRowCount = headerProfile.HeaderRowCount;
+                    templateMapping.Mapping.DataStartRowIndex =
+                        headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount;
+                }
                 var templateHealthCheck = DocumentStructureHealthCheck.Evaluate(
                     tableData,
-                    SmartConfigurationRecognizedTableFactory.ToColumnMappingResult(template),
+                    templateMapping,
                     allowMissingProjectColumn: template.IsSpecificationOnly,
                     autoApplyConfidenceThreshold: GetAutoApplyConfidenceThreshold(),
                     minimumSpecificationNonEmptyRate: GetMinimumSpecificationNonEmptyRate());
+                var templateRecognized = SmartConfigurationRecognizedTableFactory.FromTemplate(
+                    tableInfo,
+                    tableData,
+                    template,
+                    headers,
+                    templateHealthCheck);
+                if (alignSingleRegionToCurrentHeader)
+                {
+                    templateRecognized = AlignSingleRegionTemplateToCurrentHeader(
+                        templateRecognized,
+                        template,
+                        headerProfile,
+                        tableInfo,
+                        tableData);
+                }
                 var recognizedTemplate = SmartConfigurationTableRoutingService.Enrich(
                     tableInfo,
                     tableData,
-                    SmartConfigurationRecognizedTableFactory.FromTemplate(
-                        tableInfo,
-                        tableData,
-                        template,
-                        headers,
-                        templateHealthCheck),
+                    templateRecognized,
                     templateHealthCheck,
                     routingRules,
                     referenceCaseScore: 1);

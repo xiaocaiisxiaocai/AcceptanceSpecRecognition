@@ -55,15 +55,6 @@ public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
     Task<AcceptanceSpec?> GetWithWordFileAsync(int id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 搜索验收规格
-    /// </summary>
-    /// <param name="processId">制程ID</param>
-    /// <param name="searchTerm">搜索关键词</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>验收规格列表</returns>
-    Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// 按筛选条件分页获取验收规格，并在数据库侧完成范围过滤、查询和分页。
     /// </summary>
     /// <param name="options">查询条件</param>
@@ -88,5 +79,47 @@ public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
     /// <param name="cancellationToken">取消令牌</param>
     Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(
         AcceptanceSpecQueryOptions options,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 在给定数据范围内，按客户ID分组统计每个客户拥有的制程数（Distinct ProcessId）。
+    /// 收敛自原先各调用方各自拼接"范围过滤 + GroupBy + Count"的重复写法。
+    /// </summary>
+    /// <param name="scope">数据范围（仅使用其中的 UserId/IsAll/IncludeSelf/OrgUnitIds 字段）</param>
+    /// <param name="customerIds">要统计的客户ID集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    Task<Dictionary<int, int>> GetProcessCountByCustomerAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 在给定数据范围内，按客户ID分组统计验收规格数量（包含未关联制程的规格）。
+    /// </summary>
+    Task<Dictionary<int, int>> GetSpecCountByCustomerAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 在给定数据范围内，按制程ID分组统计每个制程下的验收规格数量。
+    /// </summary>
+    /// <param name="scope">数据范围（仅使用其中的 UserId/IsAll/IncludeSelf/OrgUnitIds 字段）</param>
+    /// <param name="processIds">要统计的制程ID集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    Task<Dictionary<int, int>> GetSpecCountByProcessAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> processIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 在给定数据范围内，按机型ID分组统计每个机型下的验收规格数量。
+    /// </summary>
+    /// <param name="scope">数据范围（仅使用其中的 UserId/IsAll/IncludeSelf/OrgUnitIds 字段）</param>
+    /// <param name="machineModelIds">要统计的机型ID集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    Task<Dictionary<int, int>> GetSpecCountByMachineModelAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> machineModelIds,
         CancellationToken cancellationToken = default);
 }

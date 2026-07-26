@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 

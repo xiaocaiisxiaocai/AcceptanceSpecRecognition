@@ -9,6 +9,7 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.TextProcessing.Interfaces;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -104,23 +105,6 @@ public sealed partial class MatchingWorkflowSupportService
         _columnMappingLearningService = columnMappingLearningService;
         _logger = logger;
     }
-
-    private static MatchingOperationResult<T> Result<T>(T data, string message = "操作成功")
-    {
-        return new MatchingOperationResult<T>(data, message);
-    }
-
-    private static MatchingApiException Failure(int code, string message)
-    {
-        return new MatchingApiException(code, message);
-    }
-
-    private static MatchingApiException NotFoundFailure(string message)
-    {
-        return new MatchingApiException(404, message, isNotFound: true);
-    }
-
-
 
 
 }

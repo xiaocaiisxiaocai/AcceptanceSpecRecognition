@@ -1,8 +1,7 @@
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Application.Contracts;
-using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
-using Microsoft.EntityFrameworkCore;
+using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -31,11 +30,11 @@ public interface IOrgUnitAppService
 /// </summary>
 public sealed class OrgUnitAppService : IOrgUnitAppService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public OrgUnitAppService(AppDbContext dbContext)
+    public OrgUnitAppService(IUnitOfWork unitOfWork)
     {
-        _dbContext = dbContext;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<List<OrgUnitDto>> GetTreeAsync(int companyId, CancellationToken cancellationToken = default)
@@ -64,7 +63,7 @@ public sealed class OrgUnitAppService : IOrgUnitAppService
         UpdateOrgUnitRequest request,
         CancellationToken cancellationToken = default)
     {
-        var entity = await _dbContext.OrgUnits.FirstOrDefaultAsync(
+        var entity = await _unitOfWork.OrgUnits.FirstOrDefaultAsync(
             o => o.Id == id && o.CompanyId == companyId,
             cancellationToken);
         if (entity == null)
@@ -77,7 +76,7 @@ public sealed class OrgUnitAppService : IOrgUnitAppService
         if (string.IsNullOrWhiteSpace(code))
             throw new ApplicationServiceException(400, "组织编码不能为空");
 
-        var duplicated = await _dbContext.OrgUnits.AnyAsync(
+        var duplicated = await _unitOfWork.OrgUnits.AnyAsync(
             o =>
                 o.CompanyId == companyId &&
                 o.Id != id &&
@@ -99,7 +98,8 @@ public sealed class OrgUnitAppService : IOrgUnitAppService
         entity.IsActive = request.IsActive;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        _unitOfWork.OrgUnits.Update(entity);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
     }
 
@@ -110,11 +110,7 @@ public sealed class OrgUnitAppService : IOrgUnitAppService
 
     private Task<OrgUnit?> GetRootOrgUnitAsync(int companyId, CancellationToken cancellationToken = default)
     {
-        return _dbContext.OrgUnits
-            .AsNoTracking()
-            .Where(org => org.CompanyId == companyId && org.ParentId == null && org.UnitType == OrgUnitType.Company)
-            .OrderBy(org => org.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        return _unitOfWork.OrgUnits.GetRootAsync(companyId, cancellationToken);
     }
 
     private static string NormalizeCode(string code)

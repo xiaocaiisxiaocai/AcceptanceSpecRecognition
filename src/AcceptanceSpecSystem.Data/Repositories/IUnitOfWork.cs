@@ -88,6 +88,11 @@ public interface IUnitOfWork : IDisposable
     /// </summary>
     IExecutionHistoryRecordRepository ExecutionHistoryRecords { get; }
 
+    /// <summary>
+    /// 组织节点Repository
+    /// </summary>
+    IOrgUnitRepository OrgUnits { get; }
+
 
     /// <summary>
     /// 保存所有更改

@@ -144,12 +144,17 @@ public class AiServicesController : BaseApiController
     [AuditOperation("update", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> Update(
         int id,
         [FromBody] UpdateAiServiceRequest request,
         CancellationToken cancellationToken = default)
     {
         try { return Success(await _configuration.UpdateAsync(id, request, cancellationToken), "更新成功"); }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<AiServiceConfigDto>.Error(ex.Code, ex.Message));
+        }
         catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
@@ -160,6 +165,7 @@ public class AiServicesController : BaseApiController
     [AuditOperation("update", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<AiServiceConfigDto>), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ApiResponse<AiServiceConfigDto>>> SetDisabled(
         int id,
         [FromBody] SetAiServiceDisabledRequest request,
@@ -167,8 +173,16 @@ public class AiServicesController : BaseApiController
     {
         try
         {
-            var item = await _configuration.SetDisabledAsync(id, request.IsDisabled, cancellationToken);
+            var item = await _configuration.SetDisabledAsync(
+                id,
+                request.IsDisabled,
+                request.RowVersion!.Value,
+                cancellationToken);
             return Success(item, request.IsDisabled ? "已禁用" : "已启用");
+        }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<AiServiceConfigDto>.Error(ex.Code, ex.Message));
         }
         catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
@@ -180,11 +194,16 @@ public class AiServicesController : BaseApiController
     [AuditOperation("delete", "ai-service")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ApiResponse>> Delete(
         int id,
         CancellationToken cancellationToken = default)
     {
         try { await _configuration.DeleteAsync(id, cancellationToken); return Success("删除成功"); }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse.Error(ex.Code, ex.Message));
+        }
         catch (ApplicationServiceException ex) { return Error(ex.Code, ex.Message); }
     }
 

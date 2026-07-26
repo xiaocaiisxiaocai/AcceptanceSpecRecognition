@@ -53,6 +53,12 @@ public class AiServiceConfigRepositoryTests : TestBase
                 Purpose = AiServicePurpose.None,
                 LlmModel = "dual-llm",
                 EmbeddingModel = "dual-embedding"
+            },
+            new AiServiceConfig
+            {
+                Name = "legacy-unconfigured",
+                ServiceType = AiServiceType.OpenAI,
+                Purpose = AiServicePurpose.None
             });
         await Context.SaveChangesAsync();
 

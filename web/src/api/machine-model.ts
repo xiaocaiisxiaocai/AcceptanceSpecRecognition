@@ -1,6 +1,7 @@
 import { http } from "@/utils/http";
 import type {
   ApiResponse,
+  BatchDeleteResponse,
   PagedData,
   PagedListRequestOptions,
   PagedRequest
@@ -67,7 +68,9 @@ export const deleteMachineModel = (id: number) => {
 
 /** 批量删除机型 */
 export const batchDeleteMachineModels = (ids: number[]) => {
-  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
-    data: { ids }
-  });
+  return http.request<ApiResponse<BatchDeleteResponse>>(
+    "post",
+    `${baseUrl}/batch-delete`,
+    { data: { ids } }
+  );
 };

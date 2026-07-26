@@ -633,6 +633,7 @@ internal sealed class ThrowOnLargePendingJsonUnitOfWork : IUnitOfWork
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
+    public IOrgUnitRepository OrgUnits => _inner.OrgUnits;
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {

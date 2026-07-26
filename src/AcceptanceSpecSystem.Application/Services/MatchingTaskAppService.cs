@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -34,16 +35,6 @@ public sealed class MatchingTaskAppService : IMatchingTaskAppService
         _fileStorage = fileStorage;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _logger = logger;
-    }
-
-    private static MatchingApiException Failure(int code, string message)
-    {
-        return new MatchingApiException(code, message);
-    }
-
-    private static MatchingApiException NotFoundFailure(string message)
-    {
-        return new MatchingApiException(404, message, isNotFound: true);
     }
 
     public async Task<MatchingDownloadResult> DownloadAsync(

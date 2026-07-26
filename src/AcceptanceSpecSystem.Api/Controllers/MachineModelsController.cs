@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Models;
 using AcceptanceSpecSystem.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -139,11 +140,20 @@ public class MachineModelsController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
-        if (!deleted)
-            return NotFound(ApiResponse.Error(404, "机型不存在"));
+        try
+        {
+            var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
+            if (!deleted)
+                return NotFound(ApiResponse.Error(404, "机型不存在"));
 
-        return Success("删除机型成功");
+            return Success("删除机型成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            if (ex.Code == StatusCodes.Status409Conflict)
+                return Conflict(ApiResponse.Error(ex.Code, ex.Message));
+            return Error(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -151,22 +161,38 @@ public class MachineModelsController : BaseApiController
     /// </summary>
     [HttpPost("batch-delete")]
     [AuditOperation("batch-delete", "machine-model")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> BatchDeleteMachineModels(
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<BatchDeleteResponseDto>>> BatchDeleteMachineModels(
         [FromBody] BatchDeleteRequest request,
         CancellationToken cancellationToken = default)
     {
         if (request.Ids == null || request.Ids.Count == 0)
-            return Error(400, "请选择要删除的机型");
+            return Error<BatchDeleteResponseDto>(400, "请选择要删除的机型");
 
-        var deletedCount = 0;
-        foreach (var id in request.Ids)
+        BatchDeleteResultModel result;
+        try
         {
-            var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
-            if (deleted) deletedCount++;
+            result = await _machineModelAppService.BatchDeleteAsync(request.Ids, cancellationToken);
         }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<BatchDeleteResponseDto>.Error(ex.Code, ex.Message));
+        }
+        var response = new BatchDeleteResponseDto
+        {
+            SucceededIds = result.SucceededIds,
+            Failures = result.Failures.Select(f => new BatchDeleteFailureDto { Id = f.Id, Reason = f.Reason }).ToList()
+        };
 
-        return Success($"成功删除 {deletedCount} 个机型");
+        if (result.Failures.Count == 0)
+            return Success(response, $"成功删除 {result.SucceededIds.Count} 个机型");
+
+        var failureSummary = string.Join("；", result.Failures.Select(f => $"ID {f.Id}: {f.Reason}"));
+        var message = result.SucceededIds.Count > 0
+            ? $"成功删除 {result.SucceededIds.Count} 个机型，{result.Failures.Count} 个失败（{failureSummary}）"
+            : $"删除失败（{failureSummary}）";
+
+        return Success(response, message);
     }
 
     private async Task<DataScopeResult?> ResolveSpecScopeAsync()

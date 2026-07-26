@@ -250,7 +250,11 @@ const handleToggleDisabled = async (row: AiServiceConfig) => {
     );
 
     setRowLoading(disabledState, row.id, true);
-    const res = await setAiServiceDisabled(row.id, nextDisabled);
+    const res = await setAiServiceDisabled(
+      row.id,
+      nextDisabled,
+      row.rowVersion
+    );
     if (res.code === 0) {
       if (nextDisabled && activeTestResult.value?.rowId === row.id) {
         clearInlineTestResult();

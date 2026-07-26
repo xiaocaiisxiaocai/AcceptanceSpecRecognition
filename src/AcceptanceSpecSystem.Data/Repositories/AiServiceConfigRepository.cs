@@ -43,6 +43,12 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
     /// <summary>
     /// 根据用途获取配置列表。
     /// </summary>
+    /// <remarks>
+    /// 用途归一化逻辑统一复用 <see cref="AiServiceConfig.GetEffectivePurpose"/>，
+    /// 避免与实体方法出现两套互相独立、容易分叉的业务判断。
+    /// 由于 AI 服务配置表规模很小，这里先按 <c>IsDisabled</c> 在数据库侧过滤，
+    /// 再在内存中按有效用途精确匹配。
+    /// </remarks>
     /// <param name="purpose">用途</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>配置列表</returns>
@@ -50,27 +56,29 @@ public class AiServiceConfigRepository : Repository<AiServiceConfig>, IAiService
         AiServicePurpose purpose,
         CancellationToken cancellationToken = default)
     {
-        return purpose switch
+        if (purpose != AiServicePurpose.Llm && purpose != AiServicePurpose.Embedding)
         {
-            AiServicePurpose.Llm => await _dbSet
-                .Where(c =>
-                    !c.IsDisabled &&
-                    (c.Purpose == AiServicePurpose.Llm ||
-                     (c.Purpose != AiServicePurpose.Embedding &&
-                      c.LlmModel != null &&
-                      c.LlmModel != "" &&
-                      (c.EmbeddingModel == null || c.EmbeddingModel == ""))))
-                .ToListAsync(cancellationToken),
-            AiServicePurpose.Embedding => await _dbSet
-                .Where(c =>
-                    !c.IsDisabled &&
-                    (c.Purpose == AiServicePurpose.Embedding ||
-                     (c.Purpose != AiServicePurpose.Llm &&
-                      c.EmbeddingModel != null &&
-                      c.EmbeddingModel != "" &&
-                      (c.LlmModel == null || c.LlmModel == ""))))
-                .ToListAsync(cancellationToken),
-            _ => []
-        };
+            return [];
+        }
+
+        var enabledConfigs = await _dbSet
+            .Where(c => !c.IsDisabled)
+            .ToListAsync(cancellationToken);
+
+        return enabledConfigs
+            .Where(c => HasConfiguredPurpose(c, purpose))
+            .ToList();
+    }
+
+    private static bool HasConfiguredPurpose(AiServiceConfig config, AiServicePurpose purpose)
+    {
+        if (config.Purpose == purpose)
+        {
+            return true;
+        }
+
+        return config.Purpose == AiServicePurpose.None &&
+               config.GetEffectivePurpose() == purpose &&
+               (purpose == AiServicePurpose.Llm ? config.HasLlmModel() : config.HasEmbeddingModel());
     }
 }

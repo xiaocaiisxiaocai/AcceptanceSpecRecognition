@@ -12,10 +12,18 @@ public interface IAiServiceConfigurationAppService
 {
     Task<PagedResult<AiServiceConfigDto>> GetPagedAsync(int page, int pageSize, string? keyword, AiServiceType? serviceType, CancellationToken cancellationToken = default);
     Task<AiServiceConfigDetailDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 【安全警示：返回值含明文 ApiKey】仅供受信内部探测流程（连接测试、可用性巡检、模型探测等后端编排代码）
+    /// 直接调用外部 AI 服务时使用。返回的 <see cref="AiServiceProbeConfig"/> 携带未脱敏的 ApiKey 明文，
+    /// 调用方必须：①仅在服务器端内部使用，禁止将其序列化返回给前端/客户端；②禁止将其写入日志、异常信息或追踪系统；
+    /// ③仅在探测调用完成后即释放引用，不做任何形式的缓存或持久化。
+    /// 如需向前端展示或记录审计信息，请改用 <see cref="GetByIdAsync"/>（内部已对 ApiKey 做 <c>Mask</c> 脱敏处理）。
+    /// </summary>
     Task<AiServiceProbeConfig?> GetProbeConfigAsync(int id, CancellationToken cancellationToken = default);
     Task<AiServiceConfigDto> CreateAsync(CreateAiServiceRequest request, CancellationToken cancellationToken = default);
     Task<AiServiceConfigDto> UpdateAsync(int id, UpdateAiServiceRequest request, CancellationToken cancellationToken = default);
-    Task<AiServiceConfigDto> SetDisabledAsync(int id, bool isDisabled, CancellationToken cancellationToken = default);
+    Task<AiServiceConfigDto> SetDisabledAsync(int id, bool isDisabled, uint rowVersion, CancellationToken cancellationToken = default);
     Task DeleteAsync(int id, CancellationToken cancellationToken = default);
 }
 public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAppService
@@ -57,6 +65,12 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         return entity == null ? null : ToDetailDto(entity);
     }
 
+    /// <summary>
+    /// 【安全警示：返回值含明文 ApiKey】详见接口文档注释。此实现直接从持久化实体取出原始 ApiKey 构造
+    /// <see cref="AiServiceProbeConfig"/>，未做任何脱敏，仅限受信内部探测流程（如 <c>AiServicesController</c>
+    /// 的连接测试/模型探测、<c>AiServiceReadinessProbeScheduler</c> 后台巡检）在服务器端调用外部 AI 服务时使用，
+    /// 禁止将返回值透传给前端或写入日志。
+    /// </summary>
     public async Task<AiServiceProbeConfig?> GetProbeConfigAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _unitOfWork.AiServiceConfigs.Query().SingleOrDefaultAsync(config => config.Id == id, cancellationToken);
@@ -89,7 +103,9 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
 
     public async Task<AiServiceConfigDto> UpdateAsync(int id, UpdateAiServiceRequest request, CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken) ?? throw Error("配置不存在");
+        var expectedRowVersion = request.RowVersion ?? throw Error("RowVersion不能为空");
+        var entity = await _unitOfWork.AiServiceConfigs.Query()
+            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken) ?? throw Error("配置不存在");
         if (entity.IsLegacyDualPurposeConfiguration()) throw Error(LegacyMessage);
         var values = Validate(request.Name, request.ServiceType, request.Purpose, request.Endpoint, request.LlmModel, request.EmbeddingModel);
         if (!string.Equals(entity.Name, values.Name, StringComparison.OrdinalIgnoreCase) &&
@@ -102,27 +118,50 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         entity.LlmModel = request.Purpose == AiServicePurpose.Embedding ? null : Optional(request.LlmModel);
         if (request.ApiKey != null) entity.ApiKey = Optional(request.ApiKey);
         entity.UpdatedAt = DateTime.UtcNow;
+        entity.RowVersion = expectedRowVersion;
         _unitOfWork.AiServiceConfigs.Update(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SaveChangesHandlingConcurrencyAsync(cancellationToken);
         _readinessRegistry.Invalidate(entity.Id);
         return ToDto(entity);
     }
 
-    public async Task<AiServiceConfigDto> SetDisabledAsync(int id, bool isDisabled, CancellationToken cancellationToken = default)
+    public async Task<AiServiceConfigDto> SetDisabledAsync(
+        int id,
+        bool isDisabled,
+        uint rowVersion,
+        CancellationToken cancellationToken = default)
     {
-        var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken) ?? throw Error("配置不存在");
+        var entity = await _unitOfWork.AiServiceConfigs.Query()
+            .SingleOrDefaultAsync(config => config.Id == id, cancellationToken) ?? throw Error("配置不存在");
         entity.IsDisabled = isDisabled; entity.UpdatedAt = DateTime.UtcNow;
+        entity.RowVersion = rowVersion;
         _unitOfWork.AiServiceConfigs.Update(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SaveChangesHandlingConcurrencyAsync(cancellationToken);
         _readinessRegistry.Invalidate(entity.Id);
         return ToDto(entity);
+    }
+
+    /// <summary>
+    /// 保存变更并将并发冲突（其他管理员同时修改了同一配置）转换为明确的 409 业务异常，
+    /// 避免"读-改-保存"模式下静默互相覆盖。
+    /// </summary>
+    private async Task SaveChangesHandlingConcurrencyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ApplicationServiceException(409, "配置已被其他管理员修改，请刷新后重试");
+        }
     }
 
     public async Task DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
         var entity = await _unitOfWork.AiServiceConfigs.GetByIdAsync(id, cancellationToken) ?? throw Error("配置不存在");
         _unitOfWork.AiServiceConfigs.Remove(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SaveChangesHandlingConcurrencyAsync(cancellationToken);
         _readinessRegistry.Invalidate(entity.Id);
     }
 
@@ -159,7 +198,7 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
             LlmModel = purpose.HasFlag(AiServicePurpose.Llm) ? entity.LlmModel : null,
             DisableThinking = entity.DisableThinking, IsDisabled = entity.IsDisabled,
             DefaultRecallTopK = entity.DefaultRecallTopK, HasApiKey = !string.IsNullOrWhiteSpace(entity.ApiKey),
-            CreatedAt = entity.CreatedAt, UpdatedAt = entity.UpdatedAt
+            RowVersion = entity.RowVersion, CreatedAt = entity.CreatedAt, UpdatedAt = entity.UpdatedAt
         };
     }
 
@@ -172,7 +211,8 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
             Priority = summary.Priority, Endpoint = summary.Endpoint, EmbeddingModel = summary.EmbeddingModel,
             LlmModel = summary.LlmModel, DisableThinking = summary.DisableThinking, IsDisabled = summary.IsDisabled,
             DefaultRecallTopK = summary.DefaultRecallTopK, HasApiKey = summary.HasApiKey,
-            CreatedAt = summary.CreatedAt, UpdatedAt = summary.UpdatedAt, ApiKey = Mask(entity.ApiKey)
+            RowVersion = summary.RowVersion, CreatedAt = summary.CreatedAt, UpdatedAt = summary.UpdatedAt,
+            ApiKey = Mask(entity.ApiKey)
         };
     }
 

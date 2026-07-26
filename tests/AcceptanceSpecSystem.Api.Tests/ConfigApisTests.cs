@@ -140,14 +140,16 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         created.Data.GetProperty("isDisabled").GetBoolean().Should().BeFalse();
 
         var id = created.Data.GetProperty("id").GetInt32();
+        var rowVersion = created.Data.GetProperty("rowVersion").GetUInt32();
         var disabledResp = await _client.PutAsync(
             $"/api/ai-services/{id}/disabled",
-            ApiClientJson.ToJsonContent(new { isDisabled = true }));
+            ApiClientJson.ToJsonContent(new { isDisabled = true, rowVersion }));
 
         disabledResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var disabled = await disabledResp.ReadAsAsync<ApiResponse<JsonElement>>();
         disabled.Code.Should().Be(0);
         disabled.Data.GetProperty("isDisabled").GetBoolean().Should().BeTrue();
+        rowVersion = disabled.Data.GetProperty("rowVersion").GetUInt32();
 
         var getResp = await _client.GetAsync($"/api/ai-services/{id}");
         getResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -161,10 +163,57 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
 
         var enabledResp = await _client.PutAsync(
             $"/api/ai-services/{id}/disabled",
-            ApiClientJson.ToJsonContent(new { isDisabled = false }));
+            ApiClientJson.ToJsonContent(new { isDisabled = false, rowVersion }));
         enabledResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var enabled = await enabledResp.ReadAsAsync<ApiResponse<JsonElement>>();
         enabled.Data.GetProperty("isDisabled").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task AiServiceConfig_StaleRowVersion_ShouldReturnConflict()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"row-version-{suffix}",
+                serviceType = 2,
+                purpose = 1,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                llmModel = "qwen3.5:35b"
+            }));
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var id = created.Data.GetProperty("id").GetInt32();
+        var staleRowVersion = created.Data.GetProperty("rowVersion").GetUInt32();
+
+        var updatePayload = new
+        {
+            name = $"row-version-updated-{suffix}",
+            serviceType = 2,
+            purpose = 1,
+            priority = 1,
+            endpoint = "http://127.0.0.1:11434/api",
+            llmModel = "qwen3.5:35b",
+            rowVersion = staleRowVersion
+        };
+
+        var firstUpdate = await _client.PutAsync(
+            $"/api/ai-services/{id}",
+            ApiClientJson.ToJsonContent(updatePayload));
+        firstUpdate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var staleUpdate = await _client.PutAsync(
+            $"/api/ai-services/{id}",
+            ApiClientJson.ToJsonContent(updatePayload));
+        staleUpdate.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var staleToggle = await _client.PutAsync(
+            $"/api/ai-services/{id}/disabled",
+            ApiClientJson.ToJsonContent(new { isDisabled = true, rowVersion = staleRowVersion }));
+        staleToggle.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -495,7 +544,8 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
                 apiKey = "",
                 llmModel = "gpt-4.1-mini",
                 disableThinking = false,
-                defaultRecallTopK = 2
+                defaultRecallTopK = 2,
+                rowVersion = 0
             }));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);

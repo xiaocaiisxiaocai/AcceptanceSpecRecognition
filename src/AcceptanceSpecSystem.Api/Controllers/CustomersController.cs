@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Models;
 using AcceptanceSpecSystem.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -132,11 +133,20 @@ public class CustomersController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var deleted = await _customerAppService.DeleteAsync(id, cancellationToken);
-        if (!deleted)
-            return NotFound(ApiResponse.Error(404, "客户不存在"));
+        try
+        {
+            var deleted = await _customerAppService.DeleteAsync(id, cancellationToken);
+            if (!deleted)
+                return NotFound(ApiResponse.Error(404, "客户不存在"));
 
-        return Success("删除客户成功");
+            return Success("删除客户成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            if (ex.Code == StatusCodes.Status409Conflict)
+                return Conflict(ApiResponse.Error(ex.Code, ex.Message));
+            return Error(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -144,22 +154,38 @@ public class CustomersController : BaseApiController
     /// </summary>
     [HttpPost("batch-delete")]
     [AuditOperation("batch-delete", "customer")]
-    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse>> BatchDeleteCustomers(
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<BatchDeleteResponseDto>>> BatchDeleteCustomers(
         [FromBody] BatchDeleteRequest request,
         CancellationToken cancellationToken = default)
     {
         if (request.Ids == null || request.Ids.Count == 0)
-            return Error(400, "请选择要删除的客户");
+            return Error<BatchDeleteResponseDto>(400, "请选择要删除的客户");
 
-        var deletedCount = 0;
-        foreach (var id in request.Ids)
+        BatchDeleteResultModel result;
+        try
         {
-            var deleted = await _customerAppService.DeleteAsync(id, cancellationToken);
-            if (deleted) deletedCount++;
+            result = await _customerAppService.BatchDeleteAsync(request.Ids, cancellationToken);
         }
+        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        {
+            return Conflict(ApiResponse<BatchDeleteResponseDto>.Error(ex.Code, ex.Message));
+        }
+        var response = new BatchDeleteResponseDto
+        {
+            SucceededIds = result.SucceededIds,
+            Failures = result.Failures.Select(f => new BatchDeleteFailureDto { Id = f.Id, Reason = f.Reason }).ToList()
+        };
 
-        return Success($"成功删除 {deletedCount} 个客户");
+        if (result.Failures.Count == 0)
+            return Success(response, $"成功删除 {result.SucceededIds.Count} 个客户");
+
+        var failureSummary = string.Join("；", result.Failures.Select(f => $"ID {f.Id}: {f.Reason}"));
+        var message = result.SucceededIds.Count > 0
+            ? $"成功删除 {result.SucceededIds.Count} 个客户，{result.Failures.Count} 个失败（{failureSummary}）"
+            : $"删除失败（{failureSummary}）";
+
+        return Success(response, message);
     }
 
     /// <summary>

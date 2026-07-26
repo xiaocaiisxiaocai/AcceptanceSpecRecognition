@@ -1,6 +1,7 @@
 ﻿using System.IO.Compression;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -73,20 +74,5 @@ public sealed partial class BatchReplyAppService
     private static (int UserId, int CompanyId) ResolveOwnerForMatching(BatchReplyUserContext user)
     {
         return (user.UserId, user.CompanyId);
-    }
-
-    private static MatchingOperationResult<T> Result<T>(T data, string message = "操作成功")
-    {
-        return new MatchingOperationResult<T>(data, message);
-    }
-
-    private static MatchingApiException Failure(int code, string message)
-    {
-        return new MatchingApiException(code, message);
-    }
-
-    private static MatchingApiException NotFoundFailure(string message)
-    {
-        return new MatchingApiException(404, message, isNotFound: true);
     }
 }

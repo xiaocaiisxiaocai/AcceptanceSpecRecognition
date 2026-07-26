@@ -79,7 +79,7 @@ public sealed class MachineModelAppService
         int id,
         CancellationToken cancellationToken = default)
     {
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
+        var model = await _unitOfWork.MachineModels.GetByIdAsync(id, cancellationToken);
         if (model == null)
             return null;
 
@@ -156,12 +156,90 @@ public sealed class MachineModelAppService
         if (model == null)
             return false;
 
+        var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
+            spec => spec.MachineModelId == id,
+            cancellationToken);
+        if (specCount > 0)
+        {
+            throw new ApplicationServiceException(
+                409,
+                $"该机型下还有 {specCount} 条关联验收规格，无法删除，请先清理关联数据");
+        }
+
         _unitOfWork.MachineModels.Remove(model);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            throw DeleteConflict("该机型下新增了关联验收规格，无法删除，请刷新后重试");
+        }
 
         _logger.LogInformation("删除机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
         return true;
     }
+
+    /// <summary>
+    /// 批量删除机型：整体在一个事务内执行，逐项校验关联规格并单独回报失败原因。
+    /// </summary>
+    public async Task<BatchDeleteResultModel> BatchDeleteAsync(
+        IReadOnlyCollection<int> ids,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new BatchDeleteResultModel();
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            foreach (var id in ids)
+            {
+                var model = await _unitOfWork.MachineModels.GetByIdAsync(id, cancellationToken);
+                if (model == null)
+                {
+                    result.Failures.Add(new BatchDeleteFailureModel { Id = id, Reason = "机型不存在" });
+                    continue;
+                }
+
+                var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
+                    spec => spec.MachineModelId == id,
+                    cancellationToken);
+                if (specCount > 0)
+                {
+                    result.Failures.Add(new BatchDeleteFailureModel
+                    {
+                        Id = id,
+                        Reason = $"存在 {specCount} 条关联验收规格，无法删除"
+                    });
+                    continue;
+                }
+
+                _unitOfWork.MachineModels.Remove(model);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                result.SucceededIds.Add(id);
+            }
+
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        if (result.SucceededIds.Count > 0)
+        {
+            _logger.LogInformation("批量删除机型成功: {MachineModelIds}", string.Join(",", result.SucceededIds));
+        }
+
+        return result;
+    }
+
+    private static ApplicationServiceException DeleteConflict(string message) => new(409, message);
 
     private static string NormalizeRequiredName(string? value, string message)
     {

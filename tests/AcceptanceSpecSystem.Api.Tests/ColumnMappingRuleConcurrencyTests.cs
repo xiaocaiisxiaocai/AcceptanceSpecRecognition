@@ -319,6 +319,7 @@ internal sealed class BarrierColumnMappingRuleUnitOfWork : IUnitOfWork
     public IAuditLogRepository AuditLogs => throw new NotSupportedException();
     public IMatchingFillTaskRepository MatchingFillTasks => throw new NotSupportedException();
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => throw new NotSupportedException();
+    public IOrgUnitRepository OrgUnits => throw new NotSupportedException();
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {

@@ -227,13 +227,16 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
-        table.GetProperty("source").GetString().Should().Be("Template");
+        table.GetProperty("source").GetString().Should().Be("RuleBased");
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(11);
+        table.GetProperty("issues").EnumerateArray()
+            .Should().Contain(issue =>
+                issue.GetProperty("code").GetString() == "TemplateRegionStructureChanged");
         table.GetProperty("regions").EnumerateArray().Single()
             .GetProperty("issues").EnumerateArray()
             .Should().Contain(issue =>
-                issue.GetProperty("code").GetString() == "TemplateRegionDataChanged" ||
-                issue.GetProperty("code").GetString() == "UncoveredBusinessRows");
+                issue.GetProperty("code").GetString() == "UnassignedDataAfterGap");
     }
 
     [Fact]

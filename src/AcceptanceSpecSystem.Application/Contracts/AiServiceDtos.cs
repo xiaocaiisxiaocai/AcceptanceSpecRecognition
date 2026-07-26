@@ -17,6 +17,7 @@ public class AiServiceConfigDto
     public bool IsDisabled { get; set; }
     public int DefaultRecallTopK { get; set; } = 2;
     public bool HasApiKey { get; set; }
+    public uint RowVersion { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -45,8 +46,19 @@ public class CreateAiServiceRequest
     public int DefaultRecallTopK { get; set; } = 2;
 }
 
-public class UpdateAiServiceRequest : CreateAiServiceRequest { }
-public class SetAiServiceDisabledRequest { public bool IsDisabled { get; set; } }
+public class UpdateAiServiceRequest : CreateAiServiceRequest
+{
+    [Required(ErrorMessage = "RowVersion不能为空")]
+    public uint? RowVersion { get; set; }
+}
+
+public class SetAiServiceDisabledRequest
+{
+    public bool IsDisabled { get; set; }
+
+    [Required(ErrorMessage = "RowVersion不能为空")]
+    public uint? RowVersion { get; set; }
+}
 public enum AiServiceConnectionTestMode { Quick = 0, Full = 1 }
 
 public class AiServiceTestResultDto
@@ -68,7 +80,11 @@ public class AiServiceModelsResultDto
     public string? Message { get; set; }
 }
 
-/// <summary>供 API 外部服务探测适配使用的只读配置，不暴露持久化实体。</summary>
+/// <summary>
+/// 供 API 外部服务探测适配使用的只读配置，不暴露持久化实体。
+/// 【安全警示】<see cref="ApiKey"/> 为明文，仅限受信内部探测流程（连接测试、模型探测、可用性巡检）
+/// 在服务器端调用外部 AI 服务时使用，禁止序列化返回给前端、写入日志或做任何形式的持久化/缓存。
+/// </summary>
 public sealed record AiServiceProbeConfig(
     int Id, string Name, AiServiceType ServiceType, AiServicePurpose Purpose, int Priority,
     string? ApiKey, string? Endpoint, string? EmbeddingModel, string? LlmModel,

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.Extensions.Logging;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 

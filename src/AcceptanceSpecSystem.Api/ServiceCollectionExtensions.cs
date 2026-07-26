@@ -231,6 +231,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IMatchingFillTaskRepository, MatchingFillTaskRepository>();
         services.AddScoped<IExecutionHistoryRecordRepository, ExecutionHistoryRecordRepository>();
         services.AddScoped<IDocumentImportExecutionRepository, DocumentImportExecutionRepository>();
+        services.AddScoped<IOrgUnitRepository, OrgUnitRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         return services;

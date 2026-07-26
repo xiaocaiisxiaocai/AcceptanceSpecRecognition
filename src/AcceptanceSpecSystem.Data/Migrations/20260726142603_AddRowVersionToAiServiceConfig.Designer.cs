@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Data.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AcceptanceSpecSystem.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260726142603_AddRowVersionToAiServiceConfig")]
+    partial class AddRowVersionToAiServiceConfig
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1486,13 +1489,13 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.Customer", "Customer")
                         .WithMany("AcceptanceSpecs")
                         .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Restrict)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.MachineModel", "MachineModel")
                         .WithMany("AcceptanceSpecs")
                         .HasForeignKey("MachineModelId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.OrgUnit", null)
                         .WithMany()
@@ -1502,7 +1505,7 @@ namespace AcceptanceSpecSystem.Data.Migrations
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.Process", "Process")
                         .WithMany("AcceptanceSpecs")
                         .HasForeignKey("ProcessId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("AcceptanceSpecSystem.Data.Entities.WordFile", "WordFile")
                         .WithMany("AcceptanceSpecs")

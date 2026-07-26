@@ -59,7 +59,10 @@ public static class DatabaseInitializer
         "20260706093000_AddSmartStructureRoutingRules",
         "20260710144805_AddAuthRefreshSessions",
         "20260719074136_AddDocumentTemplateRegions",
-        "20260719151435_AddDocumentImportExecutions"
+        "20260719151435_AddDocumentImportExecutions",
+        "20260724024559_OptimizeAcceptanceSpecGroupPagingIndex",
+        "20260726142603_AddRowVersionToAiServiceConfig",
+        "20260726163227_RestrictAcceptanceSpecReferenceDeletes"
     };
 
     /// <summary>

@@ -80,7 +80,7 @@ public sealed class ProcessAppService
         int id,
         CancellationToken cancellationToken = default)
     {
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
+        var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
         if (process == null)
             return null;
 
@@ -158,12 +158,90 @@ public sealed class ProcessAppService
         if (process == null)
             return false;
 
+        var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
+            spec => spec.ProcessId == id,
+            cancellationToken);
+        if (specCount > 0)
+        {
+            throw new ApplicationServiceException(
+                409,
+                $"该制程下还有 {specCount} 条关联验收规格，无法删除，请先清理关联数据");
+        }
+
         _unitOfWork.Processes.Remove(process);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            throw DeleteConflict("该制程下新增了关联验收规格，无法删除，请刷新后重试");
+        }
 
         _logger.LogInformation("删除制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
         return true;
     }
+
+    /// <summary>
+    /// 批量删除制程：整体在一个事务内执行，逐项校验关联规格并单独回报失败原因。
+    /// </summary>
+    public async Task<BatchDeleteResultModel> BatchDeleteAsync(
+        IReadOnlyCollection<int> ids,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new BatchDeleteResultModel();
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            foreach (var id in ids)
+            {
+                var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
+                if (process == null)
+                {
+                    result.Failures.Add(new BatchDeleteFailureModel { Id = id, Reason = "制程不存在" });
+                    continue;
+                }
+
+                var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
+                    spec => spec.ProcessId == id,
+                    cancellationToken);
+                if (specCount > 0)
+                {
+                    result.Failures.Add(new BatchDeleteFailureModel
+                    {
+                        Id = id,
+                        Reason = $"存在 {specCount} 条关联验收规格，无法删除"
+                    });
+                    continue;
+                }
+
+                _unitOfWork.Processes.Remove(process);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                result.SucceededIds.Add(id);
+            }
+
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        if (result.SucceededIds.Count > 0)
+        {
+            _logger.LogInformation("批量删除制程成功: {ProcessIds}", string.Join(",", result.SucceededIds));
+        }
+
+        return result;
+    }
+
+    private static ApplicationServiceException DeleteConflict(string message) => new(409, message);
 
     public async Task<PagedResult<AcceptanceSpecSummary>?> GetSpecsAsync(
         SpecAccessContext scope,

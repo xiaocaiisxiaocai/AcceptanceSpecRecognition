@@ -9,8 +9,17 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 public interface IRepository<TEntity> where TEntity : class
 {
     /// <summary>
-    /// 获取可组合查询（用于数据库侧筛选/分页）
+    /// 获取可组合查询（用于数据库侧筛选/分页）。
     /// </summary>
+    /// <remarks>
+    /// 应优先使用各仓储上已定义的专用查询方法（例如
+    /// <c>IAcceptanceSpecRepository.GetPagedWithFilterAsync</c> /
+    /// <c>GetProcessCountByCustomerAsync</c> 等封装了范围过滤、分页、分组等重复模式的方法），
+    /// 便于集中维护过滤逻辑、复用索引友好的查询写法。
+    /// <c>Query()</c> 仅作为过渡期兜底（当前仓库内仍有 20+ 处直接调用），
+    /// 长期应逐步将高频重复的查询组合收敛为专用仓储方法，减少调用方各自拼接
+    /// 范围/过滤条件导致的重复实现与潜在不一致。
+    /// </remarks>
     /// <param name="asNoTracking">是否禁用跟踪（默认禁用）</param>
     IQueryable<TEntity> Query(bool asNoTracking = true);
 

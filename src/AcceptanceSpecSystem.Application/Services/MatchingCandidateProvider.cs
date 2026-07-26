@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Application.Services;
@@ -262,10 +263,5 @@ public sealed class MatchingCandidateProvider
     private static bool HasText(string? value)
     {
         return !string.IsNullOrWhiteSpace(value);
-    }
-
-    private static MatchingApiException Failure(string message)
-    {
-        return new MatchingApiException(400, message);
     }
 }

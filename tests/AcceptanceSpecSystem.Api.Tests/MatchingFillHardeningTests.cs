@@ -456,6 +456,7 @@ internal sealed class AmbiguousCommitUnitOfWork : IUnitOfWork
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
+    public IOrgUnitRepository OrgUnits => _inner.OrgUnits;
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         _inner.SaveChangesAsync(cancellationToken);
@@ -495,6 +496,7 @@ internal sealed class CommitFailureUnitOfWork : IUnitOfWork
     public IAuditLogRepository AuditLogs => _inner.AuditLogs;
     public IMatchingFillTaskRepository MatchingFillTasks => _inner.MatchingFillTasks;
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => _inner.ExecutionHistoryRecords;
+    public IOrgUnitRepository OrgUnits => _inner.OrgUnits;
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         _inner.SaveChangesAsync(cancellationToken);

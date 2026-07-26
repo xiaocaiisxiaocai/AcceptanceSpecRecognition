@@ -35,6 +35,7 @@ export interface Customer {
   name: string;
   createdAt: string;
   processCount: number;
+  specCount: number;
 }
 
 /** 创建客户请求 */
@@ -45,6 +46,18 @@ export interface CreateCustomerRequest {
 /** 更新客户请求 */
 export interface UpdateCustomerRequest {
   name: string;
+}
+
+/** 批量删除单项失败信息 */
+export interface BatchDeleteFailure {
+  id: number;
+  reason: string;
+}
+
+/** 批量删除响应 */
+export interface BatchDeleteResponse {
+  succeededIds: number[];
+  failures: BatchDeleteFailure[];
 }
 
 /** 制程类型 */
@@ -85,9 +98,11 @@ export const deleteCustomer = (id: number) => {
 
 /** 批量删除客户 */
 export const batchDeleteCustomers = (ids: number[]) => {
-  return http.request<ApiResponse<void>>("post", `${baseUrl}/batch-delete`, {
-    data: { ids }
-  });
+  return http.request<ApiResponse<BatchDeleteResponse>>(
+    "post",
+    `${baseUrl}/batch-delete`,
+    { data: { ids } }
+  );
 };
 
 /** 获取客户的制程列表 */

@@ -2,6 +2,7 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -418,15 +419,5 @@ public sealed class MatchingTaskSnapshotService
         entity.CompanyId = sourceFile.CompanyId;
         _unitOfWork.MatchingFillTasks.Update(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-    }
-
-    private static MatchingApiException Failure(int code, string message)
-    {
-        return new MatchingApiException(code, message);
-    }
-
-    private static MatchingApiException NotFoundFailure(string message)
-    {
-        return new MatchingApiException(404, message, isNotFound: true);
     }
 }

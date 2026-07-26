@@ -25,15 +25,24 @@ public sealed class AcceptanceSpecQueryService
         if (customerIds.Count == 0)
             return new Dictionary<int, int>();
 
-        return await ApplyScope(_unitOfWork.AcceptanceSpecs.Query(), scope)
-            .Where(spec => customerIds.Contains(spec.CustomerId) && spec.ProcessId.HasValue)
-            .GroupBy(spec => spec.CustomerId)
-            .Select(group => new
-            {
-                CustomerId = group.Key,
-                ProcessCount = group.Select(item => item.ProcessId!.Value).Distinct().Count()
-            })
-            .ToDictionaryAsync(item => item.CustomerId, item => item.ProcessCount, cancellationToken);
+        return await _unitOfWork.AcceptanceSpecs.GetProcessCountByCustomerAsync(
+            BuildScopeOptions(scope),
+            customerIds,
+            cancellationToken);
+    }
+
+    public async Task<Dictionary<int, int>> GetSpecCountByCustomerAsync(
+        SpecAccessContext scope,
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (customerIds.Count == 0)
+            return new Dictionary<int, int>();
+
+        return await _unitOfWork.AcceptanceSpecs.GetSpecCountByCustomerAsync(
+            BuildScopeOptions(scope),
+            customerIds,
+            cancellationToken);
     }
 
     public async Task<Dictionary<int, int>> GetSpecCountByProcessAsync(
@@ -44,15 +53,10 @@ public sealed class AcceptanceSpecQueryService
         if (processIds.Count == 0)
             return new Dictionary<int, int>();
 
-        return await ApplyScope(_unitOfWork.AcceptanceSpecs.Query(), scope)
-            .Where(spec => spec.ProcessId.HasValue && processIds.Contains(spec.ProcessId.Value))
-            .GroupBy(spec => spec.ProcessId!.Value)
-            .Select(group => new
-            {
-                ProcessId = group.Key,
-                SpecCount = group.Count()
-            })
-            .ToDictionaryAsync(item => item.ProcessId, item => item.SpecCount, cancellationToken);
+        return await _unitOfWork.AcceptanceSpecs.GetSpecCountByProcessAsync(
+            BuildScopeOptions(scope),
+            processIds,
+            cancellationToken);
     }
 
     public async Task<Dictionary<int, int>> GetSpecCountByMachineModelAsync(
@@ -63,15 +67,10 @@ public sealed class AcceptanceSpecQueryService
         if (machineModelIds.Count == 0)
             return new Dictionary<int, int>();
 
-        return await ApplyScope(_unitOfWork.AcceptanceSpecs.Query(), scope)
-            .Where(spec => spec.MachineModelId.HasValue && machineModelIds.Contains(spec.MachineModelId.Value))
-            .GroupBy(spec => spec.MachineModelId!.Value)
-            .Select(group => new
-            {
-                MachineModelId = group.Key,
-                SpecCount = group.Count()
-            })
-            .ToDictionaryAsync(item => item.MachineModelId, item => item.SpecCount, cancellationToken);
+        return await _unitOfWork.AcceptanceSpecs.GetSpecCountByMachineModelAsync(
+            BuildScopeOptions(scope),
+            machineModelIds,
+            cancellationToken);
     }
 
     public async Task<List<ProcessSummary>> GetCustomerProcessesAsync(
@@ -255,6 +254,8 @@ public sealed class AcceptanceSpecQueryService
 
         return query.Where(_ => false);
     }
+
+    private static AcceptanceSpecQueryOptions BuildScopeOptions(SpecAccessContext scope) => BuildQueryOptions(scope);
 
     private static AcceptanceSpecQueryOptions BuildQueryOptions(
         SpecAccessContext scope,

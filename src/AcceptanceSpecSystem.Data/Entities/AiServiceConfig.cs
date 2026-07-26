@@ -76,6 +76,13 @@ public class AiServiceConfig
     public DateTime? UpdatedAt { get; set; }
 
     /// <summary>
+    /// 乐观并发版本号。多个管理员同时编辑同一配置时，
+    /// EF Core 会在 UPDATE 语句中附加该字段做比较，避免"读-改-保存"静默互相覆盖；
+    /// 每次保存由应用层自增（MySQL 无原生 rowversion 类型，采用应用侧维护的数值版本号）。
+    /// </summary>
+    public uint RowVersion { get; set; }
+
+    /// <summary>
     /// 兼容历史脏数据时使用的有效用途。
     /// 新建/编辑仍要求单一用途，这里只负责读取侧归一化。
     /// </summary>

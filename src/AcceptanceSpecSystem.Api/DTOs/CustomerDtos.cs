@@ -26,6 +26,11 @@ public class CustomerDto
     /// 制程数量
     /// </summary>
     public int ProcessCount { get; set; }
+
+    /// <summary>
+    /// 验收规格数量（包含未关联制程的规格）
+    /// </summary>
+    public int SpecCount { get; set; }
 }
 
 /// <summary>

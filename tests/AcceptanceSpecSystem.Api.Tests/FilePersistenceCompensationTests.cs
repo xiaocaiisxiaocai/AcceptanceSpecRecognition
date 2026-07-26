@@ -336,6 +336,7 @@ public sealed class FilePersistenceCompensationTests
         public IAuditLogRepository AuditLogs => null!;
         public IMatchingFillTaskRepository MatchingFillTasks => null!;
         public IExecutionHistoryRecordRepository ExecutionHistoryRecords => null!;
+        public IOrgUnitRepository OrgUnits => null!;
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

@@ -9,6 +9,8 @@ public sealed class CustomerSummary
     public DateTime CreatedAt { get; set; }
 
     public int ProcessCount { get; set; }
+
+    public int SpecCount { get; set; }
 }
 
 public sealed class ProcessSummary

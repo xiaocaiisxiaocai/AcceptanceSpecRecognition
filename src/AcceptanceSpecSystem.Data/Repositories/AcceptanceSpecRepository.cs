@@ -106,25 +106,6 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
             .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
     }
 
-    /// <summary>
-    /// 在指定制程范围内按关键字搜索验收规格。
-    /// </summary>
-    /// <param name="processId">制程ID</param>
-    /// <param name="searchTerm">搜索关键词</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>验收规格列表</returns>
-    public async Task<IReadOnlyList<AcceptanceSpec>> SearchAsync(int processId, string searchTerm, CancellationToken cancellationToken = default)
-    {
-        var term = searchTerm.ToLower();
-        return await _dbSet
-            .Where(s => s.ProcessId == processId &&
-                       (s.Project.ToLower().Contains(term) ||
-                        s.Specification.ToLower().Contains(term) ||
-                        (s.Acceptance != null && s.Acceptance.ToLower().Contains(term)) ||
-                        (s.Remark != null && s.Remark.ToLower().Contains(term))))
-            .ToListAsync(cancellationToken);
-    }
-
     /// <inheritdoc />
     public async Task<(IReadOnlyList<AcceptanceSpec> Items, int Total)> GetPagedWithFilterAsync(
         AcceptanceSpecQueryOptions options,
@@ -187,6 +168,90 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
             .ThenBy(g => g.MachineModelName)
             .ThenBy(g => g.ProcessName)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<int, int>> GetProcessCountByCustomerAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (customerIds.Count == 0)
+        {
+            return [];
+        }
+
+        var groups = await ApplyScope(Query(), scope)
+            .Where(spec => customerIds.Contains(spec.CustomerId) && spec.ProcessId.HasValue)
+            .GroupBy(spec => spec.CustomerId)
+            .Select(group => new
+            {
+                CustomerId = group.Key,
+                ProcessCount = group.Select(item => item.ProcessId!.Value).Distinct().Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        return groups.ToDictionary(item => item.CustomerId, item => item.ProcessCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<int, int>> GetSpecCountByCustomerAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> customerIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (customerIds.Count == 0)
+        {
+            return [];
+        }
+
+        var groups = await ApplyScope(Query(), scope)
+            .Where(spec => customerIds.Contains(spec.CustomerId))
+            .GroupBy(spec => spec.CustomerId)
+            .Select(group => new { CustomerId = group.Key, SpecCount = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        return groups.ToDictionary(item => item.CustomerId, item => item.SpecCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<int, int>> GetSpecCountByProcessAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> processIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (processIds.Count == 0)
+        {
+            return [];
+        }
+
+        var groups = await ApplyScope(Query(), scope)
+            .Where(spec => spec.ProcessId.HasValue && processIds.Contains(spec.ProcessId.Value))
+            .GroupBy(spec => spec.ProcessId!.Value)
+            .Select(group => new { ProcessId = group.Key, SpecCount = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        return groups.ToDictionary(item => item.ProcessId, item => item.SpecCount);
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<int, int>> GetSpecCountByMachineModelAsync(
+        AcceptanceSpecQueryOptions scope,
+        IReadOnlyCollection<int> machineModelIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (machineModelIds.Count == 0)
+        {
+            return [];
+        }
+
+        var groups = await ApplyScope(Query(), scope)
+            .Where(spec => spec.MachineModelId.HasValue && machineModelIds.Contains(spec.MachineModelId.Value))
+            .GroupBy(spec => spec.MachineModelId!.Value)
+            .Select(group => new { MachineModelId = group.Key, SpecCount = group.Count() })
+            .ToListAsync(cancellationToken);
+
+        return groups.ToDictionary(item => item.MachineModelId, item => item.SpecCount);
     }
 
     private IQueryable<AcceptanceSpec> CreateFilteredQuery(AcceptanceSpecQueryOptions options, bool includeNavigation)

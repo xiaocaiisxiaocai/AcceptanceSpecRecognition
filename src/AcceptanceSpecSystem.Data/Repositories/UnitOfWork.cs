@@ -35,6 +35,7 @@ public class UnitOfWork : IUnitOfWork
     private IAuditLogRepository? _auditLogs;
     private IMatchingFillTaskRepository? _matchingFillTasks;
     private IExecutionHistoryRecordRepository? _executionHistoryRecords;
+    private IOrgUnitRepository? _orgUnits;
 
     private bool _disposed;
 
@@ -316,6 +317,11 @@ public class UnitOfWork : IUnitOfWork
     /// 执行记录仓储。
     /// </summary>
     public IExecutionHistoryRecordRepository ExecutionHistoryRecords => GetOrCreate(ref _executionHistoryRecords);
+
+    /// <summary>
+    /// 组织节点仓储。
+    /// </summary>
+    public IOrgUnitRepository OrgUnits => GetOrCreate(ref _orgUnits);
 
 
     /// <summary>

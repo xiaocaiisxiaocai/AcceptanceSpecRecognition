@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -260,11 +261,6 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
     private static string? NormalizeOverrideText(string? value)
     {
         return value == null ? null : value.Trim();
-    }
-
-    private static MatchingApiException Failure(int code, string message)
-    {
-        return new MatchingApiException(code, message, isNotFound: code == 404);
     }
 
     private sealed record NormalizedBackfillItem(

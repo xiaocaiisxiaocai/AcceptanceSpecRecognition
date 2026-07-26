@@ -28,6 +28,7 @@ export interface AiServiceConfig {
   isDisabled: boolean;
   defaultRecallTopK: number;
   hasApiKey: boolean;
+  rowVersion: number;
   createdAt: string;
   updatedAt?: string | null;
 }
@@ -49,7 +50,9 @@ export interface CreateAiServiceRequest {
   defaultRecallTopK?: number;
 }
 
-export type UpdateAiServiceRequest = CreateAiServiceRequest;
+export interface UpdateAiServiceRequest extends CreateAiServiceRequest {
+  rowVersion: number;
+}
 
 export type AiServiceConnectionTestMode = "quick" | "full";
 
@@ -133,12 +136,16 @@ export const updateAiService = (id: number, data: UpdateAiServiceRequest) => {
   });
 };
 
-export const setAiServiceDisabled = (id: number, isDisabled: boolean) => {
+export const setAiServiceDisabled = (
+  id: number,
+  isDisabled: boolean,
+  rowVersion: number
+) => {
   return http.request<ApiResponse<AiServiceConfig>>(
     "put",
     `${baseUrl}/${id}/disabled`,
     {
-      data: { isDisabled }
+      data: { isDisabled, rowVersion }
     }
   );
 };
