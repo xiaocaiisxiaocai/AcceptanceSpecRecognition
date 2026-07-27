@@ -112,7 +112,7 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task AuditedConflict_ShouldPersistFinal409WithoutReplayingFailedBusinessEntity()
+    public async Task 已审计动作发生并发冲突时应记录最终409且不重放失败实体()
     {
         var traceId = $"audit-conflict-{Guid.NewGuid():N}";
         using var request = await BuildStaleAiConfigUpdateRequestAsync(_client, traceId);
@@ -125,26 +125,31 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
         audit.GetProperty("level").GetInt32().Should().Be((int)AuditLogLevel.Warning);
     }
 
-    [Fact]
-    public async Task AuditedUnhandledException_ShouldPersistFinal500()
+    [Theory]
+    [InlineData("argument", 400)]
+    [InlineData("unauthorized", 401)]
+    [InlineData("not-found", 404)]
+    [InlineData("unexpected", 500)]
+    public async Task 已审计动作抛出异常时应记录中间件映射后的最终状态(
+        string exceptionKind,
+        int expectedStatusCode)
     {
-        var traceId = $"audit-server-error-{Guid.NewGuid():N}";
+        var traceId = $"audit-exception-{expectedStatusCode}-{Guid.NewGuid():N}";
         using var baseFactory = new ApiWebApplicationFactory();
-        using var serverErrorFactory = CreateServerErrorFactory(baseFactory);
-        using var client = serverErrorFactory.CreateClient();
+        using var exceptionFactory = CreateExceptionFactory(baseFactory, exceptionKind);
+        using var client = exceptionFactory.CreateClient();
         using var request = AuthCookieTestHelper.CreateLoginRequest("audit-user", "audit-password");
         request.Headers.Add("X-Client-Trace-Id", traceId);
 
         using var response = await client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        ((int)response.StatusCode).Should().Be(expectedStatusCode);
         var audit = await FindAuditByTraceIdAsync(client, traceId);
-        audit.GetProperty("statusCode").GetInt32().Should().Be(500);
-        audit.GetProperty("level").GetInt32().Should().Be((int)AuditLogLevel.Error);
+        audit.GetProperty("statusCode").GetInt32().Should().Be(expectedStatusCode);
     }
 
     [Fact]
-    public async Task AuditWriteFailure_ShouldNotReplaceConflictResponse()
+    public async Task 审计写入失败时不应覆盖并发冲突响应()
     {
         using var factory = new AuditWriteFailureApiWebApplicationFactory();
         using var client = factory.CreateClient();
@@ -156,29 +161,51 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
-    [Fact]
-    public async Task AuditWriteFailure_ShouldNotReplaceUnhandledServerError()
+    [Theory]
+    [InlineData("argument", 400)]
+    [InlineData("unauthorized", 401)]
+    [InlineData("not-found", 404)]
+    [InlineData("unexpected", 500)]
+    public async Task 审计写入失败时不应覆盖异常中间件生成的业务响应(
+        string exceptionKind,
+        int expectedStatusCode)
     {
         using var auditFailureFactory = new AuditWriteFailureApiWebApplicationFactory();
-        using var serverErrorFactory = CreateServerErrorFactory(auditFailureFactory);
-        using var client = serverErrorFactory.CreateClient();
+        using var exceptionFactory = CreateExceptionFactory(auditFailureFactory, exceptionKind);
+        using var client = exceptionFactory.CreateClient();
         using var request = AuthCookieTestHelper.CreateLoginRequest("audit-user", "audit-password");
-        request.Headers.Add("X-Client-Trace-Id", $"audit-write-failure-500-{Guid.NewGuid():N}");
+        request.Headers.Add(
+            "X-Client-Trace-Id",
+            $"audit-write-failure-{expectedStatusCode}-{Guid.NewGuid():N}");
 
         using var response = await client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        ((int)response.StatusCode).Should().Be(expectedStatusCode);
     }
 
-    private static WebApplicationFactory<Program> CreateServerErrorFactory(
-        WebApplicationFactory<Program> factory)
+    private static WebApplicationFactory<Program> CreateExceptionFactory(
+        WebApplicationFactory<Program> factory,
+        string exceptionKind)
     {
         return factory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IAuthLoginAppService>();
-                services.AddScoped<IAuthLoginAppService, ThrowingAuthLoginAppService>();
+                services.AddScoped<IAuthLoginAppService>(_ =>
+                    new ThrowingAuthLoginAppService(CreateBusinessException(exceptionKind)));
             }));
+    }
+
+    private static Exception CreateBusinessException(string exceptionKind)
+    {
+        return exceptionKind switch
+        {
+            "argument" => new ArgumentException("模拟请求参数异常"),
+            "unauthorized" => new UnauthorizedAccessException("模拟未授权访问"),
+            "not-found" => new KeyNotFoundException("模拟业务资源不存在"),
+            "unexpected" => new Exception("模拟未处理业务异常"),
+            _ => throw new ArgumentOutOfRangeException(nameof(exceptionKind), exceptionKind, null)
+        };
     }
 
     private static async Task<HttpRequestMessage> BuildStaleAiConfigUpdateRequestAsync(
@@ -240,12 +267,19 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
 
     private sealed class ThrowingAuthLoginAppService : IAuthLoginAppService
     {
+        private readonly Exception _exception;
+
+        public ThrowingAuthLoginAppService(Exception exception)
+        {
+            _exception = exception;
+        }
+
         public Task<AuthLoginResult> AuthenticateAsync(
             string username,
             string password,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromException<AuthLoginResult>(new Exception("模拟未处理业务异常"));
+            return Task.FromException<AuthLoginResult>(_exception);
         }
     }
 }

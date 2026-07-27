@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Core.Diagnostics;
 
@@ -32,17 +33,28 @@ public class ExceptionHandlingMiddleware
     /// </summary>
     public async Task InvokeAsync(HttpContext context)
     {
+        Exception? exception = null;
         try
         {
             await _next(context);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
+            exception = ex;
             await HandleOperationCanceledAsync(context);
         }
         catch (Exception ex)
         {
+            exception = ex;
             await HandleExceptionAsync(context, ex);
+        }
+        finally
+        {
+            var auditOperationFilter = context.RequestServices?.GetService<AuditOperationFilter>();
+            if (auditOperationFilter != null)
+            {
+                await auditOperationFilter.WriteFinalAuditAsync(context, exception);
+            }
         }
     }
 

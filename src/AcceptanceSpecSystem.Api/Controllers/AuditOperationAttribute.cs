@@ -52,6 +52,7 @@ public sealed class AuditOperationFilter :
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly object AuditStateKey = new();
+    private static readonly object AuditExceptionKey = new();
     private static readonly object AuditWrittenKey = new();
 
     private readonly IServiceScopeFactory _scopeFactory;
@@ -98,20 +99,36 @@ public sealed class AuditOperationFilter :
         ResultExecutionDelegate next)
     {
         var executed = await next();
-        await TryWriteOnceAsync(
-            context.HttpContext,
-            context.HttpContext.Response.StatusCode,
-            executed.Exception,
-            context.HttpContext.RequestAborted);
+        CaptureException(context.HttpContext, executed.Exception);
     }
 
-    public async Task OnExceptionAsync(ExceptionContext context)
+    public Task OnExceptionAsync(ExceptionContext context)
     {
-        await TryWriteOnceAsync(
-            context.HttpContext,
-            StatusCodes.Status500InternalServerError,
-            context.Exception,
-            CancellationToken.None);
+        CaptureException(context.HttpContext, context.Exception);
+        return Task.CompletedTask;
+    }
+
+    internal Task WriteFinalAuditAsync(HttpContext httpContext, Exception? exception = null)
+    {
+        if (exception == null &&
+            httpContext.Items.TryGetValue(AuditExceptionKey, out var exceptionValue))
+        {
+            exception = exceptionValue as Exception;
+        }
+
+        return TryWriteOnceAsync(
+            httpContext,
+            httpContext.Response.StatusCode,
+            exception,
+            exception == null ? httpContext.RequestAborted : CancellationToken.None);
+    }
+
+    private static void CaptureException(HttpContext httpContext, Exception? exception)
+    {
+        if (exception != null)
+        {
+            httpContext.Items[AuditExceptionKey] = exception;
+        }
     }
 
     private async Task TryWriteOnceAsync(
