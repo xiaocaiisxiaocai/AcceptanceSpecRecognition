@@ -84,7 +84,7 @@ test("智能填充上传页不应再内联展示完整逐表确认结果", () =>
   assert.match(uploadStepSource, /结构识别结果已保留/);
 });
 
-test("删除上传文件必须让旧识别和匹配结果失效并返回上传步骤", () => {
+test("移出当前流程必须让旧识别和匹配结果失效并返回上传步骤", () => {
   assert.match(source, /@update:uploaded-file="handleUploadedFileChange"/);
   assert.match(
     source,

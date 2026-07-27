@@ -96,12 +96,15 @@ export function useSmartStructureRecognition() {
         }
       }
 
-      const res = await recognizeSmartConfig({
-        fileId,
-        customerId,
-        enableLlmAssistance,
-        llmServiceId: enableLlmAssistance ? llmServiceId : undefined
-      });
+      const res = await recognizeSmartConfig(
+        {
+          fileId,
+          customerId,
+          enableLlmAssistance,
+          llmServiceId: enableLlmAssistance ? llmServiceId : undefined
+        },
+        { signal: currentSelectionController.signal }
+      );
       if (res.code !== 0) {
         throw new Error(res.message || "智能结构识别失败");
       }
@@ -222,19 +225,23 @@ export function useSmartStructureRecognition() {
     }
   };
 
-  const reset = () => {
+  const cancelActiveRecognition = () => {
     recognitionRequestVersion += 1;
     contextVersion += 1;
     selectionController?.abort();
     selectionController = undefined;
+    recognizing.value = false;
+    confirmingTableIndex.value = null;
+  };
+
+  const reset = () => {
+    cancelActiveRecognition();
     activeRecognitionFileId.value = null;
     activeRecognitionCustomerId.value = null;
-    recognizing.value = false;
     recognitionAttempted.value = false;
     recognitionResult.value = null;
     recognitionError.value = "";
     lastConfirmResult.value = null;
-    confirmingTableIndex.value = null;
   };
 
   return {
@@ -251,6 +258,7 @@ export function useSmartStructureRecognition() {
     lastConfirmResult,
     recognize,
     confirm,
+    cancelActiveRecognition,
     reset
   };
 }

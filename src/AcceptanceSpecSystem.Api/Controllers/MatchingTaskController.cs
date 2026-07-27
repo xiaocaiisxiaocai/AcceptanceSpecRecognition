@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Contracts;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -15,6 +16,17 @@ public class MatchingTaskController : MatchingApiControllerBase
     public MatchingTaskController(IMatchingTaskAppService matchingTaskAppService)
     {
         _matchingTaskAppService = matchingTaskAppService;
+    }
+
+    [HttpGet("tasks/{taskId:regex(^[[a-f0-9]]{{32}}$)}/status")]
+    [ProducesResponseType(typeof(ApiResponse<MatchingTaskStatusDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public Task<ActionResult<ApiResponse<MatchingTaskStatusDto>>> GetStatus(
+        string taskId,
+        CancellationToken cancellationToken = default)
+    {
+        return HandleAsync(() => _matchingTaskAppService.GetStatusAsync(
+            GetMatchingUserContext(), taskId, cancellationToken));
     }
 
     [HttpGet("download/{taskId:regex(^[[a-f0-9]]{{32}}$)}")]

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -284,6 +285,50 @@ public sealed class MatchingTaskSnapshotService
             _logger.LogWarning(ex, "任务快照反序列化失败: {TaskId}", taskId);
             return null;
         }
+    }
+
+    internal async Task<MatchingTaskStatusDto?> LoadStatusAsync(
+        MatchingUserContext user,
+        string taskId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _unitOfWork.MatchingFillTasks.GetByTaskIdAsync(taskId);
+        if (entity == null || string.IsNullOrWhiteSpace(entity.PayloadJson))
+        {
+            return null;
+        }
+
+        var owner = ResolveTaskOwner(user);
+        if (entity.CreatedByUserId != owner.UserId || entity.CompanyId != owner.CompanyId)
+        {
+            throw NotFoundFailure("任务不存在或已过期");
+        }
+
+        FillTaskResult? taskResult;
+        try
+        {
+            taskResult = DeserializeFillTaskResult(entity.PayloadJson);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "任务状态快照反序列化失败: {TaskId}", taskId);
+            return null;
+        }
+
+        if (taskResult == null)
+        {
+            return null;
+        }
+
+        var isRunning = taskResult.FileMutationPending;
+        return new MatchingTaskStatusDto
+        {
+            TaskId = entity.TaskId,
+            Status = isRunning ? "running" : "completed",
+            CanDownload = !isRunning,
+            // 当前模型没有独立更新时间；CreatedAt 是持久快照时间，不读取物理文件时间。
+            UpdatedAt = entity.CreatedAt
+        };
     }
 
     private async Task CleanupExpiredArtifactsAsync(

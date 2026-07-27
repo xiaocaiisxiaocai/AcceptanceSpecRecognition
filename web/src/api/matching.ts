@@ -292,6 +292,13 @@ export interface ExecuteFillResponse {
   downloadUrl: string;
 }
 
+export interface MatchingTaskStatusResponse {
+  taskId: string;
+  status: "running" | "completed" | "failed";
+  canDownload: boolean;
+  updatedAt: string;
+}
+
 const baseUrl = "/api/matching";
 
 /** 下载填充结果 */
@@ -299,6 +306,13 @@ export const downloadFillResult = (taskId: string) => {
   return http.request<Blob>("get", `${baseUrl}/download/${taskId}`, {
     responseType: "blob"
   });
+};
+
+export const getMatchingTaskStatus = (taskId: string) => {
+  return http.request<ApiResponse<MatchingTaskStatusResponse>>(
+    "get",
+    `${baseUrl}/tasks/${taskId}/status`
+  );
 };
 
 /** 获取下载URL */

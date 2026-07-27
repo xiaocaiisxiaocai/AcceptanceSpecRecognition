@@ -1,3 +1,4 @@
+using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
@@ -6,6 +7,11 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public interface IMatchingTaskAppService
 {
+    Task<MatchingOperationResult<MatchingTaskStatusDto>> GetStatusAsync(
+        MatchingUserContext user,
+        string taskId,
+        CancellationToken cancellationToken = default);
+
     Task<MatchingDownloadResult> DownloadAsync(
         MatchingUserContext user,
         string taskId,
@@ -35,6 +41,24 @@ public sealed class MatchingTaskAppService : IMatchingTaskAppService
         _fileStorage = fileStorage;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _logger = logger;
+    }
+
+    public async Task<MatchingOperationResult<MatchingTaskStatusDto>> GetStatusAsync(
+        MatchingUserContext user,
+        string taskId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var status = await _matchingTaskSnapshotService.LoadStatusAsync(
+            user,
+            taskId,
+            cancellationToken);
+        if (status == null)
+        {
+            throw NotFoundFailure("任务不存在或已过期");
+        }
+
+        return Result(status);
     }
 
     public async Task<MatchingDownloadResult> DownloadAsync(

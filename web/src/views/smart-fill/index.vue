@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onBeforeUnmount, watch } from "vue";
+import {
+  ref,
+  computed,
+  nextTick,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  watch
+} from "vue";
 import { useEventListener } from "@vueuse/core";
 import { ElMessage, type FormInstance, type FormRules } from "element-plus";
 import ScoreDetailDialog from "./components/ScoreDetailDialog.vue";
@@ -49,6 +57,7 @@ import {
 import { useSmartFillPreviewRequest } from "./composables/useSmartFillPreviewRequest";
 import { useSmartFillExecution } from "./composables/useSmartFillExecution";
 import { useSmartFillUploadedTables } from "./composables/useSmartFillUploadedTables";
+import { useSmartFillActivation } from "./composables/useSmartFillActivation";
 import { useSmartStructureRecognition } from "@/views/shared/useSmartStructureRecognition";
 import {
   applySmartConfigConfirmRequestToTable,
@@ -108,7 +117,10 @@ const canLlmStream = computed(() => hasPerms("btn:matching-fill:llm-stream"));
 const canExecuteFill = computed(() =>
   hasPerms("btn:matching-fill:execute-batch")
 );
-const canDownloadFillResult = computed(() => hasPerms("btn:matching:download"));
+const taskDownloadAvailable = ref(true);
+const canDownloadFillResult = computed(
+  () => taskDownloadAvailable.value && hasPerms("btn:matching:download")
+);
 
 // 所有表格信息
 const allTables = ref<TableInfo[]>([]);
@@ -189,6 +201,7 @@ const {
   replaceRecognizedTables,
   recognize: recognizeSmartStructure,
   confirm: confirmSmartStructure,
+  cancelActiveRecognition,
   reset: resetSmartStructure
 } = useSmartStructureRecognition();
 const smartConfirmDrafts = ref<
@@ -462,16 +475,84 @@ const { doPreview, invalidatePendingPreview, previewAbortController } =
     }
   });
 
+let taskStatusPollTimer: number | null = null;
+let reconcileRetainedTask:
+  | ((retainedTaskId: string | null) => Promise<void>)
+  | undefined;
+
+const stopTaskStatusPolling = () => {
+  if (taskStatusPollTimer !== null && typeof window !== "undefined") {
+    window.clearTimeout(taskStatusPollTimer);
+  }
+  taskStatusPollTimer = null;
+};
+
+const stopOwnedProgress = () => {
+  stopTaskStatusPolling();
+  stopPreviewProgressPolling();
+};
+
+const resumeTaskStatusPolling = (retainedTaskId: string) => {
+  stopTaskStatusPolling();
+  taskDownloadAvailable.value = false;
+  if (typeof window === "undefined") return;
+
+  taskStatusPollTimer = window.setTimeout(() => {
+    taskStatusPollTimer = null;
+    void reconcileRetainedTask?.(retainedTaskId);
+  }, 900);
+};
+
+const activation = useSmartFillActivation({
+  abortScope: () => {
+    scopeOptionsController?.abort();
+    scopeOptionsController = undefined;
+    loadingScopeOptions.value = false;
+  },
+  invalidatePreview: invalidatePendingPreview,
+  stopProgress: stopOwnedProgress,
+  stopStream: stopLlmStream,
+  cancelRecognition: cancelActiveRecognition,
+  resumeProgress: resumeTaskStatusPolling,
+  restoreDownload: retainedTaskId => {
+    if (taskId.value !== retainedTaskId) return;
+    taskDownloadAvailable.value = true;
+    lastDownloadFailed.value = false;
+  },
+  invalidateStaleResponse: () => {
+    taskDownloadAvailable.value = false;
+    taskId.value = null;
+    lastDownloadFailed.value = false;
+    batchPreviewResults.value = [];
+    clearPreviewDetail();
+    resetPreviewState();
+  }
+});
+reconcileRetainedTask = activation.reconcileOnActivation;
+
 const retryPreview = async () => {
   if (!(await refreshRuntimeAiSelection())) return;
   await doPreview();
 };
 
-// 页面卸载时清理进行中的预览/流式请求，防止离页后继续占用资源
+onActivated(() => {
+  if (
+    customers.value.length === 0 &&
+    processes.value.length === 0 &&
+    machineModels.value.length === 0
+  ) {
+    void loadScopeOptions();
+  }
+  void activation.reconcileOnActivation(taskId.value);
+});
+
+onDeactivated(() => {
+  activation.pauseForDeactivation();
+});
+
+// 页面卸载时同样清理页面拥有的后台工作。
 onBeforeUnmount(() => {
-  scopeOptionsController?.abort();
-  invalidatePendingPreview();
-  stopLlmStream();
+  activation.pauseForDeactivation();
 });
 
 watch(currentStep, step => {
@@ -1000,6 +1081,7 @@ const handleRestart = () => {
   resetPendingBackfillState();
   resetMatchScope();
   resetExecutionState();
+  taskDownloadAvailable.value = true;
   loadingUploadedFileTables.value = false;
   currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
   advancedMode.value = false;

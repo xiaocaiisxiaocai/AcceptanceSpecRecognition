@@ -83,7 +83,8 @@ describe("useSmartStructureRecognition", () => {
       expect.objectContaining({
         enableLlmAssistance: false,
         llmServiceId: undefined
-      })
+      }),
+      { signal: expect.any(AbortSignal) }
     );
     expect(messageMocks.warning).toHaveBeenCalledWith(
       "AI 服务当前不可用，本次先使用规则识别"
@@ -118,7 +119,8 @@ describe("useSmartStructureRecognition", () => {
         expect.objectContaining({
           enableLlmAssistance: true,
           llmServiceId: 42
-        })
+        }),
+        { signal: expect.any(AbortSignal) }
       );
       expect(messageMocks.warning).not.toHaveBeenCalled();
     } finally {
@@ -151,6 +153,30 @@ describe("useSmartStructureRecognition", () => {
     }
   });
 
+  it("cancelActiveRecognition 会中止当前识别请求并拒绝迟到响应写回", async () => {
+    const recognitionRequest = deferred<any>();
+    let recognitionSignal: AbortSignal | undefined;
+    apiMocks.recognizeSmartConfig
+      .mockReset()
+      .mockImplementation(
+        (_request: unknown, options?: { signal?: AbortSignal }) => {
+          recognitionSignal = options?.signal;
+          return recognitionRequest.promise;
+        }
+      );
+    const state = useSmartStructureRecognition();
+
+    const pending = state.recognize(9, 1);
+    await Promise.resolve();
+    state.cancelActiveRecognition();
+
+    expect(recognitionSignal?.aborted).toBe(true);
+    recognitionRequest.resolve({ code: 0, data: result(9, "迟到结果") });
+    await expect(pending).resolves.toBeNull();
+    expect(state.recognitionResult.value).toBeNull();
+    expect(state.recognizing.value).toBe(false);
+  });
+
   it("有限等待结束后仍为 checking 才降级为规则识别", async () => {
     vi.useFakeTimers();
     try {
@@ -176,7 +202,8 @@ describe("useSmartStructureRecognition", () => {
         expect.objectContaining({
           enableLlmAssistance: false,
           llmServiceId: undefined
-        })
+        }),
+        { signal: expect.any(AbortSignal) }
       );
       expect(messageMocks.warning).toHaveBeenCalledWith(
         "AI 服务仍在检测中，本次先使用规则识别"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onActivated, onDeactivated, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { uploadFile, type FileUploadResponse } from "@/api/document";
 import type { UploadRequestOptions } from "element-plus";
@@ -26,6 +26,7 @@ const uploadedFile = computed({
   get: () => props.modelValue ?? null,
   set: val => emit("update:modelValue", val)
 });
+const uploadZoneMounted = ref(true);
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
 const isTableCountPending = computed(
@@ -86,21 +87,32 @@ const handleUpload = async (
   }
 };
 
-const clearFile = () => {
+const removeFromCurrentFlow = () => {
   uploadedFile.value = null;
 };
+
+onDeactivated(() => {
+  // AppUploadZone 卸载时会调用既有 cancel，真正中止当前上传请求。
+  uploadZoneMounted.value = false;
+});
+
+onActivated(() => {
+  uploadZoneMounted.value = true;
+});
 </script>
 
 <template>
   <div class="file-upload">
-    <AppUploadZone
-      v-if="!uploadedFile"
-      :request="handleUpload"
-      :upload-hint="uploadHint"
-      :accept="resolvedAccept"
-      size="normal"
-      drag-text="将 Word/Excel 文件拖到此处或"
-    />
+    <template v-if="!uploadedFile">
+      <AppUploadZone
+        v-if="uploadZoneMounted"
+        :request="handleUpload"
+        :upload-hint="uploadHint"
+        :accept="resolvedAccept"
+        size="normal"
+        drag-text="将 Word/Excel 文件拖到此处或"
+      />
+    </template>
 
     <!-- 已上传文件信息 -->
     <el-card v-else class="uploaded-info">
@@ -135,7 +147,9 @@ const clearFile = () => {
           </div>
         </div>
         <div class="file-actions">
-          <el-button type="danger" link @click="clearFile">删除</el-button>
+          <el-button type="danger" link @click="removeFromCurrentFlow">
+            移出当前流程
+          </el-button>
         </div>
       </div>
     </el-card>

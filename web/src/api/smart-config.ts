@@ -181,13 +181,17 @@ export interface SmartConfigConfirmResult {
 const baseUrl = "/api/smart-config";
 const smartConfigRequestTimeout = 120000;
 
-export const recognizeSmartConfig = (data: SmartConfigRecognizeRequest) => {
+export const recognizeSmartConfig = (
+  data: SmartConfigRecognizeRequest,
+  options: { signal?: AbortSignal } = {}
+) => {
   return http.request<ApiResponse<SmartConfigRecognizeResult>>(
     "post",
     `${baseUrl}/recognize`,
     {
       data,
-      timeout: smartConfigRequestTimeout
+      timeout: smartConfigRequestTimeout,
+      signal: options.signal
     }
   );
 };

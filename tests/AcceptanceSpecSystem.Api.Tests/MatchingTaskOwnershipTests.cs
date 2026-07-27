@@ -20,6 +20,194 @@ public class MatchingTaskOwnershipTests : IClassFixture<ApiWebApplicationFactory
         _factory = factory;
     }
 
+    [Theory]
+    [InlineData(false, "completed", true)]
+    [InlineData(true, "running", false)]
+    public async Task Status_WhenTaskIsOwned_ShouldReturnOnlySafeSnapshotFields(
+        bool fileMutationPending,
+        string expectedStatus,
+        bool expectedCanDownload)
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        var snapshotTime = new DateTime(2026, 7, 27, 1, 2, 3, DateTimeKind.Utc);
+        await SeedStatusTaskAsync(
+            taskId,
+            createdByUserId: 1,
+            companyId: 1,
+            fileMutationPending,
+            snapshotTime);
+
+        using var client = _factory.CreateClient();
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain(@"C:\sensitive\result.xlsx");
+        var body = JsonSerializer.Deserialize<
+            AcceptanceSpecSystem.Api.Models.ApiResponse<JsonElement>>(
+            raw,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        body.Should().NotBeNull();
+        body!.Code.Should().Be(0);
+        var data = body.Data;
+        data.GetProperty("taskId").GetString().Should().Be(taskId);
+        data.GetProperty("status").GetString().Should().Be(expectedStatus);
+        data.GetProperty("canDownload").GetBoolean().Should().Be(expectedCanDownload);
+        data.GetProperty("updatedAt").GetDateTime().Should().Be(snapshotTime);
+        data.EnumerateObject()
+            .Select(property => property.Name)
+            .Should()
+            .BeEquivalentTo(["taskId", "status", "canDownload", "updatedAt"]);
+        data.EnumerateObject().Should().HaveCount(4);
+    }
+
+    [Theory]
+    [InlineData("2", "1")]
+    [InlineData("1", "2")]
+    public async Task Status_WhenTaskBelongsToAnotherOwner_ShouldReturnNotFound(
+        string userId,
+        string companyId)
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await SeedStatusTaskAsync(
+            taskId,
+            createdByUserId: 1,
+            companyId: 1,
+            fileMutationPending: false,
+            DateTime.UtcNow);
+
+        using var client = _factory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/matching/tasks/{taskId}/status");
+        request.Headers.Add("X-Test-User-Id", userId);
+        request.Headers.Add("X-Test-Company-Id", companyId);
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Code.Should().Be(404);
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
+    public async Task Status_WhenTaskDoesNotExist_ShouldReturnNotFound()
+    {
+        using var client = _factory.CreateClient();
+        var taskId = Guid.NewGuid().ToString("N");
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Code.Should().Be(404);
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
+    public async Task Status_WhenOwnedTaskPayloadIsInvalid_ShouldReturnNotFound()
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var sourceFile = new WordFile
+            {
+                FileName = "invalid-status-source.xlsx",
+                FileType = UploadedFileType.ExcelXlsx,
+                FileContent = "invalid-status-source"u8.ToArray(),
+                FileHash = "invalid-status-hash",
+                CompanyId = 1,
+                CreatedByUserId = 1,
+                UploadedAt = DateTime.UtcNow
+            };
+            db.WordFiles.Add(sourceFile);
+            await db.SaveChangesAsync();
+            db.MatchingFillTasks.Add(new MatchingFillTask
+            {
+                TaskId = taskId,
+                SourceFileId = sourceFile.Id,
+                CreatedByUserId = 1,
+                CompanyId = 1,
+                PayloadJson = "{invalid-json",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Code.Should().Be(404);
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
+    public async Task Status_WhenLegacyTaskLacksOwnership_ShouldRemainReadOnlyAndReturnNotFound()
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var sourceFile = new WordFile
+            {
+                FileName = "legacy-status-source.xlsx",
+                FileType = UploadedFileType.ExcelXlsx,
+                FileContent = "legacy-status-source"u8.ToArray(),
+                FileHash = "legacy-status-hash",
+                CompanyId = 1,
+                CreatedByUserId = 1,
+                UploadedAt = DateTime.UtcNow
+            };
+            db.WordFiles.Add(sourceFile);
+            await db.SaveChangesAsync();
+            db.MatchingFillTasks.Add(new MatchingFillTask
+            {
+                TaskId = taskId,
+                SourceFileId = sourceFile.Id,
+                CreatedByUserId = null,
+                CompanyId = null,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    payloadVersion = 4,
+                    taskId,
+                    sourceFileId = sourceFile.Id,
+                    createdAt = DateTime.UtcNow,
+                    fileMutationPending = false
+                }),
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var snapshot = await verifyDb.MatchingFillTasks.SingleAsync(item => item.TaskId == taskId);
+        snapshot.CreatedByUserId.Should().BeNull();
+        snapshot.CompanyId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Status_WhenAnonymous_ShouldReturnUnauthorized()
+    {
+        using var client = _factory.CreateClient();
+        var taskId = Guid.NewGuid().ToString("N");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/matching/tasks/{taskId}/status");
+        request.Headers.Add("X-Test-Auth", "anonymous");
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     [Fact]
     public async Task Download_WhenTaskBelongsToAnotherUser_ShouldReturnNotFound()
     {
@@ -198,5 +386,48 @@ public class MatchingTaskOwnershipTests : IClassFixture<ApiWebApplicationFactory
         var body = await response.ReadAsAsync<ApiResponse>();
         body.Code.Should().Be(400);
         body.Message.Should().Be("历史任务缺少归属信息，请重新执行填充后再下载");
+    }
+
+    private async Task SeedStatusTaskAsync(
+        string taskId,
+        int createdByUserId,
+        int companyId,
+        bool fileMutationPending,
+        DateTime snapshotTime)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var sourceFile = new WordFile
+        {
+            FileName = "status-source.xlsx",
+            FileType = UploadedFileType.ExcelXlsx,
+            FileContent = "status-source"u8.ToArray(),
+            FileHash = "status-hash",
+            CompanyId = companyId,
+            CreatedByUserId = createdByUserId,
+            UploadedAt = snapshotTime
+        };
+        db.WordFiles.Add(sourceFile);
+        await db.SaveChangesAsync();
+
+        db.MatchingFillTasks.Add(new MatchingFillTask
+        {
+            TaskId = taskId,
+            SourceFileId = sourceFile.Id,
+            CreatedByUserId = createdByUserId,
+            CompanyId = companyId,
+            PayloadJson = JsonSerializer.Serialize(new
+            {
+                payloadVersion = 4,
+                taskId,
+                sourceFileId = sourceFile.Id,
+                createdAt = snapshotTime,
+                fileMutationPending,
+                downloadArtifactRelativePath = @"C:\sensitive\result.xlsx",
+                filledFilePath = @"C:\sensitive\source.xlsx"
+            }),
+            CreatedAt = snapshotTime
+        });
+        await db.SaveChangesAsync();
     }
 }

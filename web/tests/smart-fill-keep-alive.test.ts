@@ -62,3 +62,21 @@ test("智能填充进度快照 404 时应停止轮询但不取消主匹配", () 
     /axiosError\?\.response\?\.status === 404[\s\S]{0,120}stopPreviewRequest\(\)/
   );
 });
+
+test("智能填充 keep-alive 失活暂停资源且激活只对账保留任务", () => {
+  const pageSource = readProjectFile("web/src/views/smart-fill/index.vue");
+  const uploadSource = readProjectFile(
+    "web/src/views/data-import/components/FileUpload.vue"
+  );
+
+  assert.match(pageSource, /onActivated\(\(\) =>/);
+  assert.match(
+    pageSource,
+    /activation\.reconcileOnActivation\(taskId\.value\)/
+  );
+  assert.match(pageSource, /onDeactivated\(\(\) =>/);
+  assert.match(pageSource, /activation\.pauseForDeactivation\(\)/);
+  assert.match(pageSource, /cancelRecognition:\s*cancelActiveRecognition/);
+  assert.match(uploadSource, /onDeactivated\(\(\) =>/);
+  assert.match(uploadSource, /uploadZoneMounted\.value = false/);
+});
