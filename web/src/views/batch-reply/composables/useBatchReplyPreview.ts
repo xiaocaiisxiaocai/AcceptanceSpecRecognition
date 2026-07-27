@@ -81,7 +81,7 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
         return {
           ...file,
           previewResults: {},
-          previewLoadingTableIndex: undefined
+          previewLoadingTableIndexes: []
         };
       }
 
@@ -90,10 +90,9 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
       return {
         ...file,
         previewResults,
-        previewLoadingTableIndex:
-          file.previewLoadingTableIndex === tableIndex
-            ? undefined
-            : file.previewLoadingTableIndex
+        previewLoadingTableIndexes: file.previewLoadingTableIndexes.filter(
+          loadingTableIndex => loadingTableIndex !== tableIndex
+        )
       };
     });
   };
@@ -244,8 +243,12 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
       return;
     }
 
-    cancelTargetPreviews(targetId, item.tableIndex);
     const requestKey = buildPreviewRequestKey(targetId, item.tableIndex);
+    if (previewRequestStates.has(requestKey)) {
+      return;
+    }
+
+    clearTargetPreviewResults(targetId, item.tableIndex);
     const requestState = {
       fingerprint: buildBatchReplyPreviewFingerprint(
         params.sourceSessionId.value,
@@ -257,7 +260,13 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     previewRequestStates.set(requestKey, requestState);
     params.targetFiles.value = params.targetFiles.value.map(file =>
       file.targetId === targetId
-        ? { ...file, previewLoadingTableIndex: item.tableIndex }
+        ? {
+            ...file,
+            previewLoadingTableIndexes: [
+              ...file.previewLoadingTableIndexes,
+              item.tableIndex
+            ]
+          }
         : file
     );
 
@@ -291,7 +300,6 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
         file.targetId === targetId
           ? {
               ...file,
-              previewLoadingTableIndex: undefined,
               previewResults: {
                 ...file.previewResults,
                 [item.tableIndex]: res.data
@@ -323,9 +331,14 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
       if (previewRequestStates.get(requestKey) === requestState) {
         previewRequestStates.delete(requestKey);
         params.targetFiles.value = params.targetFiles.value.map(file =>
-          file.targetId === targetId &&
-          file.previewLoadingTableIndex === item.tableIndex
-            ? { ...file, previewLoadingTableIndex: undefined }
+          file.targetId === targetId
+            ? {
+                ...file,
+                previewLoadingTableIndexes:
+                  file.previewLoadingTableIndexes.filter(
+                    tableIndex => tableIndex !== item.tableIndex
+                  )
+              }
             : file
         );
       }

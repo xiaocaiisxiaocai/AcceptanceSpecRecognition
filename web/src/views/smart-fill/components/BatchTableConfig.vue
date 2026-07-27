@@ -36,8 +36,8 @@ const props = withDefaults(
     sourceTableLabel?: string;
     /** 是否显示映射预览操作 */
     mappingPreviewable?: boolean;
-    /** 当前正在预览的表格索引 */
-    mappingPreviewLoadingTableIndex?: number;
+    /** 当前正在预览的表格索引集合 */
+    mappingPreviewLoadingTableIndexes?: number[];
     /** 当前表格对应的预览结果 */
     mappingPreviewResults?: Record<
       number,
@@ -415,7 +415,9 @@ const getPreviewResult = (tableIndex: number) => {
                 link
                 size="small"
                 :loading="
-                  props.mappingPreviewLoadingTableIndex === item.tableIndex
+                  props.mappingPreviewLoadingTableIndexes?.includes(
+                    item.tableIndex
+                  )
                 "
                 @click="emit('mapping-preview', item)"
               >

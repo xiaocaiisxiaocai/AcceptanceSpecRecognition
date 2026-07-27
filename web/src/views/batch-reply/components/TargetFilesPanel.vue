@@ -137,8 +137,8 @@ defineEmits<{
           :source-table-options="selectedSourceTableOptions"
           source-table-label="来源表"
           :mapping-previewable="canPreviewBatchReply"
-          :mapping-preview-loading-table-index="
-            targetFile.previewLoadingTableIndex
+          :mapping-preview-loading-table-indexes="
+            targetFile.previewLoadingTableIndexes
           "
           :mapping-preview-results="targetFile.previewResults"
           @update:model-value="

@@ -36,7 +36,7 @@ defineEmits<{
       <el-button
         type="success"
         :loading="executing"
-        :disabled="executeDisabled"
+        :disabled="executeDisabled || downloadLoading"
         @click="$emit('execute')"
       >
         执行已完成目标文件
@@ -70,6 +70,7 @@ defineEmits<{
         <el-button
           type="primary"
           :loading="downloadLoading"
+          :disabled="downloadLoading"
           @click="$emit('retryDownload')"
         >
           重新下载

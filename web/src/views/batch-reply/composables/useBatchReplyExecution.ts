@@ -31,32 +31,66 @@ export const useBatchReplyExecution = (
   const executing = ref(false);
   const downloadError = ref("");
   const downloadLoading = ref(false);
+  let activeDownloadRequest: {
+    result: BatchReplyExecuteResponse;
+    promise: Promise<void>;
+  } | null = null;
 
-  const retryDownload = async () => {
+  const retryDownload = (): Promise<void> => {
+    if (activeDownloadRequest) {
+      return activeDownloadRequest.promise;
+    }
+
     const result = executeResult.value;
-    if (!result) return;
+    if (!result) return Promise.resolve();
     if (
       !ensurePermission(
         "api:batch-reply:download",
         "权限不足，无法下载批量回复结果"
       )
     ) {
-      return;
+      return Promise.resolve();
     }
 
     downloadLoading.value = true;
     downloadError.value = "";
-    try {
-      const blob = await downloadBatchReplyResult(result.taskId);
-      triggerBrowserDownload(blob, result.downloadFileName);
-    } catch {
-      downloadError.value = BATCH_REPLY_DOWNLOAD_FAILED_MESSAGE;
-    } finally {
-      downloadLoading.value = false;
-    }
+    const requestState = {
+      result,
+      promise: Promise.resolve()
+    };
+    activeDownloadRequest = requestState;
+    requestState.promise = (async () => {
+      try {
+        const blob = await downloadBatchReplyResult(result.taskId);
+        if (
+          activeDownloadRequest !== requestState ||
+          executeResult.value?.taskId !== result.taskId
+        ) {
+          return;
+        }
+        triggerBrowserDownload(blob, result.downloadFileName);
+      } catch {
+        if (
+          activeDownloadRequest === requestState &&
+          executeResult.value?.taskId === result.taskId
+        ) {
+          downloadError.value = BATCH_REPLY_DOWNLOAD_FAILED_MESSAGE;
+        }
+      } finally {
+        if (activeDownloadRequest === requestState) {
+          activeDownloadRequest = null;
+          downloadLoading.value = false;
+        }
+      }
+    })();
+    return requestState.promise;
   };
 
   const executeReadyTargets = async () => {
+    if (executing.value || downloadLoading.value) {
+      return;
+    }
+
     if (
       !ensurePermission("btn:batch-reply:execute", "权限不足，无法执行批量回复")
     ) {

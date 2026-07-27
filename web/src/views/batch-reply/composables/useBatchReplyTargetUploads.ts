@@ -93,7 +93,8 @@ export const useBatchReplyTargetUploads = (
           )
         )
       ),
-      previewResults: {}
+      previewResults: {},
+      previewLoadingTableIndexes: []
     };
 
     throwIfTargetUploadStale(uploadVersion);

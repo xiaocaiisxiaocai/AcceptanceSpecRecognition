@@ -29,7 +29,7 @@ export type BatchReplyTargetState = {
   tables: TableInfo[];
   configs: BatchReplyTableConfigItem[];
   previewResults: Record<number, BatchReplyTablePreviewResponse | null>;
-  previewLoadingTableIndex?: number;
+  previewLoadingTableIndexes: number[];
 };
 
 export type BatchReplyPermissionState = {
