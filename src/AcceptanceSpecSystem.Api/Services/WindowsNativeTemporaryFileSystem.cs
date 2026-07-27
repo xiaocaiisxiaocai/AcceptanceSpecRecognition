@@ -108,8 +108,9 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     {
         ThrowIfDisposed();
         ValidateRequestId(requestId);
+        var markerToken = GetMarkerToken(markerValue, requestId);
         var initializationName =
-            $".init-{requestId}-{Guid.NewGuid():N}";
+            $".init-{requestId}-{markerToken}";
         using var initializationClaim = TryCreateCleanupClaim(initializationName)
             ?? throw new IOException("无法取得临时资源初始化所有权");
         SafeFileHandle? directory = null;
@@ -175,7 +176,7 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
             {
                 try
                 {
-                    QuarantineAndDelete(directory, requestId, ".init-", null);
+                    QuarantineAndDelete(directory, requestId, markerToken, ".init-", null);
                 }
                 catch
                 {
@@ -193,62 +194,19 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     {
         ThrowIfDisposed();
         var failures = 0;
-        var initialNames = EnumerateNames(_root);
-        foreach (var requestId in initialNames.Where(IsRequestId))
+        foreach (var quarantineName in EnumerateNames(_root, cancellationToken)
+                     .Where(IsRecoveryCandidateName))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            SafeFileHandle? directory = null;
-            try
-            {
-                directory = OpenRelative(
-                    _root,
-                    requestId,
-                    Delete | FileListDirectory | FileTraverse | FileReadAttributes | Synchronize,
-                    FileShareRead | FileShareWrite | FileShareDelete,
-                    FileOpen,
-                    FileDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
-                EnsureDirectoryIsSafe(directory);
-                hook?.AfterCleanupDirectoryOpened(requestId);
-                if (!TryReadValidExpiredMarker(directory, requestId, cutoff))
-                    continue;
-                using var cleanupClaim = TryCreateCleanupClaim(requestId);
-                if (cleanupClaim is null)
-                    continue;
-                hook?.BeforeCleanupDirectory();
-                hook?.BeforeRequestDirectoryRename(requestId);
-                QuarantineAndDelete(directory, requestId, ".gc-", hook);
-            }
-            catch (Win32Exception exception) when (
-                exception.NativeErrorCode == ErrorSharingViolation)
-            {
-                // Another process owns a liveness handle without FILE_SHARE_DELETE.
-            }
-            catch (FileNotFoundException)
-            {
-            }
-            catch (DirectoryNotFoundException)
-            {
-            }
-            catch (IOException)
+            if (!TryParseRecoveryName(
+                    quarantineName,
+                    out var prefix,
+                    out var requestId,
+                    out var markerToken))
             {
                 failures++;
+                continue;
             }
-            catch (UnauthorizedAccessException)
-            {
-                failures++;
-            }
-            catch (Win32Exception)
-            {
-                failures++;
-            }
-            finally
-            {
-                directory?.Dispose();
-            }
-        }
-        foreach (var quarantineName in initialNames.Where(IsQuarantineName))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
             SafeFileHandle? directory = null;
             try
             {
@@ -263,7 +221,61 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
                     FileOpen,
                     FileDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
                 EnsureDirectoryIsSafe(directory);
+                if (!HasValidRecoveryOwnership(
+                        directory,
+                        prefix,
+                        requestId,
+                        markerToken))
+                {
+                    failures++;
+                    continue;
+                }
                 DeleteQuarantined(directory, hook);
+            }
+            catch (FileNotFoundException)
+            {
+            }
+            catch (DirectoryNotFoundException)
+            {
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or Win32Exception)
+            {
+                failures++;
+            }
+            finally
+            {
+                directory?.Dispose();
+            }
+        }
+        foreach (var requestId in EnumerateNames(_root, cancellationToken).Where(IsRequestId))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            SafeFileHandle? directory = null;
+            try
+            {
+                directory = OpenRelative(
+                    _root,
+                    requestId,
+                    Delete | FileListDirectory | FileTraverse | FileReadAttributes | Synchronize,
+                    FileShareRead | FileShareWrite | FileShareDelete,
+                    FileOpen,
+                    FileDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
+                EnsureDirectoryIsSafe(directory);
+                hook?.AfterCleanupDirectoryOpened(requestId);
+                if (!TryReadValidExpiredMarker(directory, requestId, cutoff, out var markerToken))
+                    continue;
+                using var cleanupClaim = TryCreateCleanupClaim(requestId);
+                if (cleanupClaim is null)
+                    continue;
+                hook?.BeforeCleanupDirectory();
+                hook?.BeforeRequestDirectoryRename(requestId);
+                QuarantineAndDelete(directory, requestId, markerToken, ".gc-", hook);
+            }
+            catch (Win32Exception exception) when (
+                exception.NativeErrorCode == ErrorSharingViolation)
+            {
+                // Another process owns a liveness handle without FILE_SHARE_DELETE.
             }
             catch (FileNotFoundException)
             {
@@ -293,8 +305,10 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     private bool TryReadValidExpiredMarker(
         SafeFileHandle directory,
         string requestId,
-        DateTimeOffset cutoff)
+        DateTimeOffset cutoff,
+        out string markerToken)
     {
+        markerToken = string.Empty;
         using var marker = OpenRelative(
             directory,
             MarkerName,
@@ -304,18 +318,52 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
             FileNonDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
         EnsureRegularFileIsSafe(marker);
         var length = RandomAccess.GetLength(marker);
-        if (length is <= 0 or > 65)
+        if (length != 65)
             return false;
         var bytes = new byte[checked((int)length)];
         if (RandomAccess.Read(marker, bytes, 0) != bytes.Length)
             return false;
         var value = Encoding.ASCII.GetString(bytes);
         var parts = value.Split(':');
-        return parts.Length == 2 &&
-               string.Equals(parts[0], requestId, StringComparison.Ordinal) &&
-               parts[1].Length == 32 &&
-               parts[1].All(IsLowerHex) &&
-               GetLastWrite(marker) <= cutoff;
+        if (parts.Length != 2 ||
+            !string.Equals(parts[0], requestId, StringComparison.Ordinal) ||
+            parts[1].Length != 32 ||
+            !parts[1].All(IsLowerHex) ||
+            GetLastWrite(marker) > cutoff)
+            return false;
+        markerToken = parts[1];
+        return true;
+    }
+
+    private static bool HasValidRecoveryOwnership(
+        SafeFileHandle directory,
+        string prefix,
+        string requestId,
+        string markerToken)
+    {
+        try
+        {
+            using var marker = OpenRelative(
+                directory,
+                MarkerName,
+                FileReadData | FileReadAttributes | Synchronize,
+                FileShareRead | FileShareWrite | FileShareDelete,
+                FileOpen,
+                FileNonDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
+            EnsureRegularFileIsSafe(marker);
+            var expected = $"{requestId}:{markerToken}";
+            var length = RandomAccess.GetLength(marker);
+            if (length != Encoding.ASCII.GetByteCount(expected))
+                return false;
+            Span<byte> bytes = stackalloc byte[65];
+            if (RandomAccess.Read(marker, bytes, 0) != bytes.Length)
+                return false;
+            return bytes.SequenceEqual(Encoding.ASCII.GetBytes(expected));
+        }
+        catch (FileNotFoundException)
+        {
+            return prefix == ".init-";
+        }
     }
 
     private SafeFileHandle? TryCreateCleanupClaim(string requestId)
@@ -355,10 +403,11 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     private void QuarantineAndDelete(
         SafeFileHandle directory,
         string requestId,
+        string markerToken,
         string prefix,
         IFileCompareTemporaryStorageFaultHook? hook)
     {
-        var quarantineName = $"{prefix}{requestId}-{Guid.NewGuid():N}";
+        var quarantineName = $"{prefix}{requestId}-{markerToken}";
         RenameRelative(directory, _root, quarantineName);
         hook?.AfterRequestDirectoryQuarantined(requestId);
         DeleteQuarantined(directory, hook);
@@ -368,10 +417,14 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
         SafeFileHandle directory,
         IFileCompareTemporaryStorageFaultHook? hook)
     {
-        var names = EnumerateNames(directory);
-        if (names.Any(name => name is not MarkerName and not PayloadName))
-            throw new IOException("临时资源包含未知条目，已保留隔离目录");
-        foreach (var name in names)
+        var ownedNames = new List<string>(2);
+        foreach (var name in EnumerateNames(directory, CancellationToken.None))
+        {
+            if (name is not MarkerName and not PayloadName || ownedNames.Count >= 2)
+                throw new IOException("临时资源包含未知条目，已保留隔离目录");
+            ownedNames.Add(name);
+        }
+        foreach (var name in ownedNames)
         {
             using var entry = OpenRelative(
                 directory,
@@ -590,16 +643,18 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
         }
     }
 
-    private static IReadOnlyList<string> EnumerateNames(SafeFileHandle directory)
+    private static IEnumerable<string> EnumerateNames(
+        SafeFileHandle directory,
+        CancellationToken cancellationToken)
     {
         const int bufferSize = 64 * 1024;
         var buffer = Marshal.AllocHGlobal(bufferSize);
         try
         {
-            var result = new List<string>();
             var restart = true;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!GetFileInformationByHandleEx(
                         directory,
                         restart ? FileIdBothDirectoryRestartInfo : FileIdBothDirectoryInfo,
@@ -615,6 +670,7 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
                 var offset = 0;
                 while (true)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (offset < 0 || offset > bufferSize - 104)
                         throw new IOException("原生目录枚举数据无效");
                     var entry = IntPtr.Add(buffer, offset);
@@ -626,7 +682,7 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
                     var name = Marshal.PtrToStringUni(IntPtr.Add(entry, 104), fileNameLength / 2)
                         ?? throw new IOException("原生目录枚举名称无效");
                     if (name is not "." and not "..")
-                        result.Add(name);
+                        yield return name;
                     if (next == 0)
                         break;
                     if (next < 104 || offset > bufferSize - next)
@@ -634,7 +690,6 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
                     offset += next;
                 }
             }
-            return result;
         }
         finally
         {
@@ -779,18 +834,42 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     private static bool IsRequestId(string value) =>
         value.Length == 32 && value.All(IsLowerHex);
 
-    private static bool IsQuarantineName(string value)
+    private static string GetMarkerToken(string markerValue, string requestId)
     {
-        var prefixLength = value.StartsWith(".gc-", StringComparison.Ordinal)
-            ? 4
+        var expectedPrefix = requestId + ":";
+        if (markerValue.Length != 65 ||
+            !markerValue.StartsWith(expectedPrefix, StringComparison.Ordinal) ||
+            !markerValue.AsSpan(expectedPrefix.Length).ToArray().All(IsLowerHex))
+            throw new ArgumentException("临时资源标记无效", nameof(markerValue));
+        return markerValue[expectedPrefix.Length..];
+    }
+
+    private static bool IsRecoveryCandidateName(string value) =>
+        value.StartsWith(".gc-", StringComparison.Ordinal) ||
+        value.StartsWith(".init-", StringComparison.Ordinal);
+
+    private static bool TryParseRecoveryName(
+        string value,
+        out string prefix,
+        out string requestId,
+        out string markerToken)
+    {
+        prefix = value.StartsWith(".gc-", StringComparison.Ordinal)
+            ? ".gc-"
             : value.StartsWith(".init-", StringComparison.Ordinal)
-                ? 6
-                : 0;
-        return prefixLength != 0 &&
-               value.Length == prefixLength + 32 + 1 + 32 &&
-               value[prefixLength + 32] == '-' &&
-               value.AsSpan(prefixLength, 32).ToArray().All(IsLowerHex) &&
-               value.AsSpan(prefixLength + 33, 32).ToArray().All(IsLowerHex);
+                ? ".init-"
+                : string.Empty;
+        requestId = string.Empty;
+        markerToken = string.Empty;
+        if (prefix.Length == 0 ||
+            value.Length != prefix.Length + 32 + 1 + 32 ||
+            value[prefix.Length + 32] != '-')
+            return false;
+        requestId = value.Substring(prefix.Length, 32);
+        markerToken = value[(prefix.Length + 33)..];
+        return IsRequestId(requestId) &&
+               markerToken.Length == 32 &&
+               markerToken.All(IsLowerHex);
     }
 
     private static bool IsLowerHex(char value) =>
@@ -878,11 +957,12 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
             marker.Dispose();
             try
             {
-                owner.QuarantineAndDelete(directory, requestId, ".gc-", hook);
-            }
-            catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException or Win32Exception)
-            {
+                owner.QuarantineAndDelete(
+                    directory,
+                    requestId,
+                    GetMarkerToken(markerValue, requestId),
+                    ".gc-",
+                    hook);
             }
             finally
             {

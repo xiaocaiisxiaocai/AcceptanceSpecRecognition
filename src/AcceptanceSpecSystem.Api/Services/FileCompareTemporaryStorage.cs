@@ -109,9 +109,17 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
             lease.Seal(total, Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
             return lease;
         }
-        catch
+        catch (Exception operationException)
         {
-            await lease.DisposeAsync();
+            try
+            {
+                await lease.DisposeAsync();
+            }
+            catch (Exception cleanupException)
+            {
+                throw new AggregateException(operationException, cleanupException);
+            }
+            ExceptionDispatchInfo.Capture(operationException).Throw();
             throw;
         }
     }
@@ -274,7 +282,7 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
 
         private async Task DisposeCoreAsync()
         {
-            Exception? failure = null;
+            List<Exception>? failures = null;
             Volatile.Write(ref _disposed, 1);
             _heartbeatCancellation.Cancel();
             try
@@ -309,7 +317,7 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
                         }
                         catch (Exception exception)
                         {
-                            failure ??= exception;
+                            (failures ??= []).Add(exception);
                         }
                     }
                 }
@@ -317,7 +325,14 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
                 {
                     try
                     {
-                        await _directory.DisposeAsync();
+                        try
+                        {
+                            await _directory.DisposeAsync();
+                        }
+                        catch (Exception exception)
+                        {
+                            (failures ??= []).Add(exception);
+                        }
                     }
                     finally
                     {
@@ -326,8 +341,10 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
                     }
                 }
             }
-            if (failure is not null)
-                ExceptionDispatchInfo.Capture(failure).Throw();
+            if (failures is [var single])
+                ExceptionDispatchInfo.Capture(single).Throw();
+            if (failures is { Count: > 1 })
+                throw new AggregateException(failures);
         }
 
         private void ThrowIfDisposed() =>

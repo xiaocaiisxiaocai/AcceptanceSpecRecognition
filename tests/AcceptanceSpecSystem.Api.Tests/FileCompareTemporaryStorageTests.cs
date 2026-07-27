@@ -105,6 +105,18 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task CleanupExpired_空根目录也应在原生枚举前响应取消()
+    {
+        var service = CreateService();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await FluentActions.Awaiting(
+                () => service.CleanupExpiredAsync(cancellation.Token))
+            .Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task Lease_活动标记句柄应阻止外部替换并保持有效()
     {
         var service = CreateService();
@@ -133,6 +145,22 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
 
         await stage.Should().ThrowAsync<OperationCanceledException>();
         Directory.EnumerateDirectories(_root).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task StageUpload_读取与清理同时失败时不得丢失原始异常()
+    {
+        var service = CreateService(new InterruptAfterQuarantineHook());
+        var content = new ThrowingReadStream(new InvalidDataException("read-injected"));
+
+        var exception = (await FluentActions.Awaiting(
+                    () => service.StageUploadAsync(content, 1))
+                .Should().ThrowAsync<AggregateException>())
+            .Which;
+
+        exception.InnerExceptions.Select(item => item.Message)
+            .Should().Equal("read-injected", "injected");
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
     }
 
     [Theory]
@@ -177,21 +205,81 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     {
         Directory.CreateDirectory(_root);
         var requestId = Guid.NewGuid().ToString("N");
+        var token = Guid.NewGuid().ToString("N");
         var init = Path.Combine(
             _root,
-            $".init-{requestId}-{Guid.NewGuid():N}");
+            $".init-{requestId}-{token}");
         Directory.CreateDirectory(init);
         if (markerWasDurable)
         {
             File.WriteAllText(
                 Path.Combine(init, ".acceptance-file-compare"),
-                $"{requestId}:{Guid.NewGuid():N}");
+                $"{requestId}:{token}");
         }
         var service = CreateService();
 
         await service.CleanupExpiredAsync();
 
         Directory.Exists(init).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(".gc-", false, false, false, false)]
+    [InlineData(".gc-", true, true, false, false)]
+    [InlineData(".gc-", true, false, true, false)]
+    [InlineData(".gc-", true, false, false, true)]
+    [InlineData(".init-", true, true, false, false)]
+    [InlineData(".init-", true, false, true, false)]
+    [InlineData(".init-", true, false, false, true)]
+    public async Task CleanupExpired_恢复目录缺少或包含不匹配标记时必须FailClosed保留(
+        string prefix,
+        bool includeMarker,
+        bool mismatchToken,
+        bool mismatchRequestId,
+        bool invalidLength)
+    {
+        Directory.CreateDirectory(_root);
+        var requestId = Guid.NewGuid().ToString("N");
+        var nameToken = Guid.NewGuid().ToString("N");
+        var recovery = Path.Combine(_root, $"{prefix}{requestId}-{nameToken}");
+        Directory.CreateDirectory(recovery);
+        if (includeMarker)
+        {
+            var markerToken = mismatchToken ? Guid.NewGuid().ToString("N") : nameToken;
+            var markerRequestId = mismatchRequestId
+                ? Guid.NewGuid().ToString("N")
+                : requestId;
+            File.WriteAllText(
+                Path.Combine(recovery, ".acceptance-file-compare"),
+                $"{markerRequestId}:{markerToken}{(invalidLength ? "0" : string.Empty)}");
+        }
+        File.WriteAllText(Path.Combine(recovery, "payload.tmp"), "sentinel");
+        var service = CreateService();
+
+        var exception = await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+
+        exception.Which.FailureCount.Should().Be(1);
+        File.ReadAllText(Path.Combine(recovery, "payload.tmp")).Should().Be("sentinel");
+    }
+
+    [Fact]
+    public async Task CleanupExpired_合法Gc恢复目录的标记必须与名称绑定后才能删除()
+    {
+        Directory.CreateDirectory(_root);
+        var requestId = Guid.NewGuid().ToString("N");
+        var token = Guid.NewGuid().ToString("N");
+        var recovery = Path.Combine(_root, $".gc-{requestId}-{token}");
+        Directory.CreateDirectory(recovery);
+        File.WriteAllText(
+            Path.Combine(recovery, ".acceptance-file-compare"),
+            $"{requestId}:{token}");
+        File.WriteAllText(Path.Combine(recovery, "payload.tmp"), "managed");
+        var service = CreateService();
+
+        await service.CleanupExpiredAsync();
+
+        Directory.Exists(recovery).Should().BeFalse();
     }
 
     [Fact]
@@ -391,7 +479,8 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         var owner = CreateService(hook);
         var lease = await owner.StageUploadAsync(new MemoryStream([1]), 1);
 
-        await lease.DisposeAsync();
+        await FluentActions.Awaiting(() => lease.DisposeAsync().AsTask())
+            .Should().ThrowAsync<IOException>();
         Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
 
         var cleaner = CreateService();
@@ -481,6 +570,36 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task LeaseDispose_隔离清理失败必须向调用方传播并保留可恢复目录()
+    {
+        var service = CreateService(new InterruptAfterQuarantineHook());
+        var lease = await service.StageUploadAsync(new MemoryStream([1]), 1);
+
+        var exception = await FluentActions.Awaiting(() => lease.DisposeAsync().AsTask())
+            .Should().ThrowAsync<IOException>();
+
+        exception.Which.Message.Should().Be("injected");
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task LeaseDispose_流与清理同时失败时应按发生顺序稳定组合异常()
+    {
+        var hook = new StreamAndCleanupDisposeFaultHook();
+        var service = CreateService(hook);
+        var lease = await service.CreateOutputAsync();
+        await lease.OpenWrite().WriteAsync(new byte[] { 1 });
+
+        var exception = (await FluentActions.Awaiting(() => lease.DisposeAsync().AsTask())
+                .Should().ThrowAsync<AggregateException>())
+            .Which;
+
+        exception.InnerExceptions.Select(item => item.Message)
+            .Should().Equal("stream-injected", "cleanup-injected");
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task StorageDispose_非预期流错误后仍应继续清理全部Lease并关闭根()
     {
         var hook = new StreamDisposeFaultHook(new InvalidOperationException("injected"));
@@ -494,6 +613,20 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         dispose.Should().Throw<InvalidOperationException>();
 
         Directory.EnumerateDirectories(_root).Should().BeEmpty();
+        Func<Task> create = async () => await service.CreateOutputAsync();
+        await create.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task StorageDispose_原生清理失败仍应关闭根句柄并向调用方传播()
+    {
+        var service = CreateService(new InterruptAfterQuarantineHook());
+        await service.StageUploadAsync(new MemoryStream([1]), 1);
+
+        Action dispose = service.Dispose;
+        dispose.Should().Throw<IOException>().WithMessage("injected");
+
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
         Func<Task> create = async () => await service.CreateOutputAsync();
         await create.Should().ThrowAsync<ObjectDisposedException>();
     }
@@ -517,6 +650,23 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         await responseStream.DisposeAsync();
         await responseStream.DisposeAsync();
         Directory.EnumerateDirectories(_root).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task DownloadReadStream_Lease清理单独失败时应原样传播()
+    {
+        var service = CreateService(new InterruptAfterQuarantineHook());
+        var lease = await service.CreateOutputAsync();
+        await using (var output = lease.OpenWrite())
+            await output.WriteAsync(new byte[] { 1 });
+        var responseStream = new LeaseOwnedReadStream(lease.OpenRead(), lease);
+
+        var exception = await FluentActions.Awaiting(
+                () => responseStream.DisposeAsync().AsTask())
+            .Should().ThrowAsync<IOException>();
+
+        exception.Which.Message.Should().Be("injected");
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
     }
 
     [Fact]
@@ -604,6 +754,14 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
             buffer.Length.Should().BeLessThanOrEqualTo(maximumRead);
             return base.ReadAsync(buffer, cancellationToken);
         }
+    }
+
+    private sealed class ThrowingReadStream(Exception exception) : MemoryStream
+    {
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(exception);
     }
 
     private sealed class DisposeFaultStream(Exception exception) : MemoryStream
@@ -817,5 +975,15 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         : IFileCompareTemporaryStorageFaultHook
     {
         public void AfterTrackedStreamDisposed() => throw exception;
+    }
+
+    private sealed class StreamAndCleanupDisposeFaultHook
+        : IFileCompareTemporaryStorageFaultHook
+    {
+        public void AfterTrackedStreamDisposed() =>
+            throw new InvalidOperationException("stream-injected");
+
+        public void AfterRequestDirectoryQuarantined(string requestId) =>
+            throw new IOException("cleanup-injected");
     }
 }
