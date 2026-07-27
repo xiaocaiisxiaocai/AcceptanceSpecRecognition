@@ -36,6 +36,8 @@ public interface IAiEndpointAccessPolicy
 {
     long Generation { get; }
 
+    void EnsureCurrent(long expectedGeneration);
+
     ValueTask<AiEndpointResolution> ValidateAsync(
         Uri endpoint,
         AiServiceType serviceType,
@@ -48,8 +50,57 @@ public interface IAiEndpointAccessPolicy
         CancellationToken cancellationToken);
 }
 
+internal interface IAiEndpointPolicyPublicationHook
+{
+    void RulesPreparedBeforePublish(long nextGeneration);
+}
+
 public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposable
 {
+    // IANA IPv4/IPv6 Special-Purpose Address Registries, last reviewed 2026-07-27.
+    // Longest-prefix matching is required because both registries contain globally
+    // reachable anycast exceptions inside broader non-global protocol blocks.
+    private static readonly SpecialPurposeRange[] Ipv4SpecialPurposeRanges =
+    [
+        Range("0.0.0.0/8", false),
+        Range("10.0.0.0/8", false),
+        Range("100.64.0.0/10", false),
+        Range("127.0.0.0/8", false),
+        Range("169.254.0.0/16", false),
+        Range("172.16.0.0/12", false),
+        Range("192.0.0.0/24", false),
+        Range("192.0.0.9/32", true),
+        Range("192.0.0.10/32", true),
+        Range("192.0.2.0/24", false),
+        Range("192.88.99.0/24", false),
+        Range("192.168.0.0/16", false),
+        Range("198.18.0.0/15", false),
+        Range("198.51.100.0/24", false),
+        Range("203.0.113.0/24", false),
+        Range("224.0.0.0/4", false),
+        Range("240.0.0.0/4", false)
+    ];
+
+    private static readonly SpecialPurposeRange[] Ipv6SpecialPurposeRanges =
+    [
+        Range("2001::/23", false),
+        Range("2001::/32", false),
+        Range("2001:1::1/128", true),
+        Range("2001:1::2/128", true),
+        Range("2001:1::3/128", true),
+        Range("2001:2::/48", false),
+        Range("2001:3::/32", true),
+        Range("2001:4:112::/48", true),
+        Range("2001:10::/28", false),
+        Range("2001:20::/28", true),
+        Range("2001:30::/28", true),
+        Range("2001:db8::/32", false),
+        Range("2002::/16", false),
+        Range("3fff::/20", false)
+    ];
+
+    private static readonly IpNetwork Ipv6GlobalUnicastSpace = IpNetwork.Parse("2000::/3");
+
     private static readonly IPAddress[] MetadataAddresses =
     [
         IPAddress.Parse("169.254.169.254"),
@@ -59,24 +110,37 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
     ];
 
     private readonly IAiDnsResolver _resolver;
+    private readonly IOptionsMonitor<AiEndpointSecurityOptions> _options;
+    private readonly IAiEndpointPolicyPublicationHook? _publicationHook;
     private readonly IDisposable? _changeRegistration;
     private PolicySnapshot _snapshot;
-    private long _generation = 1;
 
     public AiEndpointAccessPolicy(
         IAiDnsResolver resolver,
         IOptionsMonitor<AiEndpointSecurityOptions> options)
+        : this(resolver, options, null)
     {
-        _resolver = resolver;
-        _snapshot = PolicySnapshot.Create(options.CurrentValue);
-        _changeRegistration = options.OnChange((next, _) =>
-        {
-            Volatile.Write(ref _snapshot, PolicySnapshot.Create(next));
-            Interlocked.Increment(ref _generation);
-        });
     }
 
-    public long Generation => Volatile.Read(ref _generation);
+    internal AiEndpointAccessPolicy(
+        IAiDnsResolver resolver,
+        IOptionsMonitor<AiEndpointSecurityOptions> options,
+        IAiEndpointPolicyPublicationHook? publicationHook)
+    {
+        _resolver = resolver;
+        _options = options;
+        _publicationHook = publicationHook;
+        _snapshot = PolicySnapshot.Create(options.CurrentValue, generation: 1);
+        _changeRegistration = options.OnChange((_, _) => PublishLatestPolicy());
+    }
+
+    public long Generation => Volatile.Read(ref _snapshot).Generation;
+
+    public void EnsureCurrent(long expectedGeneration)
+    {
+        if (Volatile.Read(ref _snapshot).Generation != expectedGeneration)
+            throw PolicyChanged();
+    }
 
     public ValueTask<AiEndpointResolution> ValidateAsync(
         Uri endpoint,
@@ -92,7 +156,8 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
         long expectedGeneration,
         CancellationToken cancellationToken)
     {
-        if (expectedGeneration != Generation)
+        var snapshot = Volatile.Read(ref _snapshot);
+        if (expectedGeneration != snapshot.Generation)
             throw PolicyChanged();
 
         var host = endpoint.IdnHost.TrimEnd('.');
@@ -134,10 +199,7 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
                 .ToArray();
         }
 
-        if (expectedGeneration != Generation)
-            throw PolicyChanged();
-
-        var snapshot = Volatile.Read(ref _snapshot);
+        EnsureSnapshotCurrent(snapshot);
         var port = endpoint.Port;
         foreach (var address in resolved)
         {
@@ -145,12 +207,37 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
                 throw AddressBlocked();
         }
 
+        EnsureSnapshotCurrent(snapshot);
         return new AiEndpointResolution(expectedGeneration, resolved);
     }
 
     public void Dispose()
     {
         _changeRegistration?.Dispose();
+    }
+
+    private void PublishLatestPolicy()
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _snapshot);
+            var next = PolicySnapshot.Create(
+                _options.CurrentValue,
+                checked(current.Generation + 1));
+            _publicationHook?.RulesPreparedBeforePublish(next.Generation);
+            if (ReferenceEquals(
+                    Interlocked.CompareExchange(ref _snapshot, next, current),
+                    current))
+            {
+                return;
+            }
+        }
+    }
+
+    private void EnsureSnapshotCurrent(PolicySnapshot snapshot)
+    {
+        if (!ReferenceEquals(Volatile.Read(ref _snapshot), snapshot))
+            throw PolicyChanged();
     }
 
     private static bool IsAddressAllowed(
@@ -232,42 +319,37 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
     {
         if (address.AddressFamily == AddressFamily.InterNetwork)
         {
-            var ipv4Bytes = address.GetAddressBytes();
-            return ipv4Bytes[0] != 0 &&
-                   ipv4Bytes[0] != 10 &&
-                   ipv4Bytes[0] != 127 &&
-                   !(ipv4Bytes[0] == 100 && ipv4Bytes[1] is >= 64 and <= 127) &&
-                   !(ipv4Bytes[0] == 169 && ipv4Bytes[1] == 254) &&
-                   !(ipv4Bytes[0] == 172 && ipv4Bytes[1] is >= 16 and <= 31) &&
-                   !(ipv4Bytes[0] == 192 && ipv4Bytes[1] == 168) &&
-                   !(ipv4Bytes[0] == 192 && ipv4Bytes[1] == 0 && ipv4Bytes[2] is 0 or 2) &&
-                   !(ipv4Bytes[0] == 198 && ipv4Bytes[1] is 18 or 19) &&
-                   !(ipv4Bytes[0] == 198 && ipv4Bytes[1] == 51 && ipv4Bytes[2] == 100) &&
-                   !(ipv4Bytes[0] == 203 && ipv4Bytes[1] == 0 && ipv4Bytes[2] == 113) &&
-                   ipv4Bytes[0] < 224;
+            return IsGloballyReachableByRegistry(address, Ipv4SpecialPurposeRanges);
         }
 
         if (address.AddressFamily != AddressFamily.InterNetworkV6 ||
-            address.Equals(IPAddress.IPv6None) ||
-            IPAddress.IsLoopback(address) ||
-            address.IsIPv6LinkLocal ||
-            address.IsIPv6Multicast ||
-            address.IsIPv6SiteLocal)
+            !Ipv6GlobalUnicastSpace.Contains(address))
         {
             return false;
         }
 
-        var ipv6Bytes = address.GetAddressBytes();
-        return (ipv6Bytes[0] & 0xFE) != 0xFC &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("100::").GetAddressBytes(), 64) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("2001::").GetAddressBytes(), 32) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("2001:2::").GetAddressBytes(), 48) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("2001:db8::").GetAddressBytes(), 32) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("2001:20::").GetAddressBytes(), 28) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("2002::").GetAddressBytes(), 16) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("64:ff9b::").GetAddressBytes(), 96) &&
-               !IsInPrefix(ipv6Bytes, IPAddress.Parse("64:ff9b:1::").GetAddressBytes(), 48);
+        return IsGloballyReachableByRegistry(address, Ipv6SpecialPurposeRanges);
     }
+
+    private static bool IsGloballyReachableByRegistry(
+        IPAddress address,
+        IReadOnlyList<SpecialPurposeRange> ranges)
+    {
+        SpecialPurposeRange? match = null;
+        foreach (var range in ranges)
+        {
+            if (range.Network.Contains(address) &&
+                (match == null || range.Network.PrefixLength > match.Network.PrefixLength))
+            {
+                match = range;
+            }
+        }
+
+        return match?.GloballyReachable ?? true;
+    }
+
+    private static SpecialPurposeRange Range(string cidr, bool globallyReachable) =>
+        new(IpNetwork.Parse(cidr), globallyReachable);
 
     private static IPAddress NormalizeAddress(IPAddress address) =>
         address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
@@ -304,9 +386,13 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
         return (address[wholeBytes] & mask) == (network[wholeBytes] & mask);
     }
 
-    private sealed record PolicySnapshot(IReadOnlyList<PrivateNetworkRule> Rules)
+    private sealed record PolicySnapshot(
+        long Generation,
+        IReadOnlyList<PrivateNetworkRule> Rules)
     {
-        public static PolicySnapshot Create(AiEndpointSecurityOptions options)
+        public static PolicySnapshot Create(
+            AiEndpointSecurityOptions options,
+            long generation)
         {
             var rules = new List<PrivateNetworkRule>();
             foreach (var rule in options.PrivateNetworkAllowlist)
@@ -321,14 +407,21 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
                     rules.Add(new PrivateNetworkRule(network, ports));
             }
 
-            return new PolicySnapshot(rules);
+            return new PolicySnapshot(generation, rules);
         }
     }
 
     private sealed record PrivateNetworkRule(IpNetwork Network, IReadOnlySet<int> Ports);
 
+    private sealed record SpecialPurposeRange(IpNetwork Network, bool GloballyReachable);
+
     private sealed record IpNetwork(IPAddress Address, int PrefixLength)
     {
+        public static IpNetwork Parse(string value) =>
+            TryParse(value, out var network)
+                ? network
+                : throw new InvalidOperationException($"无效的内置网络范围: {value}");
+
         public static bool TryParse(string value, out IpNetwork network)
         {
             network = null!;

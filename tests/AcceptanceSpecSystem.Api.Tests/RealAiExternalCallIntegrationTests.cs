@@ -347,6 +347,7 @@ public sealed class RealAiIntegrationContext : IAsyncDisposable
             .AddSingleton<IAiDnsResolver, AiDnsResolver>()
             .AddSingleton<IAiEndpointAccessPolicy, AiEndpointAccessPolicy>()
             .AddSingleton<IAiSocketFactory, AiSocketFactory>()
+            .AddSingleton<IAiSocketConnectOperation, AiSocketConnectOperation>()
             .AddSingleton<IAiSocketConnector, AiSocketConnector>()
             .AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>()
             .BuildServiceProvider();

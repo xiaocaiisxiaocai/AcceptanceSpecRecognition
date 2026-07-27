@@ -194,6 +194,7 @@ public static class ApiServiceCollectionExtensions
         services.AddSingleton<IAiDnsResolver, AiDnsResolver>();
         services.AddSingleton<IAiEndpointAccessPolicy, AiEndpointAccessPolicy>();
         services.AddSingleton<IAiSocketFactory, AiSocketFactory>();
+        services.AddSingleton<IAiSocketConnectOperation, AiSocketConnectOperation>();
         services.AddSingleton<IAiSocketConnector, AiSocketConnector>();
         services.AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>();
         services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();

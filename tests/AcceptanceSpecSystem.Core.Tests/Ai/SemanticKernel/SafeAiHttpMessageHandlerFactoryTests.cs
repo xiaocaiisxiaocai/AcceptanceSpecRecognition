@@ -40,6 +40,31 @@ public class SafeAiHttpMessageHandlerFactoryTests
     }
 
     [Fact]
+    public async Task 安全Handler_策略变化后旧客户端新请求应在写入复用连接前拒绝()
+    {
+        var monitor = new MutableOptionsMonitor<AiEndpointSecurityOptions>(PrivateNetworkOptions());
+        using var policy = new AiEndpointAccessPolicy(
+            new SequenceDnsResolver([IPAddress.Parse("10.20.1.7")]),
+            monitor);
+        var connector = new ReusableSocketConnector(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+        using var factory = new SafeAiHttpMessageHandlerFactory(policy, connector);
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "http://models.internal:8080");
+
+        using var first = await client.GetAsync("http://models.internal:8080/v1/models");
+        monitor.Set(PrivateNetworkOptions());
+        var second = () => client.GetAsync("http://models.internal:8080/v1/models");
+
+        await second.Should().ThrowAsync<AiEndpointAccessException>()
+            .Where(exception => exception.Category == AiEndpointAccessFailureCategory.PolicyChanged);
+        connector.Stream.Should().NotBeNull();
+        connector.Stream!.ObservedRequestCount.Should().Be(1, "旧代次请求不得写入已复用连接");
+    }
+
+    [Fact]
     public async Task 安全Handler_DNS重绑定为危险地址时不应把第二次地址交给Connector()
     {
         var resolver = new SequenceDnsResolver(
@@ -60,6 +85,23 @@ public class SafeAiHttpMessageHandlerFactoryTests
         await second.Should().ThrowAsync<HttpRequestException>();
         connector.Addresses.Should().Equal(IPAddress.Parse("10.20.1.8"));
         resolver.CallCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task 安全Handler_校验返回后策略变化时连接前应再次拒绝且不调用Connector()
+    {
+        var connector = new ScriptedSocketConnector(SuccessResponse());
+        using var factory = new SafeAiHttpMessageHandlerFactory(
+            new ChangingAfterValidationPolicy(IPAddress.Parse("10.20.1.8")),
+            connector);
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "http://models.internal:8080");
+
+        var action = () => client.GetAsync("http://models.internal:8080/v1/models");
+
+        await action.Should().ThrowAsync<HttpRequestException>();
+        connector.Addresses.Should().BeEmpty();
     }
 
     [Fact]
@@ -102,6 +144,26 @@ public class SafeAiHttpMessageHandlerFactoryTests
         socketsHandler.PooledConnectionIdleTimeout.Should().Be(TimeSpan.FromMinutes(1));
         socketsHandler.SslOptions.RemoteCertificateValidationCallback.Should().BeNull();
         handler.Dispose();
+    }
+
+    [Fact]
+    public void 安全客户端工厂_非法Timeout应在取得连接池Lease前拒绝()
+    {
+        using var factory = CreateFactory(
+            new SequenceDnsResolver([IPAddress.Parse("10.20.1.15")]),
+            new ScriptedSocketConnector(SuccessResponse()));
+
+        var action = () => factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "http://models.internal:8080",
+            TimeSpan.Zero);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+        var cacheField = typeof(SafeAiHttpMessageHandlerFactory)
+            .GetField("_poolCache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        cacheField.Should().NotBeNull();
+        var cache = cacheField!.GetValue(factory).Should().BeAssignableTo<System.Collections.IDictionary>().Subject;
+        cache.Count.Should().Be(0, "非法 timeout 不得先取得无法归还的连接池 lease");
     }
 
     [Fact]
@@ -280,7 +342,9 @@ public class SafeAiHttpMessageHandlerFactoryTests
             new StaticOptionsMonitor<AiEndpointSecurityOptions>(options));
         using var factory = new SafeAiHttpMessageHandlerFactory(
             policy,
-            new AiSocketConnector(new AiSocketFactory()));
+            new AiSocketConnector(
+                new AiSocketFactory(),
+                new AiSocketConnectOperation()));
         using var client = factory.CreateClient(
             AiServiceType.CustomOpenAICompatible,
             $"https://localhost:{port}");
@@ -296,7 +360,15 @@ public class SafeAiHttpMessageHandlerFactoryTests
         IAiDnsResolver resolver,
         IAiSocketConnector connector)
     {
-        var options = new AiEndpointSecurityOptions
+        var options = PrivateNetworkOptions();
+        var policy = new AiEndpointAccessPolicy(
+            resolver,
+            new StaticOptionsMonitor<AiEndpointSecurityOptions>(options));
+        return new SafeAiHttpMessageHandlerFactory(policy, connector);
+    }
+
+    private static AiEndpointSecurityOptions PrivateNetworkOptions() =>
+        new()
         {
             PrivateNetworkAllowlist =
             [
@@ -307,11 +379,6 @@ public class SafeAiHttpMessageHandlerFactoryTests
                 }
             ]
         };
-        var policy = new AiEndpointAccessPolicy(
-            resolver,
-            new StaticOptionsMonitor<AiEndpointSecurityOptions>(options));
-        return new SafeAiHttpMessageHandlerFactory(policy, connector);
-    }
 
     private static SocketsHttpHandler FindSocketsHandler(HttpMessageHandler handler)
     {
@@ -370,13 +437,16 @@ public class SafeAiHttpMessageHandlerFactoryTests
     {
         public List<IPAddress> Addresses { get; } = [];
 
+        public RequestDrivenDuplexStream? Stream { get; private set; }
+
         public ValueTask<Stream> ConnectAsync(
             IPAddress address,
             int port,
             CancellationToken cancellationToken)
         {
             Addresses.Add(address);
-            return ValueTask.FromResult<Stream>(new RequestDrivenDuplexStream(responses));
+            Stream = new RequestDrivenDuplexStream(responses);
+            return ValueTask.FromResult<Stream>(Stream);
         }
     }
 
@@ -456,6 +526,8 @@ public class SafeAiHttpMessageHandlerFactoryTests
         private byte[]? _currentResponse;
         private int _currentOffset;
         private int _observedHeaderEnds;
+
+        public int ObservedRequestCount => Volatile.Read(ref _observedHeaderEnds);
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -541,6 +613,67 @@ public class SafeAiHttpMessageHandlerFactoryTests
         public T CurrentValue => value;
         public T Get(string? name) => value;
         public IDisposable? OnChange(Action<T, string?> listener) => null;
+    }
+
+    private sealed class MutableOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    {
+        private readonly List<Action<T, string?>> _listeners = [];
+
+        public T CurrentValue { get; private set; } = value;
+
+        public T Get(string? name) => CurrentValue;
+
+        public IDisposable OnChange(Action<T, string?> listener)
+        {
+            _listeners.Add(listener);
+            return new CallbackRegistration(() => _listeners.Remove(listener));
+        }
+
+        public void Set(T next)
+        {
+            CurrentValue = next;
+            foreach (var listener in _listeners.ToArray())
+                listener(next, null);
+        }
+
+        private sealed class CallbackRegistration(Action dispose) : IDisposable
+        {
+            public void Dispose() => dispose();
+        }
+    }
+
+    private sealed class ChangingAfterValidationPolicy(IPAddress address) : IAiEndpointAccessPolicy
+    {
+        private long _generation = 1;
+
+        public long Generation => Volatile.Read(ref _generation);
+
+        public void EnsureCurrent(long expectedGeneration)
+        {
+            if (expectedGeneration != Generation)
+            {
+                throw new AiEndpointAccessException(
+                    AiEndpointAccessFailureCategory.PolicyChanged,
+                    "AI 端点访问策略已变化");
+            }
+        }
+
+        public ValueTask<AiEndpointResolution> ValidateAsync(
+            Uri endpoint,
+            AiServiceType serviceType,
+            CancellationToken cancellationToken) =>
+            ValidateAsync(endpoint, serviceType, Generation, cancellationToken);
+
+        public ValueTask<AiEndpointResolution> ValidateAsync(
+            Uri endpoint,
+            AiServiceType serviceType,
+            long expectedGeneration,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Exchange(ref _generation, expectedGeneration + 1);
+            return ValueTask.FromResult(
+                new AiEndpointResolution(expectedGeneration, [address]));
+        }
     }
 }
 

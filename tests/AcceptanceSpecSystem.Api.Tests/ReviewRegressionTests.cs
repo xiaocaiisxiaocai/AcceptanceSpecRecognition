@@ -27,6 +27,7 @@ public class ReviewRegressionTests
                      typeof(IAiDnsResolver),
                      typeof(IAiEndpointAccessPolicy),
                      typeof(IAiSocketFactory),
+                     typeof(IAiSocketConnectOperation),
                      typeof(IAiSocketConnector),
                      typeof(ISafeAiHttpClientFactory)
                  })

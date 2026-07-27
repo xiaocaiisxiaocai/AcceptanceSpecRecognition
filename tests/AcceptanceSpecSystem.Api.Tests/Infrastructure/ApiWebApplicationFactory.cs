@@ -118,7 +118,9 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
                     }));
                 return new SafeAiHttpMessageHandlerFactory(
                     policy,
-                    new AiSocketConnector(new AiSocketFactory()));
+                    new AiSocketConnector(
+                        new AiSocketFactory(),
+                        new AiSocketConnectOperation()));
             });
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试

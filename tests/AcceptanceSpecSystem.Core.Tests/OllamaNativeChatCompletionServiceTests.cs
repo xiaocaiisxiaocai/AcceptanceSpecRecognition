@@ -6,8 +6,10 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace AcceptanceSpecSystem.Core.Tests;
@@ -54,7 +56,7 @@ public class OllamaNativeChatCompletionServiceTests
     }
 
     [Fact]
-    public void CreateChatCompletionService_OllamaDisableThinkingChanged_ShouldUseDifferentCachedInstances()
+    public void SemanticKernelServiceFactory_Ollama思考配置变化应创建不同服务实例()
     {
         var factory = new SemanticKernelServiceFactory(
             NullLoggerFactory.Instance,
@@ -75,8 +77,8 @@ public class OllamaNativeChatCompletionServiceTests
         var second = factory.CreateChatCompletionService(config);
 
         first.Should().NotBeSameAs(second);
-        first.GetType().Name.Should().Be("OllamaNativeChatCompletionService");
-        second.GetType().Name.Should().Be("OllamaNativeChatCompletionService");
+        first.Attributes["service"].Should().Be("ollama-native-chat");
+        second.Attributes["service"].Should().Be("ollama-native-chat");
     }
 
     [Fact]
@@ -101,9 +103,7 @@ public class OllamaNativeChatCompletionServiceTests
         safeClientFactory.Calls.Should().ContainSingle();
         safeClientFactory.Calls[0].ServiceType.Should().Be(AiServiceType.Ollama);
         safeClientFactory.Calls[0].Endpoint.Should().Be("http://127.0.0.1:11434");
-        var httpClientField = chatService.GetType().GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
-        httpClientField.Should().NotBeNull();
-        httpClientField!.GetValue(chatService).Should().BeSameAs(expectedClient);
+        chatService.Attributes["service"].Should().Be("ollama-native-chat");
     }
 
     [Theory]
@@ -168,6 +168,197 @@ public class OllamaNativeChatCompletionServiceTests
 
         second.Should().NotBeSameAs(first);
         safeClientFactory.Calls.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void SemanticKernelServiceFactory_超过64项时应确定性淘汰OpenAI和Azure聊天及Embedding客户端()
+    {
+        var safeClientFactory = new TrackingSafeAiHttpClientFactory();
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+
+        for (var index = 0; index < 68; index++)
+        {
+            var azure = index is 2 or 3;
+            var embedding = index is 1 or 3;
+            var config = new AiServiceConfigModel
+            {
+                Id = index + 1,
+                ServiceType = azure ? AiServiceType.AzureOpenAI : AiServiceType.OpenAI,
+                Endpoint = azure
+                    ? $"https://azure-{index}.example.com"
+                    : $"https://models-{index}.example.com/v1",
+                ApiKey = "test-placeholder",
+                LlmModel = "chat-model",
+                EmbeddingModel = "embedding-model"
+            };
+            if (embedding)
+                _ = factory.CreateEmbeddingGenerator(config);
+            else
+                _ = factory.CreateChatCompletionService(config);
+        }
+
+        safeClientFactory.Clients.Should().HaveCount(68);
+        safeClientFactory.Clients.Take(4).Should().OnlyContain(client => client.DisposeCount == 1);
+        safeClientFactory.Clients.Skip(4).Should().OnlyContain(client => client.DisposeCount == 0);
+
+        factory.Dispose();
+        factory.Dispose();
+        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
+    }
+
+    [Fact]
+    public void SemanticKernelServiceFactory_策略代次持续变化时应有界释放旧客户端()
+    {
+        var safeClientFactory = new TrackingSafeAiHttpClientFactory();
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var config = new AiServiceConfigModel
+        {
+            Id = 81,
+            ServiceType = AiServiceType.OpenAI,
+            Endpoint = "https://models.example.com/v1",
+            ApiKey = "test-placeholder",
+            LlmModel = "chat-model"
+        };
+
+        for (var generation = 1; generation <= 65; generation++)
+        {
+            safeClientFactory.Generation = generation;
+            _ = factory.CreateChatCompletionService(config);
+        }
+
+        safeClientFactory.Clients.Should().HaveCount(65);
+        safeClientFactory.Clients[0].DisposeCount.Should().Be(1);
+        safeClientFactory.Clients.Count(client => client.DisposeCount == 0).Should().Be(64);
+
+        factory.Dispose();
+        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
+    }
+
+    [Fact]
+    public void SemanticKernelServiceFactory_关闭时应释放所有提供商聊天和Embedding客户端且仅一次()
+    {
+        var safeClientFactory = new TrackingSafeAiHttpClientFactory();
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var providers = new[]
+        {
+            (AiServiceType.OpenAI, "https://api.openai.com/v1"),
+            (AiServiceType.AzureOpenAI, "https://azure.example.com"),
+            (AiServiceType.CustomOpenAICompatible, "https://models.example.com/v1"),
+            (AiServiceType.LMStudio, "http://127.0.0.1:1234/v1"),
+            (AiServiceType.Ollama, "http://127.0.0.1:11434")
+        };
+
+        foreach (var (serviceType, endpoint) in providers)
+        {
+            var config = new AiServiceConfigModel
+            {
+                Id = 100 + (int)serviceType,
+                ServiceType = serviceType,
+                Endpoint = endpoint,
+                ApiKey = "test-placeholder",
+                LlmModel = "chat-model",
+                EmbeddingModel = "embedding-model"
+            };
+            _ = factory.CreateChatCompletionService(config);
+            _ = factory.CreateEmbeddingGenerator(config);
+        }
+
+        factory.Dispose();
+        factory.Dispose();
+
+        safeClientFactory.Clients.Should().HaveCount(providers.Length * 2);
+        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_关闭时不应中断活跃OpenAI请求且完成后应释放客户端()
+    {
+        using var requestGate = new GatedOpenAiHandler();
+        var safeClientFactory = new TrackingSafeAiHttpClientFactory(() => requestGate);
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var service = factory.CreateChatCompletionService(new AiServiceConfigModel
+        {
+            Id = 91,
+            ServiceType = AiServiceType.OpenAI,
+            Endpoint = "https://api.openai.com/v1",
+            ApiKey = "test-placeholder",
+            LlmModel = "chat-model"
+        });
+        var history = new ChatHistory();
+        history.AddUserMessage("你好");
+
+        var requestTask = service.GetChatMessageContentsAsync(history);
+        await requestGate.WaitUntilStartedAsync();
+        factory.Dispose();
+
+        safeClientFactory.Clients.Should().ContainSingle();
+        safeClientFactory.Clients[0].DisposeCount.Should().Be(0);
+
+        requestGate.AllowResponse();
+        var result = await requestTask;
+
+        result.Should().ContainSingle();
+        result[0].Content.Should().Be("ok");
+        safeClientFactory.Clients[0].DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_流式枚举结束前Retire不得释放客户端()
+    {
+        var inner = new GatedStreamingChatService();
+        var client = new TrackingHttpClient(new HttpClientHandler());
+        using var service = new SemanticKernelServiceFactory.OwnedChatCompletionService(
+            inner,
+            client);
+        await using var enumerator = service
+            .GetStreamingChatMessageContentsAsync(new ChatHistory())
+            .GetAsyncEnumerator();
+
+        (await enumerator.MoveNextAsync()).Should().BeTrue();
+        service.Dispose();
+        client.DisposeCount.Should().Be(0);
+
+        inner.AllowCompletion();
+        (await enumerator.MoveNextAsync()).Should().BeFalse();
+        client.DisposeCount.Should().Be(1);
+
+        service.Dispose();
+        client.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_Embedding生成结束前Retire不得释放客户端()
+    {
+        var inner = new GatedEmbeddingGenerator();
+        var client = new TrackingHttpClient(new HttpClientHandler());
+        using var generator = new SemanticKernelServiceFactory.OwnedEmbeddingGenerator(
+            inner,
+            client);
+
+        var generationTask = generator.GenerateAsync(["input"]);
+        await inner.WaitUntilStartedAsync();
+        generator.Dispose();
+        client.DisposeCount.Should().Be(0);
+
+        inner.AllowCompletion();
+        var result = await generationTask;
+
+        result.Should().ContainSingle();
+        client.DisposeCount.Should().Be(1);
+        generator.Dispose();
+        client.DisposeCount.Should().Be(1);
     }
 
     [Fact]
@@ -288,6 +479,146 @@ public class OllamaNativeChatCompletionServiceTests
         public void Dispose()
         {
             IsDisposed = true;
+        }
+    }
+
+    private sealed class TrackingSafeAiHttpClientFactory(
+        Func<HttpMessageHandler>? handlerFactory = null) : ISafeAiHttpClientFactory
+    {
+        public long Generation { get; set; } = 1;
+
+        public List<TrackingHttpClient> Clients { get; } = [];
+
+        public HttpClient CreateClient(
+            AiServiceType serviceType,
+            string endpoint,
+            TimeSpan? timeout = null)
+        {
+            var client = new TrackingHttpClient(
+                handlerFactory?.Invoke() ?? new HttpClientHandler());
+            Clients.Add(client);
+            return client;
+        }
+    }
+
+    private sealed class TrackingHttpClient(HttpMessageHandler handler)
+        : HttpClient(handler)
+    {
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCount++;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class GatedOpenAiHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowResponse =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitUntilStartedAsync() =>
+            _started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        public void AllowResponse() => _allowResponse.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            _started.TrySetResult();
+            await _allowResponse.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """
+                    {
+                      "id": "chatcmpl-test",
+                      "object": "chat.completion",
+                      "created": 1,
+                      "model": "chat-model",
+                      "choices": [
+                        {
+                          "index": 0,
+                          "message": { "role": "assistant", "content": "ok" },
+                          "finish_reason": "stop"
+                        }
+                      ],
+                      "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2
+                      }
+                    }
+                    """,
+                    Encoding.UTF8,
+                    "application/json")
+            };
+        }
+    }
+
+    private sealed class GatedStreamingChatService : IChatCompletionService
+    {
+        private readonly TaskCompletionSource _allowCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IReadOnlyDictionary<string, object?> Attributes { get; } =
+            new Dictionary<string, object?>();
+
+        public void AllowCompletion() => _allowCompletion.TrySetResult();
+
+        public Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Microsoft.SemanticKernel.Kernel? kernel = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public async IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Microsoft.SemanticKernel.Kernel? kernel = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            yield return new StreamingChatMessageContent(
+                AuthorRole.Assistant,
+                "part");
+            await _allowCompletion.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    private sealed class GatedEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        private readonly TaskCompletionSource _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _allowCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task WaitUntilStartedAsync() =>
+            _started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        public void AllowCompletion() => _allowCompletion.TrySetResult();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            _started.TrySetResult();
+            await _allowCompletion.Task.WaitAsync(cancellationToken);
+            return new GeneratedEmbeddings<Embedding<float>>(
+                [new Embedding<float>(new float[] { 1f })]);
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

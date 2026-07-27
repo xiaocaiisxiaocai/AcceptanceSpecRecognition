@@ -42,6 +42,14 @@ public sealed class SafeAiHttpMessageHandlerFactory :
         TimeSpan? timeout = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var effectiveTimeout = timeout ?? AiServiceHttpClientDefaults.LongRunningNetworkTimeout;
+        if (effectiveTimeout != Timeout.InfiniteTimeSpan &&
+            (effectiveTimeout <= TimeSpan.Zero ||
+             effectiveTimeout > TimeSpan.FromMilliseconds(int.MaxValue)))
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout));
+        }
+
         var normalized = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint);
         var origin = GetOrigin(new Uri(normalized));
         var generation = Generation;
@@ -62,7 +70,7 @@ public sealed class SafeAiHttpMessageHandlerFactory :
 
         return new LeasedHttpClient(entry.Handler, entry.Release)
         {
-            Timeout = timeout ?? AiServiceHttpClientDefaults.LongRunningNetworkTimeout
+            Timeout = effectiveTimeout
         };
     }
 
@@ -92,6 +100,7 @@ public sealed class SafeAiHttpMessageHandlerFactory :
                     cancellationToken).ConfigureAwait(false);
                 foreach (var address in resolution.Addresses)
                 {
+                    _policy.EnsureCurrent(resolution.Generation);
                     try
                     {
                         return await _connector.ConnectAsync(
@@ -114,7 +123,7 @@ public sealed class SafeAiHttpMessageHandlerFactory :
             }
         };
 
-        return new OriginGuardHandler(origin)
+        return new OriginGuardHandler(origin, _policy, generation)
         {
             InnerHandler = socketsHandler
         };
@@ -181,12 +190,17 @@ public sealed class SafeAiHttpMessageHandlerFactory :
             AiEndpointAccessFailureCategory.RequestOriginMismatch,
             "AI 请求地址与配置端点不一致");
 
-    private sealed class OriginGuardHandler(Uri origin) : DelegatingHandler
+    private sealed class OriginGuardHandler(
+        Uri origin,
+        IAiEndpointAccessPolicy policy,
+        long generation) : DelegatingHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
+            policy.EnsureCurrent(generation);
+
             var requestUri = request.RequestUri;
             if (requestUri == null ||
                 !requestUri.IsAbsoluteUri ||

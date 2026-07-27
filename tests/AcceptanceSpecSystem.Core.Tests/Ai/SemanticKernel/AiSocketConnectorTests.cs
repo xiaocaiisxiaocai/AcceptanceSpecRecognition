@@ -11,12 +11,13 @@ public class AiSocketConnectorTests
     public async Task SocketConnector_连接失败时应释放已创建Socket()
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        var connector = new AiSocketConnector(new SingleSocketFactory(socket));
-        var port = GetUnusedPort();
+        var connector = new AiSocketConnector(
+            new SingleSocketFactory(socket),
+            new FailingConnectOperation(new SocketException((int)SocketError.ConnectionRefused)));
 
         var action = () => connector.ConnectAsync(
             IPAddress.Loopback,
-            port,
+            443,
             CancellationToken.None).AsTask();
 
         await action.Should().ThrowAsync<SocketException>();
@@ -27,9 +28,11 @@ public class AiSocketConnectorTests
     public async Task SocketConnector_连接取消时应原样传播并释放已创建Socket()
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        var connector = new AiSocketConnector(new SingleSocketFactory(socket));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
+        var connector = new AiSocketConnector(
+            new SingleSocketFactory(socket),
+            new CancellingConnectOperation());
 
         var action = () => connector.ConnectAsync(
             IPAddress.Parse("192.0.2.1"),
@@ -41,13 +44,24 @@ public class AiSocketConnectorTests
         socket.SafeHandle.IsClosed.Should().BeTrue();
     }
 
-    private static int GetUnusedPort()
+    private sealed class FailingConnectOperation(Exception exception) : IAiSocketConnectOperation
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
+        public ValueTask ConnectAsync(
+            Socket socket,
+            IPAddress address,
+            int port,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromException(exception);
+    }
+
+    private sealed class CancellingConnectOperation : IAiSocketConnectOperation
+    {
+        public ValueTask ConnectAsync(
+            Socket socket,
+            IPAddress address,
+            int port,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromCanceled(cancellationToken);
     }
 
     private sealed class SingleSocketFactory(Socket socket) : IAiSocketFactory
