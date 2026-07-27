@@ -9,13 +9,17 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 public static class DatabaseConstraintClassifier
 {
     private const string KeyClauseMarker = " for key ";
+    private const int SqliteConstraintErrorCode = 19;
+    private const int SqliteConstraintForeignKey = 787;
+    private const int SqliteConstraintUnique = 2067;
 
     /// <summary>
     /// 判断更新失败是否由 MySQL 重复键错误引起。
     /// </summary>
     public static bool IsUniqueViolation(DbUpdateException exception)
     {
-        return FindMySqlException(exception)?.ErrorCode == MySqlErrorCode.DuplicateKeyEntry;
+        return FindMySqlException(exception)?.ErrorCode == MySqlErrorCode.DuplicateKeyEntry ||
+               IsSqliteConstraint(exception, SqliteConstraintUnique);
     }
 
     /// <summary>
@@ -24,10 +28,33 @@ public static class DatabaseConstraintClassifier
     public static bool IsUniqueViolation(DbUpdateException exception, string indexName)
     {
         var providerException = FindMySqlException(exception);
-        return providerException?.ErrorCode == MySqlErrorCode.DuplicateKeyEntry &&
-               !string.IsNullOrEmpty(indexName) &&
-               TryReadDuplicateKeyName(providerException.Message, out var duplicateKeyName) &&
-               string.Equals(duplicateKeyName, indexName, StringComparison.Ordinal);
+        if (providerException?.ErrorCode == MySqlErrorCode.DuplicateKeyEntry)
+        {
+            return !string.IsNullOrEmpty(indexName) &&
+                   TryReadDuplicateKeyName(providerException.Message, out var duplicateKeyName) &&
+                   string.Equals(duplicateKeyName, indexName, StringComparison.Ordinal);
+        }
+
+        // SQLite 不暴露索引名；调用方以当前写入目标限定索引，本层只按稳定扩展错误码裁决。
+        return !string.IsNullOrEmpty(indexName) &&
+               IsSqliteConstraint(exception, SqliteConstraintUnique);
+    }
+
+    /// <summary>
+    /// 判断删除失败是否为已知的并发或父项外键冲突。
+    /// </summary>
+    public static bool IsDeleteConflict(DbUpdateException exception)
+    {
+        if (exception is DbUpdateConcurrencyException)
+            return true;
+
+        var providerException = FindMySqlException(exception);
+        if (providerException != null)
+        {
+            return (int)providerException.ErrorCode is 1451 or 1217;
+        }
+
+        return IsSqliteConstraint(exception, SqliteConstraintForeignKey);
     }
 
     private static bool TryReadDuplicateKeyName(string message, out string duplicateKeyName)
@@ -117,5 +144,27 @@ public static class DatabaseConstraintClassifier
         }
 
         return null;
+    }
+
+    private static bool IsSqliteConstraint(Exception exception, int expectedExtendedErrorCode)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            var type = current.GetType();
+            if (!string.Equals(
+                    type.FullName,
+                    "Microsoft.Data.Sqlite.SqliteException",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var errorCode = type.GetProperty("SqliteErrorCode")?.GetValue(current) as int?;
+            var extendedErrorCode = type.GetProperty("SqliteExtendedErrorCode")?.GetValue(current) as int?;
+            return errorCode == SqliteConstraintErrorCode &&
+                   extendedErrorCode == expectedExtendedErrorCode;
+        }
+
+        return false;
     }
 }

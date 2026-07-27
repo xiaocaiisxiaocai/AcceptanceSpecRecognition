@@ -115,7 +115,7 @@ public sealed class CustomerAppService
         CancellationToken cancellationToken = default)
     {
         var name = NormalizeRequiredName(customerName, "客户名称不能为空");
-        if (await _unitOfWork.Customers.AnyAsync(customer => customer.Name == name))
+        if (await _unitOfWork.Customers.AnyAsync(customer => customer.Name == name, cancellationToken))
             throw new ApplicationServiceException(400, "客户名称已存在");
 
         var customer = new Customer
@@ -124,8 +124,16 @@ public sealed class CustomerAppService
             CreatedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.Customers.AddAsync(customer);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.Customers.AddAsync(customer, cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (
+            DatabaseConstraintClassifier.IsUniqueViolation(ex, "IX_Customers_Name"))
+        {
+            throw new ApplicationServiceException(409, "客户名称已存在，请刷新后重试");
+        }
 
         _logger.LogInformation("创建客户成功: {CustomerId} - {CustomerName}", customer.Id, customer.Name);
 
@@ -145,17 +153,27 @@ public sealed class CustomerAppService
         string customerName,
         CancellationToken cancellationToken = default)
     {
-        var customer = await _unitOfWork.Customers.GetByIdAsync(id);
+        var customer = await _unitOfWork.Customers.GetByIdAsync(id, cancellationToken);
         if (customer == null)
             return null;
 
         var name = NormalizeRequiredName(customerName, "客户名称不能为空");
-        if (await _unitOfWork.Customers.AnyAsync(item => item.Name == name && item.Id != id))
+        if (await _unitOfWork.Customers.AnyAsync(
+                item => item.Name == name && item.Id != id,
+                cancellationToken))
             throw new ApplicationServiceException(400, "客户名称已存在");
 
         customer.Name = name;
         _unitOfWork.Customers.Update(customer);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (
+            DatabaseConstraintClassifier.IsUniqueViolation(ex, "IX_Customers_Name"))
+        {
+            throw new ApplicationServiceException(409, "客户名称已存在，请刷新后重试");
+        }
 
         _logger.LogInformation("更新客户成功: {CustomerId} - {CustomerName}", customer.Id, customer.Name);
 
@@ -179,7 +197,7 @@ public sealed class CustomerAppService
 
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        var customer = await _unitOfWork.Customers.GetByIdAsync(id);
+        var customer = await _unitOfWork.Customers.GetByIdAsync(id, cancellationToken);
         if (customer == null)
             return false;
 
@@ -198,7 +216,7 @@ public sealed class CustomerAppService
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
         {
             throw DeleteConflict("该客户下新增了关联验收规格，无法删除，请刷新后重试");
         }
@@ -215,22 +233,37 @@ public sealed class CustomerAppService
         IReadOnlyCollection<int> ids,
         CancellationToken cancellationToken = default)
     {
+        var normalizedIds = BatchDeleteInputNormalizer.Normalize(
+            ids,
+            "请选择要删除的客户",
+            cancellationToken);
         var result = new BatchDeleteResultModel();
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            foreach (var id in ids)
+            var customers = await _unitOfWork.Customers
+                .Query(asNoTracking: false)
+                .Where(customer => normalizedIds.Contains(customer.Id))
+                .ToListAsync(cancellationToken);
+            var customerById = customers.ToDictionary(customer => customer.Id);
+            var referenceCountById = await _unitOfWork.AcceptanceSpecs
+                .Query()
+                .Where(spec => normalizedIds.Contains(spec.CustomerId))
+                .GroupBy(spec => spec.CustomerId)
+                .Select(group => new { Id = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(item => item.Id, item => item.Count, cancellationToken);
+            var eligible = new List<Customer>();
+
+            foreach (var id in normalizedIds)
             {
-                var customer = await _unitOfWork.Customers.GetByIdAsync(id, cancellationToken);
-                if (customer == null)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!customerById.TryGetValue(id, out var customer))
                 {
                     result.Failures.Add(new BatchDeleteFailureModel { Id = id, Reason = "客户不存在" });
                     continue;
                 }
 
-                var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
-                    spec => spec.CustomerId == id,
-                    cancellationToken);
+                var specCount = referenceCountById.GetValueOrDefault(id);
                 if (specCount > 0)
                 {
                     result.Failures.Add(new BatchDeleteFailureModel
@@ -241,21 +274,29 @@ public sealed class CustomerAppService
                     continue;
                 }
 
-                _unitOfWork.Customers.Remove(customer);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                eligible.Add(customer);
                 result.SucceededIds.Add(id);
+            }
+
+            if (eligible.Count > 0)
+            {
+                _unitOfWork.Customers.RemoveRange(eligible);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
+            if (DatabaseConstraintClassifier.IsDeleteConflict(ex))
+                throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+
+            throw;
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
             throw;
         }
 
@@ -274,7 +315,7 @@ public sealed class CustomerAppService
         int customerId,
         CancellationToken cancellationToken = default)
     {
-        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId);
+        var customer = await _unitOfWork.Customers.GetByIdAsync(customerId, cancellationToken);
         if (customer == null)
             return null;
 

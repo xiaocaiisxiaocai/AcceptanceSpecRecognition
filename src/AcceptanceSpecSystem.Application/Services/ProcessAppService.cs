@@ -109,8 +109,8 @@ public sealed class ProcessAppService
             CreatedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.Processes.AddAsync(process);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.Processes.AddAsync(process, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
 
@@ -129,13 +129,13 @@ public sealed class ProcessAppService
         string processName,
         CancellationToken cancellationToken = default)
     {
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
+        var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
         if (process == null)
             return null;
 
         process.Name = NormalizeRequiredName(processName, "制程名称不能为空");
         _unitOfWork.Processes.Update(process);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("更新制程成功: {ProcessId} - {ProcessName}", process.Id, process.Name);
 
@@ -154,7 +154,7 @@ public sealed class ProcessAppService
 
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
+        var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
         if (process == null)
             return false;
 
@@ -173,7 +173,7 @@ public sealed class ProcessAppService
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
         {
             throw DeleteConflict("该制程下新增了关联验收规格，无法删除，请刷新后重试");
         }
@@ -189,22 +189,37 @@ public sealed class ProcessAppService
         IReadOnlyCollection<int> ids,
         CancellationToken cancellationToken = default)
     {
+        var normalizedIds = BatchDeleteInputNormalizer.Normalize(
+            ids,
+            "请选择要删除的制程",
+            cancellationToken);
         var result = new BatchDeleteResultModel();
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            foreach (var id in ids)
+            var processes = await _unitOfWork.Processes
+                .Query(asNoTracking: false)
+                .Where(process => normalizedIds.Contains(process.Id))
+                .ToListAsync(cancellationToken);
+            var processById = processes.ToDictionary(process => process.Id);
+            var referenceCountById = await _unitOfWork.AcceptanceSpecs
+                .Query()
+                .Where(spec => spec.ProcessId.HasValue && normalizedIds.Contains(spec.ProcessId.Value))
+                .GroupBy(spec => spec.ProcessId!.Value)
+                .Select(group => new { Id = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(item => item.Id, item => item.Count, cancellationToken);
+            var eligible = new List<Process>();
+
+            foreach (var id in normalizedIds)
             {
-                var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
-                if (process == null)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!processById.TryGetValue(id, out var process))
                 {
                     result.Failures.Add(new BatchDeleteFailureModel { Id = id, Reason = "制程不存在" });
                     continue;
                 }
 
-                var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
-                    spec => spec.ProcessId == id,
-                    cancellationToken);
+                var specCount = referenceCountById.GetValueOrDefault(id);
                 if (specCount > 0)
                 {
                     result.Failures.Add(new BatchDeleteFailureModel
@@ -215,21 +230,29 @@ public sealed class ProcessAppService
                     continue;
                 }
 
-                _unitOfWork.Processes.Remove(process);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                eligible.Add(process);
                 result.SucceededIds.Add(id);
+            }
+
+            if (eligible.Count > 0)
+            {
+                _unitOfWork.Processes.RemoveRange(eligible);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
+            if (DatabaseConstraintClassifier.IsDeleteConflict(ex))
+                throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+
+            throw;
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
             throw;
         }
 
@@ -251,7 +274,7 @@ public sealed class ProcessAppService
         string? keyword,
         CancellationToken cancellationToken = default)
     {
-        var process = await _unitOfWork.Processes.GetByIdAsync(id);
+        var process = await _unitOfWork.Processes.GetByIdAsync(id, cancellationToken);
         if (process == null)
             return null;
 

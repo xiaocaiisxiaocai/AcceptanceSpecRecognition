@@ -41,7 +41,7 @@ public class MachineModelsController : BaseApiController
         [FromQuery] string? keyword = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<PagedData<MachineModelDto>>(401, "会话缺少用户上下文");
 
@@ -65,7 +65,7 @@ public class MachineModelsController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<MachineModelDto>(401, "会话缺少用户上下文");
 
@@ -111,7 +111,7 @@ public class MachineModelsController : BaseApiController
         [FromBody] UpdateMachineModelRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<MachineModelDto>(401, "会话缺少用户上下文");
 
@@ -160,6 +160,8 @@ public class MachineModelsController : BaseApiController
     [HttpPost("batch-delete")]
     [AuditOperation("batch-delete", "machine-model")]
     [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status422UnprocessableEntity)]
     public async Task<ActionResult<ApiResponse<BatchDeleteResponseDto>>> BatchDeleteMachineModels(
         [FromBody] BatchDeleteRequest request,
         CancellationToken cancellationToken = default)
@@ -172,7 +174,7 @@ public class MachineModelsController : BaseApiController
         {
             result = await _machineModelAppService.BatchDeleteAsync(request.Ids, cancellationToken);
         }
-        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        catch (ApplicationServiceException ex)
         {
             return Error<BatchDeleteResponseDto>(ex.Code, ex.Message);
         }
@@ -193,8 +195,8 @@ public class MachineModelsController : BaseApiController
         return Success(response, message);
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(CancellationToken cancellationToken)
     {
-        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService, cancellationToken);
     }
 }

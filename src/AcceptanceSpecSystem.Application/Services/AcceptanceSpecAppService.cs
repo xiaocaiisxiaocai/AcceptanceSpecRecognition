@@ -277,12 +277,14 @@ public sealed class AcceptanceSpecAppService
         IReadOnlyCollection<int> ids,
         CancellationToken cancellationToken = default)
     {
-        if (ids.Count == 0)
-            throw new ApplicationServiceException(400, "请选择要删除的规格");
-
-        var idList = ids.ToList();
+        var idList = BatchDeleteInputNormalizer.Normalize(
+            ids,
+            "请选择要删除的规格",
+            cancellationToken);
         var query = _unitOfWork.AcceptanceSpecs.Query(asNoTracking: true)
-            .Where(s => idList.Contains(s.Id));
+            .Where(s =>
+                idList.Contains(s.Id) &&
+                s.WordFile.CompanyId == scope.CompanyId);
 
         // 将 scope.CanAccess 逻辑转为 SQL 谓词，避免加载实体到内存
         if (!scope.IsAll)
@@ -294,7 +296,15 @@ public sealed class AcceptanceSpecAppService
         }
 
         // ExecuteDeleteAsync 生成单条 DELETE WHERE Id IN (...) SQL，避免 N 次往返
-        var deletedCount = await query.ExecuteDeleteAsync(cancellationToken);
+        int deletedCount;
+        try
+        {
+            deletedCount = await query.ExecuteDeleteAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
+        {
+            throw new ApplicationServiceException(409, "删除期间数据发生冲突，请刷新后重试");
+        }
 
         if (deletedCount == 0)
             throw new ApplicationServiceException(403, "未找到可删除的规格或无权限");

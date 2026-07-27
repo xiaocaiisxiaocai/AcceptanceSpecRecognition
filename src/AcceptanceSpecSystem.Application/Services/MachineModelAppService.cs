@@ -107,8 +107,8 @@ public sealed class MachineModelAppService
             CreatedAt = DateTime.UtcNow
         };
 
-        await _unitOfWork.MachineModels.AddAsync(model);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.MachineModels.AddAsync(model, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
 
@@ -127,13 +127,13 @@ public sealed class MachineModelAppService
         string machineModelName,
         CancellationToken cancellationToken = default)
     {
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
+        var model = await _unitOfWork.MachineModels.GetByIdAsync(id, cancellationToken);
         if (model == null)
             return null;
 
         model.Name = NormalizeRequiredName(machineModelName, "机型名称不能为空");
         _unitOfWork.MachineModels.Update(model);
-        await _unitOfWork.SaveChangesAsync();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("更新机型成功: {MachineModelId} - {MachineModelName}", model.Id, model.Name);
 
@@ -152,7 +152,7 @@ public sealed class MachineModelAppService
 
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        var model = await _unitOfWork.MachineModels.GetByIdAsync(id);
+        var model = await _unitOfWork.MachineModels.GetByIdAsync(id, cancellationToken);
         if (model == null)
             return false;
 
@@ -171,7 +171,7 @@ public sealed class MachineModelAppService
         {
             await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
         {
             throw DeleteConflict("该机型下新增了关联验收规格，无法删除，请刷新后重试");
         }
@@ -187,22 +187,39 @@ public sealed class MachineModelAppService
         IReadOnlyCollection<int> ids,
         CancellationToken cancellationToken = default)
     {
+        var normalizedIds = BatchDeleteInputNormalizer.Normalize(
+            ids,
+            "请选择要删除的机型",
+            cancellationToken);
         var result = new BatchDeleteResultModel();
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            foreach (var id in ids)
+            var models = await _unitOfWork.MachineModels
+                .Query(asNoTracking: false)
+                .Where(model => normalizedIds.Contains(model.Id))
+                .ToListAsync(cancellationToken);
+            var modelById = models.ToDictionary(model => model.Id);
+            var referenceCountById = await _unitOfWork.AcceptanceSpecs
+                .Query()
+                .Where(spec =>
+                    spec.MachineModelId.HasValue &&
+                    normalizedIds.Contains(spec.MachineModelId.Value))
+                .GroupBy(spec => spec.MachineModelId!.Value)
+                .Select(group => new { Id = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(item => item.Id, item => item.Count, cancellationToken);
+            var eligible = new List<MachineModel>();
+
+            foreach (var id in normalizedIds)
             {
-                var model = await _unitOfWork.MachineModels.GetByIdAsync(id, cancellationToken);
-                if (model == null)
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!modelById.TryGetValue(id, out var model))
                 {
                     result.Failures.Add(new BatchDeleteFailureModel { Id = id, Reason = "机型不存在" });
                     continue;
                 }
 
-                var specCount = await _unitOfWork.AcceptanceSpecs.CountAsync(
-                    spec => spec.MachineModelId == id,
-                    cancellationToken);
+                var specCount = referenceCountById.GetValueOrDefault(id);
                 if (specCount > 0)
                 {
                     result.Failures.Add(new BatchDeleteFailureModel
@@ -213,21 +230,29 @@ public sealed class MachineModelAppService
                     continue;
                 }
 
-                _unitOfWork.MachineModels.Remove(model);
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                eligible.Add(model);
                 result.SucceededIds.Add(id);
+            }
+
+            if (eligible.Count > 0)
+            {
+                _unitOfWork.MachineModels.RemoveRange(eligible);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
 
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex)
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
+            if (DatabaseConstraintClassifier.IsDeleteConflict(ex))
+                throw DeleteConflict("删除期间关联验收规格发生变化，请刷新后重试");
+
+            throw;
         }
         catch
         {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            await TransactionRollbackHelper.TryRollbackAsync(_unitOfWork);
             throw;
         }
 

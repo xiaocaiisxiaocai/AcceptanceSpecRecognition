@@ -42,7 +42,7 @@ public class SpecsController : BaseApiController
     public async Task<ActionResult<ApiResponse<List<SpecGroupDto>>>> GetGroups(
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
 
@@ -68,7 +68,7 @@ public class SpecsController : BaseApiController
         [FromQuery] DateTime? importedTo = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
 
@@ -106,7 +106,7 @@ public class SpecsController : BaseApiController
         [FromQuery] int? maxGroups = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
 
@@ -135,7 +135,7 @@ public class SpecsController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
@@ -165,7 +165,7 @@ public class SpecsController : BaseApiController
         [FromBody] SpecSemanticSearchRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<SpecSemanticSearchResponse>(401, "会话缺少用户上下文");
 
@@ -198,7 +198,7 @@ public class SpecsController : BaseApiController
         [FromBody] CreateSpecRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
@@ -235,7 +235,7 @@ public class SpecsController : BaseApiController
         [FromBody] UpdateSpecRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
 
@@ -271,7 +271,7 @@ public class SpecsController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error(401, "会话缺少用户上下文");
 
@@ -300,7 +300,7 @@ public class SpecsController : BaseApiController
         [FromBody] BatchImportSpecsRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<BatchImportResult>(401, "会话缺少用户上下文");
 
@@ -328,11 +328,13 @@ public class SpecsController : BaseApiController
     [HttpDelete("batch")]
     [AuditOperation("delete-batch", "spec")]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status422UnprocessableEntity)]
     public async Task<ActionResult<ApiResponse>> BatchDelete(
         [FromBody] List<int> ids,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error(401, "会话缺少用户上下文");
 
@@ -347,8 +349,8 @@ public class SpecsController : BaseApiController
         }
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(CancellationToken cancellationToken)
     {
-        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService, cancellationToken);
     }
 }

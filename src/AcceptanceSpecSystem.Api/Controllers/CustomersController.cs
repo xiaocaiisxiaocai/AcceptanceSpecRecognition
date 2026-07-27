@@ -40,7 +40,7 @@ public class CustomersController : BaseApiController
         [FromQuery] string? keyword = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<PagedData<CustomerDto>>(401, "会话缺少用户上下文");
 
@@ -58,7 +58,7 @@ public class CustomersController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<CustomerDto>(401, "会话缺少用户上下文");
 
@@ -104,7 +104,7 @@ public class CustomersController : BaseApiController
         [FromBody] UpdateCustomerRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<CustomerDto>(401, "会话缺少用户上下文");
 
@@ -153,6 +153,8 @@ public class CustomersController : BaseApiController
     [HttpPost("batch-delete")]
     [AuditOperation("batch-delete", "customer")]
     [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiResponse<BatchDeleteResponseDto>), StatusCodes.Status422UnprocessableEntity)]
     public async Task<ActionResult<ApiResponse<BatchDeleteResponseDto>>> BatchDeleteCustomers(
         [FromBody] BatchDeleteRequest request,
         CancellationToken cancellationToken = default)
@@ -165,7 +167,7 @@ public class CustomersController : BaseApiController
         {
             result = await _customerAppService.BatchDeleteAsync(request.Ids, cancellationToken);
         }
-        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
+        catch (ApplicationServiceException ex)
         {
             return Error<BatchDeleteResponseDto>(ex.Code, ex.Message);
         }
@@ -196,7 +198,7 @@ public class CustomersController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync();
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
             return Error<List<ProcessDto>>(401, "会话缺少用户上下文");
 
@@ -207,8 +209,8 @@ public class CustomersController : BaseApiController
         return Success(items.Select(item => item.ToDto()).ToList());
     }
 
-    private async Task<DataScopeResult?> ResolveSpecScopeAsync()
+    private async Task<DataScopeResult?> ResolveSpecScopeAsync(CancellationToken cancellationToken)
     {
-        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
+        return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService, cancellationToken);
     }
 }
