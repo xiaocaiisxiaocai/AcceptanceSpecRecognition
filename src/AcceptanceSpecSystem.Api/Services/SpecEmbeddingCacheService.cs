@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using CoreAiServicePurpose = AcceptanceSpecSystem.Core.AI.Models.AiServicePurpose;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -21,17 +22,20 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
     private readonly IUnitOfWork _unitOfWork;
     private readonly IEmbeddingService _embeddingService;
     private readonly IAiServiceSelector _aiServiceSelector;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SpecEmbeddingCacheService> _logger;
 
     public SpecEmbeddingCacheService(
         IUnitOfWork unitOfWork,
         IEmbeddingService embeddingService,
         IAiServiceSelector aiServiceSelector,
+        IServiceScopeFactory scopeFactory,
         ILogger<SpecEmbeddingCacheService> logger)
     {
         _unitOfWork = unitOfWork;
         _embeddingService = embeddingService;
         _aiServiceSelector = aiServiceSelector;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -299,6 +303,7 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
 
         var existingCacheLookup = caches.ToDictionary(cache => cache.SpecId);
         var hasMutation = false;
+        var pendingMutations = new List<PendingCacheMutation>();
         for (var index = 0; index < missingTargets.Count && index < newEmbeddings.Count; index++)
         {
             var embedding = newEmbeddings[index];
@@ -310,80 +315,76 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
             var target = missingTargets[index];
             target.SetEmbedding(embedding);
             var textHash = ComputeTextHash(target.Text);
+            var vector = SerializeVector(embedding);
+            var createdAt = DateTime.UtcNow;
+            EmbeddingCache trackedCache;
 
             if (existingCacheLookup.TryGetValue(target.SpecId, out var existingCache))
             {
                 existingCache.TextHash = textHash;
-                existingCache.Vector = SerializeVector(embedding);
-                existingCache.CreatedAt = DateTime.UtcNow;
+                existingCache.Vector = vector;
+                existingCache.CreatedAt = createdAt;
                 _unitOfWork.EmbeddingCaches.Update(existingCache);
+                trackedCache = existingCache;
             }
             else
             {
-                await _unitOfWork.EmbeddingCaches.AddAsync(new EmbeddingCache
+                trackedCache = await _unitOfWork.EmbeddingCaches.AddAsync(new EmbeddingCache
                 {
                     SpecId = target.SpecId,
                     ModelName = embeddingModel,
                     Usage = usage,
                     TextHash = textHash,
-                    Vector = SerializeVector(embedding),
-                    CreatedAt = DateTime.UtcNow
+                    Vector = vector,
+                    CreatedAt = createdAt
                 });
             }
 
+            pendingMutations.Add(new PendingCacheMutation(
+                target,
+                trackedCache,
+                embeddingModel,
+                usage,
+                textHash,
+                vector,
+                createdAt));
             hasMutation = true;
         }
 
         if (hasMutation)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            // 懒生成的 Embedding 缓存立即独立落库，避免后续匹配/导入流程重复生成同一批向量。
             try
             {
-                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                // 懒生成的 Embedding 缓存立即独立落库，避免后续匹配/导入流程重复生成同一批向量。
+                try
+                {
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateException ex) when (
+                    IsCurrentBatchUniqueConflict(ex, pendingMutations))
+                {
+                    // MySQL 会回滚整次 SaveChanges。仅当 provider 报告的每个失败条目
+                    // 都确实属于本批缓存变更时才接管恢复，避免误吞调用方其他写入冲突。
+                    DetachPendingMutations(pendingMutations);
+                    await using var recoveryScope = _scopeFactory.CreateAsyncScope();
+                    var recoveryUnitOfWork =
+                        recoveryScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+                    foreach (var mutation in pendingMutations)
+                    {
+                        await ReconcileAfterUniqueConflictAsync(
+                            recoveryUnitOfWork,
+                            mutation,
+                            cancellationToken);
+                    }
+                }
             }
-            catch (DbUpdateException ex) when (
-                DatabaseConstraintClassifier.IsUniqueViolation(ex, EmbeddingCacheUniqueIndex) &&
-                ex.Entries.Count > 0 &&
-                ex.Entries.All(entry => entry.Entity is EmbeddingCache))
+            catch (OperationCanceledException)
             {
-                var failedAddedCaches = ex.Entries
-                    .Where(entry =>
-                        entry.State == EntityState.Added &&
-                        entry.Entity is EmbeddingCache)
-                    .ToList();
-                if (failedAddedCaches.Count == 0)
-                {
-                    throw;
-                }
-
-                foreach (var failedEntry in failedAddedCaches)
-                {
-                    failedEntry.State = EntityState.Detached;
-                }
-
-                foreach (var failedEntry in failedAddedCaches)
-                {
-                    var failedCache = (EmbeddingCache)failedEntry.Entity;
-                    var winner = await _unitOfWork.EmbeddingCaches.GetBySpecModelUsageAsync(
-                        failedCache.SpecId,
-                        failedCache.ModelName,
-                        failedCache.Usage,
-                        cancellationToken);
-                    if (winner == null ||
-                        !targetLookup.TryGetValue(failedCache.SpecId, out var target))
-                    {
-                        throw;
-                    }
-
-                    var winnerEmbedding = DeserializeVector(winner.Vector);
-                    if (winnerEmbedding.Length == 0)
-                    {
-                        throw;
-                    }
-
-                    target.SetEmbedding(winnerEmbedding);
-                }
+                // 无论取消发生在首次保存前、保存期间还是独立恢复期间，
+                // 调用方上下文都不得遗留当前批次的 Added/Modified 状态。
+                DetachPendingMutations(pendingMutations);
+                throw;
             }
         }
 
@@ -393,6 +394,83 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
             targets.Count - missingTargets.Count,
             missingTargets.Count);
     }
+
+    private async Task ReconcileAfterUniqueConflictAsync(
+        IUnitOfWork recoveryUnitOfWork,
+        PendingCacheMutation mutation,
+        CancellationToken cancellationToken)
+    {
+        var winner = await recoveryUnitOfWork.EmbeddingCaches.GetBySpecModelUsageAsync(
+            mutation.Target.SpecId,
+            mutation.ModelName,
+            mutation.Usage,
+            cancellationToken);
+        if (winner == null)
+        {
+            var retryCache = mutation.CreateCache();
+            await recoveryUnitOfWork.EmbeddingCaches.AddAsync(retryCache, cancellationToken);
+            try
+            {
+                await recoveryUnitOfWork.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            catch (DbUpdateException retryException) when (
+                IsRetryCacheUniqueConflict(retryException, retryCache))
+            {
+                recoveryUnitOfWork.EmbeddingCaches.DetachRange([retryCache]);
+                winner = await recoveryUnitOfWork.EmbeddingCaches.GetBySpecModelUsageAsync(
+                    mutation.Target.SpecId,
+                    mutation.ModelName,
+                    mutation.Usage,
+                    cancellationToken);
+                if (winner == null)
+                {
+                    throw;
+                }
+            }
+        }
+
+        var winnerEmbedding = DeserializeVector(winner.Vector);
+        if (winner.TextHash == mutation.TextHash && winnerEmbedding.Length > 0)
+        {
+            mutation.Target.SetEmbedding(winnerEmbedding);
+            return;
+        }
+
+        winner.TextHash = mutation.TextHash;
+        winner.Vector = mutation.Vector;
+        winner.CreatedAt = mutation.CreatedAt;
+        recoveryUnitOfWork.EmbeddingCaches.Update(winner);
+        await recoveryUnitOfWork.SaveChangesAsync(cancellationToken);
+        mutation.Target.SetEmbedding(mutation.Embedding);
+    }
+
+    private static bool IsCurrentBatchUniqueConflict(
+        DbUpdateException exception,
+        IReadOnlyCollection<PendingCacheMutation> pendingMutations) =>
+        DatabaseConstraintClassifier.IsUniqueViolation(
+            exception,
+            EmbeddingCacheUniqueIndex) &&
+        exception.Entries.Count > 0 &&
+        exception.Entries.All(entry =>
+            entry.Entity is EmbeddingCache cache &&
+            pendingMutations.Any(mutation =>
+                ReferenceEquals(mutation.TrackedCache, cache)));
+
+    private static bool IsRetryCacheUniqueConflict(
+        DbUpdateException exception,
+        EmbeddingCache retryCache) =>
+        DatabaseConstraintClassifier.IsUniqueViolation(
+            exception,
+            EmbeddingCacheUniqueIndex) &&
+        exception.Entries.Count > 0 &&
+        exception.Entries.All(entry =>
+            ReferenceEquals(entry.Entity, retryCache));
+
+    private void DetachPendingMutations(
+        IEnumerable<PendingCacheMutation> pendingMutations) =>
+        _unitOfWork.EmbeddingCaches.DetachRange(
+            pendingMutations.Select(mutation => mutation.TrackedCache));
 
     private async Task<List<float[]>> GenerateEmbeddingsInBatchesAsync(
         IEnumerable<string> texts,
@@ -512,5 +590,27 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
         public Action<float[]> SetEmbedding { get; }
 
         public int GetEmbeddingLength() => _embedding.Length;
+    }
+
+    private sealed record PendingCacheMutation(
+        CacheTarget Target,
+        EmbeddingCache TrackedCache,
+        string ModelName,
+        string Usage,
+        string TextHash,
+        byte[] Vector,
+        DateTime CreatedAt)
+    {
+        public float[] Embedding => DeserializeVector(Vector);
+
+        public EmbeddingCache CreateCache() => new()
+        {
+            SpecId = Target.SpecId,
+            ModelName = ModelName,
+            Usage = Usage,
+            TextHash = TextHash,
+            Vector = Vector,
+            CreatedAt = CreatedAt
+        };
     }
 }

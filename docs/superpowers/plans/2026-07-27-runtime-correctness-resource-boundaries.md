@@ -17,7 +17,7 @@
 - `postcss` 最低版本为 `8.5.18`，`brace-expansion` 最低版本为 `5.0.8`。
 - 用户密码长度在后端、前端、部署脚本和文档中统一为 4～200。
 - 上传工作区的文件操作统一使用“移出当前流程”语义，不调用持久文件删除 API。
-- Ollama、LM Studio 可按明确策略访问本机或私网；公网 AI 提供商不得复用该例外。
+- AI 出站只约束配置端点的精确 Origin，不按提供商或网络位置设置例外。
 - UI、错误信息、配置说明和测试名称使用中文业务语义。
 - 不改变 Embedding 主匹配、LLM 辅助裁决和文件级 SmartFill 统一确认业务规则。
 - 不归档缺少真实目标环境发布证据的既有 OpenSpec 变更。
@@ -29,7 +29,7 @@
 |---|---|---|
 | A 审计/API | 1–2 | 最终状态审计、真实 HTTP 状态和稳定异常响应 |
 | B 前端流程 | 3–6 | 执行历史、语义搜索、批量回复、SmartFill 生命周期和移出语义 |
-| C 后端资源安全 | 7–12 | Embedding 并发、文件删除、重复分析、文件比较、SSRF、取消/批量边界 |
+| C 后端资源安全 | 7–12 | Embedding 并发、文件删除、重复分析、文件比较、AI 精确 Origin、取消/批量边界 |
 | D 质量治理 | 13–14 | 依赖锁定、脆弱测试替换、全量验证与 OpenSpec 证据 |
 
 ---
@@ -917,7 +917,7 @@ git commit -m "fix: 流式处理并限制文件比较资源"
 
 - [ ] **Step 1: 编写精确 Origin 和传输边界失败测试**
 
-公网 HTTP、私网 HTTP、IPv4/IPv6 字面量和域名只要 URI 合法且请求同 Origin 均通过。
+结构合法的 HTTP/HTTPS 配置端点只要请求保持同一精确 Origin 即通过。
 scheme、规范化 host 或有效端口变化、显式 Host 覆盖均在发送前拒绝。302 返回首跳响应；
 全局代理不得接管请求；系统 TLS 证书校验不得被覆盖。
 
@@ -928,7 +928,7 @@ dotnet test tests/AcceptanceSpecSystem.Core.Tests/AcceptanceSpecSystem.Core.Test
 dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~AiServiceReadinessProbeSchedulerTests" -m:1
 ```
 
-Expected: 旧 IP/网络位置策略错误拒绝公网 HTTP、IPv4 或 IPv6 合法同源请求。
+Expected: 不再按提供商、地址族或网络位置拒绝合法同源请求。
 
 - [ ] **Step 3: 保留纯结构 URI 规范化**
 
@@ -1033,10 +1033,6 @@ git commit -m "fix: 传播CRUD取消并限制批量删除"
 - Create: `tests/AcceptanceSpecSystem.Api.Tests/packages.lock.json`
 - Create: `tests/AcceptanceSpecSystem.Core.Tests/packages.lock.json`
 - Create: `tests/AcceptanceSpecSystem.Data.Tests/packages.lock.json`
-- Create: `tools/E2ETest/packages.lock.json`
-- Create: `tools/MatchingRegressionReport/packages.lock.json`
-- Create: `tools/SmartFillInsightReport/packages.lock.json`
-- Create: `tools/SmartStructureHeaderGapReport/packages.lock.json`
 - Modify: `.github/workflows/ci.yml`
 - Modify: `web/Dockerfile`
 - Modify: `deploy/validate-production-env.sh`
@@ -1054,7 +1050,7 @@ git commit -m "fix: 传播CRUD取消并限制批量删除"
 - Create: `web/src/views/smart-fill/components/SmartFillPreviewStep.test.ts`
 
 **Interfaces:**
-- Dependency floors and locks are enforced by package managers
+- Dependency floors are enforced by package managers；锁定范围仅覆盖解决方案内 7 个项目
 - CI third-party Actions use immutable commit SHA plus version comments
 - Node source tests retain only static rules that cannot be expressed as behavior tests
 
@@ -1119,7 +1115,11 @@ dotnet restore AcceptanceSpecSystem.sln --use-lock-file
 dotnet restore AcceptanceSpecSystem.sln --locked-mode
 ```
 
-提交生成的锁文件，并在 CI restore 使用 `--locked-mode`。
+提交解决方案内 7 个项目生成的锁文件，并在 CI 对 `AcceptanceSpecSystem.sln` restore 使用
+`--locked-mode`。`tools/E2ETest`、`tools/MatchingRegressionReport`、
+`tools/SmartFillInsightReport`、`tools/SmartStructureHeaderGapReport` 是解决方案外独立工具，
+本次最终决策不为其启用锁文件，也不在 CI 对其执行 locked restore；其依赖继续按工具项目的
+常规 restore 解析。
 
 - [ ] **Step 5: 固定 CI Actions**
 
@@ -1161,7 +1161,7 @@ Expected: 无 High/Critical npm 漏洞；Node 332/332 或因新增行为测试�
 - [ ] **Step 8: 提交质量治理**
 
 ```powershell
-git add web/package.json web/pnpm-lock.yaml web/src/plugins/elementPlus.ts web/tests/data-import-confirm-layout.test.ts web/tests/data-import-progress-state.test.ts web/tests/frontend-shell-guard.test.ts web/tests/layout-density.test.ts web/tests/master-data-options-pagination.test.ts web/tests/smart-fill-preview-runtime.test.ts web/src/views/shared/SmartStructureRangeEditorDrawer.test.ts web/src/views/data-import/composables/useDataImportExecution.test.ts web/src/views/data-import/dataImport.confirmImport.test.ts web/src/views/smart-fill/components/MatchConfig.test.ts web/src/views/smart-fill/components/SmartFillPreviewStep.test.ts Directory.Build.props src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj src/AcceptanceSpecSystem.Api/packages.lock.json src/AcceptanceSpecSystem.Application/packages.lock.json src/AcceptanceSpecSystem.Core/packages.lock.json src/AcceptanceSpecSystem.Data/packages.lock.json tests/AcceptanceSpecSystem.Api.Tests/packages.lock.json tests/AcceptanceSpecSystem.Core.Tests/packages.lock.json tests/AcceptanceSpecSystem.Data.Tests/packages.lock.json tools/E2ETest/packages.lock.json tools/MatchingRegressionReport/packages.lock.json tools/SmartFillInsightReport/packages.lock.json tools/SmartStructureHeaderGapReport/packages.lock.json .github/workflows/ci.yml web/Dockerfile deploy/validate-production-env.sh .deploy/production.env.example
+git add web/package.json web/pnpm-lock.yaml web/src/plugins/elementPlus.ts web/tests/data-import-confirm-layout.test.ts web/tests/data-import-progress-state.test.ts web/tests/frontend-shell-guard.test.ts web/tests/layout-density.test.ts web/tests/master-data-options-pagination.test.ts web/tests/smart-fill-preview-runtime.test.ts web/src/views/shared/SmartStructureRangeEditorDrawer.test.ts web/src/views/data-import/composables/useDataImportExecution.test.ts web/src/views/data-import/dataImport.confirmImport.test.ts web/src/views/smart-fill/components/MatchConfig.test.ts web/src/views/smart-fill/components/SmartFillPreviewStep.test.ts Directory.Build.props src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj src/AcceptanceSpecSystem.Api/packages.lock.json src/AcceptanceSpecSystem.Application/packages.lock.json src/AcceptanceSpecSystem.Core/packages.lock.json src/AcceptanceSpecSystem.Data/packages.lock.json tests/AcceptanceSpecSystem.Api.Tests/packages.lock.json tests/AcceptanceSpecSystem.Core.Tests/packages.lock.json tests/AcceptanceSpecSystem.Data.Tests/packages.lock.json .github/workflows/ci.yml web/Dockerfile deploy/validate-production-env.sh .deploy/production.env.example
 git diff --cached --check
 git commit -m "chore: 固定依赖并修复质量门禁"
 ```

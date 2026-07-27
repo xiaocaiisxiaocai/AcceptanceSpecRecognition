@@ -126,7 +126,7 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Theory]
-    [InlineData("argument", 400)]
+    [InlineData("argument", 500)]
     [InlineData("unauthorized", 401)]
     [InlineData("not-found", 404)]
     [InlineData("unexpected", 500)]
@@ -162,7 +162,7 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Theory]
-    [InlineData("argument", 400)]
+    [InlineData("argument", 500)]
     [InlineData("unauthorized", 401)]
     [InlineData("not-found", 404)]
     [InlineData("unexpected", 500)]

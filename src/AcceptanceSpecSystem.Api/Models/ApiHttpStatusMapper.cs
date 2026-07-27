@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 
 namespace AcceptanceSpecSystem.Api.Models;
 
@@ -7,6 +7,8 @@ namespace AcceptanceSpecSystem.Api.Models;
 /// </summary>
 public static class ApiHttpStatusMapper
 {
+    public const string InternalServerErrorMessage = "服务器内部错误，请稍后重试";
+
     /// <summary>
     /// 解析业务错误码对应的 HTTP 状态。
     /// </summary>
@@ -22,4 +24,10 @@ public static class ApiHttpStatusMapper
         >= 500 and <= 599 => StatusCodes.Status500InternalServerError,
         _ => StatusCodes.Status400BadRequest
     };
+
+    /// <summary>
+    /// 服务端错误不向客户端暴露应用、数据库或基础设施异常详情。
+    /// </summary>
+    public static string ResolveMessage(int code, string message) =>
+        code >= 500 ? InternalServerErrorMessage : message;
 }

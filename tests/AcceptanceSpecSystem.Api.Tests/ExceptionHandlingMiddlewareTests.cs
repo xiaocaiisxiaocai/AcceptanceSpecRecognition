@@ -85,7 +85,7 @@ public class ExceptionHandlingMiddlewareTests
     }
 
     [Fact]
-    public async Task InvokeAsync_WhenArgumentExceptionContainsSensitiveDetail_ShouldReturnSanitizedMessage()
+    public async Task InvokeAsync_参数异常包含敏感连接信息时应返回稳定500()
     {
         var middleware = new ExceptionHandlingMiddleware(
             _ => throw new ArgumentException("server=db;password=secret; endpoint=https://internal.example"),
@@ -96,10 +96,39 @@ public class ExceptionHandlingMiddlewareTests
 
         await middleware.InvokeAsync(context);
 
-        context.Response.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        context.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
         responseBody.Position = 0;
         var document = await JsonDocument.ParseAsync(responseBody);
-        document.RootElement.GetProperty("message").GetString().Should().Be("请求参数错误");
+        document.RootElement.GetProperty("code").GetInt32().Should().Be(500);
+        document.RootElement.GetProperty("message").GetString()
+            .Should().Be("服务器内部错误，请稍后重试");
+    }
+
+    [Theory]
+    [InlineData(true, @"D:\internal\config\machine.json")]
+    [InlineData(false, "MySqlConnector failed while opening acceptance_spec_internal")]
+    public async Task InvokeAsync_未建模参数或状态异常应返回稳定500且不泄漏内部信息(
+        bool isArgumentException,
+        string sensitiveMessage)
+    {
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => isArgumentException
+                ? throw new ArgumentException(sensitiveMessage)
+                : throw new InvalidOperationException(sensitiveMessage),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext();
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        responseBody.Position = 0;
+        var document = await JsonDocument.ParseAsync(responseBody);
+        document.RootElement.GetProperty("code").GetInt32().Should().Be(500);
+        document.RootElement.GetProperty("message").GetString()
+            .Should().Be("服务器内部错误，请稍后重试");
+        document.RootElement.GetRawText().Should().NotContain(sensitiveMessage);
     }
 
     [Fact]
@@ -157,6 +186,33 @@ public class ExceptionHandlingMiddlewareTests
         document.RootElement.GetProperty("message").GetString()
             .Should().Be("数据已被其他请求修改");
         document.RootElement.GetProperty("traceId").GetString().Should().Be(traceId);
+    }
+
+    [Theory]
+    [InlineData(503, StatusCodes.Status500InternalServerError)]
+    [InlineData(600, StatusCodes.Status400BadRequest)]
+    public async Task InvokeAsync_服务端业务异常应返回稳定消息且不泄漏内部消息(
+        int code,
+        int expectedStatus)
+    {
+        const string sensitiveMessage =
+            @"MySqlConnector failed at D:\internal\AcceptanceSpecSystem\cache.db";
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new ApplicationServiceException(code, sensitiveMessage),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext();
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(expectedStatus);
+        responseBody.Position = 0;
+        var document = await JsonDocument.ParseAsync(responseBody);
+        document.RootElement.GetProperty("code").GetInt32().Should().Be(code);
+        document.RootElement.GetProperty("message").GetString()
+            .Should().Be("服务器内部错误，请稍后重试");
+        document.RootElement.GetRawText().Should().NotContain(sensitiveMessage);
     }
 
     [Fact]

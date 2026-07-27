@@ -3,7 +3,6 @@ using System.Text.Json;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Application;
-using AcceptanceSpecSystem.Core.Diagnostics;
 using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Api.Middleware;
@@ -106,13 +105,15 @@ public class ExceptionHandlingMiddleware
 
         var (code, message) = exception switch
         {
-            ApplicationServiceException appEx => (appEx.Code, appEx.Message),
+            ApplicationServiceException appEx => (
+                appEx.Code,
+                ApiHttpStatusMapper.ResolveMessage(appEx.Code, appEx.Message)),
             WordFileReferenceUnavailableException => (409, "源文件状态已变化，请刷新后重试"),
-            ArgumentException argEx => (400, SensitiveLogFormatter.SanitizeMessage(argEx.Message, "请求参数错误")),
+            ArgumentException => (500, ApiHttpStatusMapper.InternalServerErrorMessage),
             KeyNotFoundException => (404, "请求的资源不存在"),
             UnauthorizedAccessException => (401, "未授权访问"),
-            InvalidOperationException opEx => (400, SensitiveLogFormatter.SanitizeMessage(opEx.Message, "请求无效")),
-            _ => (500, "服务器内部错误，请稍后重试")
+            InvalidOperationException => (500, ApiHttpStatusMapper.InternalServerErrorMessage),
+            _ => (500, ApiHttpStatusMapper.InternalServerErrorMessage)
         };
 
         response.StatusCode = ApiHttpStatusMapper.Resolve(code);

@@ -30,6 +30,11 @@ public interface IEmbeddingCacheRepository : IRepository<EmbeddingCache>
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// 分离指定缓存实体的跟踪状态，用于数据库批次失败后的精确恢复。
+    /// </summary>
+    void DetachRange(IEnumerable<EmbeddingCache> caches);
+
+    /// <summary>
     /// 根据验收规格ID获取所有缓存
     /// </summary>
     /// <param name="specId">验收规格ID</param>

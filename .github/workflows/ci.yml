@@ -115,7 +115,9 @@ jobs:
         env:
           ACCEPTANCE_SPEC_ENABLE_MYSQL_MIGRATION_SMOKE_TESTS: "true"
           ACCEPTANCE_SPEC_MYSQL_MIGRATION_BASE_CONNECTION: Server=127.0.0.1;Port=3306;User ID=root;Password=CiMySqlRootPassword_2026!;SslMode=None;AllowPublicKeyRetrieval=True;
-        run: dotnet test tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecSystem.Data.Tests.csproj -c Release --no-restore --nologo -m:1
+        run: |
+          dotnet test tests/AcceptanceSpecSystem.Data.Tests/AcceptanceSpecSystem.Data.Tests.csproj -c Release --no-restore --nologo -m:1
+          dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj -c Release --no-restore --nologo -m:1 --filter "FullyQualifiedName~EmbeddingCacheConcurrencyMySqlTests|FullyQualifiedName~WordFileDeletionCleanupMySqlTests"
 
   frontend:
     name: Frontend

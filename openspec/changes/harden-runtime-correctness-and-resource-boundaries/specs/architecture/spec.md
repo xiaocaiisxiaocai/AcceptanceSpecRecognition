@@ -40,12 +40,19 @@
 - **AND** 启动日志或运维状态能够显示生效值
 
 ### Requirement: 构建依赖可重复解析
-系统 MUST 使用锁文件、精确包版本和固定 CI Action 提交保证同一源码可重复解析依赖。
+系统 MUST 对 `AcceptanceSpecSystem.sln` 内的 7 个项目使用 NuGet 锁文件和精确包版本，并使用固定 CI Action 提交保证同一源码可重复解析依赖。解决方案外的 `tools/E2ETest`、`tools/MatchingRegressionReport`、`tools/SmartFillInsightReport` 和 `tools/SmartStructureHeaderGapReport` 不属于本次 NuGet 锁定范围。
 
-#### Scenario: 后端依赖恢复
-- **WHEN** 构建系统恢复 NuGet 依赖
-- **THEN** 项目使用精确版本和已提交锁文件
+#### Scenario: 恢复解决方案内后端依赖
+- **WHEN** 构建系统恢复 `AcceptanceSpecSystem.sln` 的 NuGet 依赖
+- **THEN** 解决方案内 4 个 `src` 项目和 3 个 `tests` 项目使用精确版本及已提交锁文件
+- **AND** CI 对该解决方案执行 locked restore
 - **AND** 不通过通配版本静默选择新版本
+
+#### Scenario: 恢复解决方案外独立工具
+- **WHEN** 开发者单独恢复 4 个 `tools` 项目之一
+- **THEN** 该工具按常规 NuGet restore 解析依赖
+- **AND** 系统不要求该工具具有 `packages.lock.json`
+- **AND** CI 不对该工具执行 locked restore
 
 #### Scenario: CI 使用第三方 Action
 - **WHEN** 工作流引用第三方 GitHub Action

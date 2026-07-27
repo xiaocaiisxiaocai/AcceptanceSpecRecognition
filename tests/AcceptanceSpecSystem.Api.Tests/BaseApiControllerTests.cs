@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Api.Controllers;
+﻿using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Api.Models;
 using FluentAssertions;
@@ -72,6 +72,48 @@ public class BaseApiControllerTests
         response.Code.Should().Be(401);
         response.Message.Should().Be("会话缺少用户上下文");
         response.TraceId.Should().Be(traceId);
+    }
+
+    [Theory]
+    [InlineData("normal")]
+    [InlineData("generic")]
+    [InlineData("result")]
+    public void Error_服务端错误应统一返回稳定消息且不泄漏内部细节(string path)
+    {
+        const string sensitiveMessage =
+            @"MySqlConnector failed at D:\internal\AcceptanceSpecSystem\cache.db";
+        var controller = CreateController("trace-controller-server-error");
+
+        var (objectResult, responseCode, responseMessage) = path switch
+        {
+            "normal" => ReadResponse(
+                controller.CreateError(503, sensitiveMessage).Result
+                    .Should().BeOfType<ObjectResult>().Subject),
+            "generic" => ReadGenericResponse(
+                controller.CreateError<object>(503, sensitiveMessage).Result
+                    .Should().BeOfType<ObjectResult>().Subject),
+            "result" => ReadResponse(
+                controller.CreateErrorResult(503, sensitiveMessage)
+                    .Should().BeOfType<ObjectResult>().Subject),
+            _ => throw new ArgumentOutOfRangeException(nameof(path))
+        };
+
+        objectResult.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        responseCode.Should().Be(503);
+        responseMessage.Should().Be("服务器内部错误，请稍后重试");
+        responseMessage.Should().NotContain(sensitiveMessage);
+    }
+
+    private static (ObjectResult Result, int Code, string Message) ReadResponse(ObjectResult result)
+    {
+        var response = result.Value.Should().BeOfType<ApiResponse>().Subject;
+        return (result, response.Code, response.Message);
+    }
+
+    private static (ObjectResult Result, int Code, string Message) ReadGenericResponse(ObjectResult result)
+    {
+        var response = result.Value.Should().BeOfType<ApiResponse<object>>().Subject;
+        return (result, response.Code, response.Message);
     }
 
     private static TestApiController CreateController(string traceId)

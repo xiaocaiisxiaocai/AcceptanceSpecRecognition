@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -84,13 +84,53 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
             }
             catch (OperationCanceledException)
             {
-                await ReleaseLeaseAsync(id, token);
+                try
+                {
+                    await ReleaseLeaseAsync(id, token);
+                }
+                catch (Exception releaseLeaseException)
+                {
+                    _logger.LogError(
+                        releaseLeaseException,
+                        "请求取消后释放待删除文件租约失败: {FileId} {ExceptionType}",
+                        id,
+                        releaseLeaseException.GetType().Name);
+                }
+
                 throw;
             }
             catch (Exception exception)
             {
-                await RecordFailureAsync(id, token, ClassifyFailure(exception));
-                _logger.LogWarning(exception, "待删除文件清理失败，已安排重试: {FileId} {Category}", id, ClassifyFailure(exception));
+                var category = ClassifyFailure(exception);
+                bool recorded;
+                try
+                {
+                    recorded = await RecordFailureAsync(id, token, category);
+                }
+                catch (Exception recordFailureException)
+                {
+                    throw new AggregateException(
+                        "待删除文件清理失败，且记录重试状态时再次失败",
+                        exception,
+                        recordFailureException);
+                }
+
+                if (recorded)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "待删除文件清理失败，已安排重试: {FileId} {Category}",
+                        id,
+                        category);
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "待删除文件清理失败，但租约已变化，未由当前工作者记录重试: {FileId} {Category}",
+                        id,
+                        category);
+                }
             }
         }
 
@@ -172,11 +212,11 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
                await db.DocumentImportExecutions.AnyAsync(item => item.SourceFileId == id, cancellationToken);
     }
 
-    private async Task RecordFailureAsync(int id, string token, string category)
+    private async Task<bool> RecordFailureAsync(int id, string token, string category)
     {
         using var scope = _scopeFactory.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<WordFileDeletionLeaseStore>();
-        await store.RecordFailureAsync(id, token, category, CancellationToken.None);
+        return await store.RecordFailureAsync(id, token, category, CancellationToken.None);
     }
 
     private async Task ReleaseLeaseAsync(int id, string token)

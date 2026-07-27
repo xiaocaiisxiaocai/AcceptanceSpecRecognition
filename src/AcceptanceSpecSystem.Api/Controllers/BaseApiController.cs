@@ -1,5 +1,5 @@
-﻿using AcceptanceSpecSystem.Api.Models;
-using AcceptanceSpecSystem.Api.Middleware;
+﻿using AcceptanceSpecSystem.Api.Middleware;
+using AcceptanceSpecSystem.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -34,7 +34,9 @@ public abstract class BaseApiController : ControllerBase
     protected ActionResult<ApiResponse<T>> Error<T>(int code, string message)
     {
         var status = ApiHttpStatusMapper.Resolve(code);
-        return StatusCode(status, ApiResponse<T>.Error(code, message, ResolveTraceId()));
+        return StatusCode(
+            status,
+            ApiResponse<T>.Error(code, ApiHttpStatusMapper.ResolveMessage(code, message), ResolveTraceId()));
     }
 
     /// <summary>
@@ -43,7 +45,9 @@ public abstract class BaseApiController : ControllerBase
     protected ActionResult<ApiResponse> Error(int code, string message)
     {
         var status = ApiHttpStatusMapper.Resolve(code);
-        return StatusCode(status, ApiResponse.Error(code, message, ResolveTraceId()));
+        return StatusCode(
+            status,
+            ApiResponse.Error(code, ApiHttpStatusMapper.ResolveMessage(code, message), ResolveTraceId()));
     }
 
     /// <summary>
@@ -52,7 +56,9 @@ public abstract class BaseApiController : ControllerBase
     protected ObjectResult ErrorResult(int code, string message)
     {
         var status = ApiHttpStatusMapper.Resolve(code);
-        return StatusCode(status, ApiResponse.Error(code, message, ResolveTraceId()));
+        return StatusCode(
+            status,
+            ApiResponse.Error(code, ApiHttpStatusMapper.ResolveMessage(code, message), ResolveTraceId()));
     }
 
     /// <summary>

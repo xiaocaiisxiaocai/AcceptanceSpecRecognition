@@ -28,7 +28,7 @@
 ## 4. 依赖、测试与规范治理
 
 - [x] 4.1 升级 `postcss` 和 `brace-expansion` 并更新前端锁文件
-- [x] 4.2 固定 NuGet 版本与锁文件、GitHub Actions SHA 和可配置 npm registry
+- [x] 4.2 固定 NuGet 版本及解决方案内 7 个项目的锁文件、GitHub Actions SHA 和可配置 npm registry；解决方案外 4 个工具项目不启用锁文件或 CI locked restore
 - [x] 4.3 统一密码 4～200 规则并更新部署样例与文档
 - [x] 4.4 删除无效 `ElResult` 注册，将脆弱源码正则测试改为行为/契约测试
 - [x] 4.5 仅拆分本次修改直接涉及且职责混杂的组件或服务

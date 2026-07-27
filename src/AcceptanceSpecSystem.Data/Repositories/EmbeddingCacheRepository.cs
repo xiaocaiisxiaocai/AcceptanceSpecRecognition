@@ -51,6 +51,15 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
                 cancellationToken);
     }
 
+    /// <inheritdoc />
+    public void DetachRange(IEnumerable<EmbeddingCache> caches)
+    {
+        foreach (var cache in caches)
+        {
+            _context.Entry(cache).State = EntityState.Detached;
+        }
+    }
+
     /// <summary>
     /// 根据规格ID获取该规格的所有向量缓存记录。
     /// </summary>
