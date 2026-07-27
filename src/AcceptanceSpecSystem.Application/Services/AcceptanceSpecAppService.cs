@@ -301,7 +301,7 @@ public sealed class AcceptanceSpecAppService
         {
             deletedCount = await query.ExecuteDeleteAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
+        catch (Exception ex) when (DatabaseConstraintClassifier.IsDeleteConflict(ex))
         {
             throw new ApplicationServiceException(409, "删除期间数据发生冲突，请刷新后重试");
         }

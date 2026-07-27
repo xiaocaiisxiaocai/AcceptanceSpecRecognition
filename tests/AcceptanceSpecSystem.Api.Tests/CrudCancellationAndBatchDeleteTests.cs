@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Security.Claims;
 using System.Reflection;
 using System.Net;
@@ -15,7 +16,9 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -331,6 +334,52 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
     }
 
     [Theory]
+    [InlineData("customer", "concurrency")]
+    [InlineData("customer", "mysql-1451")]
+    [InlineData("customer", "mysql-1217")]
+    [InlineData("process", "concurrency")]
+    [InlineData("process", "mysql-1451")]
+    [InlineData("process", "mysql-1217")]
+    [InlineData("machine-model", "concurrency")]
+    [InlineData("machine-model", "mysql-1451")]
+    [InlineData("machine-model", "mysql-1217")]
+    public async Task 三类主数据批删已知数据库冲突应整批回滚并保留所有候选(
+        string resource,
+        string conflict)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var firstId = await SeedDeletableAsync(scope.ServiceProvider, resource);
+        var secondId = await SeedDeletableAsync(scope.ServiceProvider, resource);
+        Exception providerFailure = conflict switch
+        {
+            "concurrency" => new DbUpdateConcurrencyException("并发删除"),
+            "mysql-1451" => new DbUpdateException(
+                "删除失败",
+                CreateMySqlException((MySqlErrorCode)1451, "provider detail")),
+            _ => new DbUpdateException(
+                "删除失败",
+                CreateMySqlException((MySqlErrorCode)1217, "provider detail"))
+        };
+        using var unitOfWork = new CountingUnitOfWork(
+            scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+            providerFailure);
+
+        var act = () => InvokeMasterBatchDeleteAsync(
+            unitOfWork,
+            resource,
+            [firstId, secondId]);
+
+        var exception = await act.Should().ThrowAsync<ApplicationServiceException>();
+        exception.Which.Code.Should().Be(409);
+        unitOfWork.BeginCount.Should().Be(1);
+        unitOfWork.SaveCount.Should().Be(1);
+        unitOfWork.RollbackCount.Should().Be(1);
+        unitOfWork.CommitCount.Should().Be(0);
+        (await EntityExistsAsync(scope.ServiceProvider, resource, firstId)).Should().BeTrue();
+        (await EntityExistsAsync(scope.ServiceProvider, resource, secondId)).Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("customer")]
     [InlineData("process")]
     [InlineData("machine-model")]
@@ -412,6 +461,54 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
             serviceScope.ServiceProvider,
             "spec",
             fixture.OtherCompanySpecId)).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(1451)]
+    [InlineData(1217)]
+    public async Task 规格批删ExecuteDelete直抛MySql外键冲突应映射409(int errorCode)
+    {
+        var providerFailure = CreateMySqlException(
+            (MySqlErrorCode)errorCode,
+            "provider detail");
+        await using var fixture = await SpecExecuteDeleteFailureFixture.CreateAsync(providerFailure);
+
+        var act = () => fixture.Service.BatchDeleteAsync(FullScope, [fixture.SpecId]);
+
+        var exception = await act.Should().ThrowAsync<ApplicationServiceException>();
+        exception.Which.Code.Should().Be(409);
+        fixture.DeleteCommandCount.Should().Be(1);
+        (await fixture.SpecExistsAsync()).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task 规格批删ExecuteDelete直抛未知MySql错误应原样上抛()
+    {
+        var providerFailure = CreateMySqlException(
+            MySqlErrorCode.LockWaitTimeout,
+            "provider detail");
+        await using var fixture = await SpecExecuteDeleteFailureFixture.CreateAsync(providerFailure);
+
+        var act = () => fixture.Service.BatchDeleteAsync(FullScope, [fixture.SpecId]);
+
+        var exception = await act.Should().ThrowAsync<MySqlException>();
+        exception.Which.Should().BeSameAs(providerFailure);
+        fixture.DeleteCommandCount.Should().Be(1);
+        (await fixture.SpecExistsAsync()).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task 规格批删ExecuteDelete取消不得包装为数据库冲突()
+    {
+        var cancellationFailure = new OperationCanceledException("provider cancellation");
+        await using var fixture = await SpecExecuteDeleteFailureFixture.CreateAsync(cancellationFailure);
+
+        var act = () => fixture.Service.BatchDeleteAsync(FullScope, [fixture.SpecId]);
+
+        var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+        exception.Which.Should().BeSameAs(cancellationFailure);
+        fixture.DeleteCommandCount.Should().Be(1);
+        (await fixture.SpecExistsAsync()).Should().BeTrue();
     }
 
     [Fact]
@@ -568,7 +665,7 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
     }
 
     [MySqlSmokeFact]
-    public async Task MySql真实环境应允许500项主数据单事务批删()
+    public async Task 真实MySQL应允许500项批删()
     {
         await using var database = await MySqlEmbeddingCacheTestDatabase.CreateAsync();
         _output.WriteLine($"MySQL测试库: {database.DatabaseName}");
@@ -1058,6 +1155,133 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
                             .Any(entry => entry.State == EntityState.Deleted));
                 });
             });
+        }
+    }
+
+    private sealed class SpecExecuteDeleteFailureFixture : IAsyncDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private readonly ServiceProvider _serviceProvider;
+        private readonly IServiceScope _serviceScope;
+        private readonly DeleteCommandFailureInterceptor _interceptor;
+        private readonly AppDbContext _db;
+
+        private SpecExecuteDeleteFailureFixture(
+            SqliteConnection connection,
+            ServiceProvider serviceProvider,
+            IServiceScope serviceScope,
+            DeleteCommandFailureInterceptor interceptor,
+            AppDbContext db,
+            AcceptanceSpecAppService service,
+            int specId)
+        {
+            _connection = connection;
+            _serviceProvider = serviceProvider;
+            _serviceScope = serviceScope;
+            _interceptor = interceptor;
+            _db = db;
+            Service = service;
+            SpecId = specId;
+        }
+
+        public AcceptanceSpecAppService Service { get; }
+        public int SpecId { get; }
+        public int DeleteCommandCount => _interceptor.DeleteCommandCount;
+
+        public static async Task<SpecExecuteDeleteFailureFixture> CreateAsync(Exception failure)
+        {
+            var connection = new SqliteConnection("Data Source=:memory:");
+            await connection.OpenAsync();
+            var interceptor = new DeleteCommandFailureInterceptor(failure);
+            var services = new ServiceCollection();
+            services.AddLogging();
+            services.AddDbContext<AppDbContext>(options => options
+                .UseSqlite(connection)
+                .AddInterceptors(interceptor));
+            services.AddDataRepositories();
+            var serviceProvider = services.BuildServiceProvider();
+            var serviceScope = serviceProvider.CreateScope();
+            var db = serviceScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.EnsureCreatedAsync();
+
+            var customer = new Customer
+            {
+                Name = $"spec-delete-provider-customer-{Guid.NewGuid():N}"
+            };
+            var wordFile = new WordFile
+            {
+                CompanyId = FullScope.CompanyId,
+                FileName = "spec-delete-provider.docx",
+                FileHash = Guid.NewGuid().ToString("N")
+            };
+            var spec = new AcceptanceSpec
+            {
+                Customer = customer,
+                WordFile = wordFile,
+                Project = "provider failure",
+                Specification = "provider failure"
+            };
+            db.AcceptanceSpecs.Add(spec);
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+
+            var service = new AcceptanceSpecAppService(
+                serviceScope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                null!,
+                NullLogger<AcceptanceSpecAppService>.Instance);
+            return new SpecExecuteDeleteFailureFixture(
+                connection,
+                serviceProvider,
+                serviceScope,
+                interceptor,
+                db,
+                service,
+                spec.Id);
+        }
+
+        public Task<bool> SpecExistsAsync()
+        {
+            return _db.AcceptanceSpecs
+                .AsNoTracking()
+                .AnyAsync(spec => spec.Id == SpecId);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _serviceScope.Dispose();
+            await _serviceProvider.DisposeAsync();
+            await _connection.DisposeAsync();
+        }
+    }
+
+    private sealed class DeleteCommandFailureInterceptor : DbCommandInterceptor
+    {
+        private readonly Exception _failure;
+
+        public DeleteCommandFailureInterceptor(Exception failure)
+        {
+            _failure = failure;
+        }
+
+        public int DeleteCommandCount { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("DELETE FROM \"AcceptanceSpecs\"", StringComparison.Ordinal))
+            {
+                DeleteCommandCount++;
+                throw _failure;
+            }
+
+            return base.NonQueryExecutingAsync(
+                command,
+                eventData,
+                result,
+                cancellationToken);
         }
     }
 

@@ -43,7 +43,7 @@ public static class DatabaseConstraintClassifier
     /// <summary>
     /// 判断删除失败是否为已知的并发或父项外键冲突。
     /// </summary>
-    public static bool IsDeleteConflict(DbUpdateException exception)
+    public static bool IsDeleteConflict(Exception exception)
     {
         if (exception is DbUpdateConcurrencyException)
             return true;

@@ -29,6 +29,16 @@ public sealed class DatabaseConstraintClassifierTests
         DatabaseConstraintClassifier.IsDeleteConflict(exception).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(1451)]
+    [InlineData(1217)]
+    public void ExecuteDelete直抛MySql父项外键错误也应识别为删除冲突(int errorCode)
+    {
+        var exception = CreateMySqlException((MySqlErrorCode)errorCode, "provider detail");
+
+        DatabaseConstraintClassifier.IsDeleteConflict(exception).Should().BeTrue();
+    }
+
     [Fact]
     public void 客户名冲突分类器应只接受目标唯一索引()
     {
@@ -63,6 +73,22 @@ public sealed class DatabaseConstraintClassifierTests
 
         DatabaseConstraintClassifier.IsDeleteConflict(foreignKey).Should().BeTrue();
         DatabaseConstraintClassifier.IsDeleteConflict(checkConstraint).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ExecuteDelete直抛SQLite外键错误也应识别为删除冲突()
+    {
+        var exception = new SqliteException("provider detail", 19, 787);
+
+        DatabaseConstraintClassifier.IsDeleteConflict(exception).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExecuteDelete直抛未知MySql错误不得识别为删除冲突()
+    {
+        var exception = CreateMySqlException(MySqlErrorCode.LockWaitTimeout, "provider detail");
+
+        DatabaseConstraintClassifier.IsDeleteConflict(exception).Should().BeFalse();
     }
 
     [Fact]
