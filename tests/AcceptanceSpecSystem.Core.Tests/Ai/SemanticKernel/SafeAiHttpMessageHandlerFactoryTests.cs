@@ -1,6 +1,11 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
@@ -88,6 +93,59 @@ public class SafeAiHttpMessageHandlerFactoryTests
     }
 
     [Fact]
+    public async Task 安全Handler_同步请求跨Origin时应在服务器前拒绝()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = StartListener(port);
+        var serverTask = ObserveSingleRequestAsync(listener);
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            $"http://localhost:{port}");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"http://127.0.0.1:{port}/models");
+
+        var exception = Record.Exception(() =>
+        {
+            using var response = client.Send(request);
+        });
+        listener.Stop();
+        var serverReceivedRequest = await serverTask;
+
+        exception.Should().BeOfType<AiEndpointAccessException>()
+            .Which.Category.Should().Be(AiEndpointAccessFailureCategory.RequestOriginMismatch);
+        serverReceivedRequest.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task 安全Handler_同步请求覆盖Host时应在服务器前拒绝()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = StartListener(port);
+        var serverTask = ObserveSingleRequestAsync(listener);
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            $"http://127.0.0.1:{port}");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"http://127.0.0.1:{port}/models");
+        request.Headers.Host = "other.example";
+
+        var exception = Record.Exception(() =>
+        {
+            using var response = client.Send(request);
+        });
+        listener.Stop();
+        var serverReceivedRequest = await serverTask;
+
+        exception.Should().BeOfType<AiEndpointAccessException>()
+            .Which.Category.Should().Be(AiEndpointAccessFailureCategory.RequestOriginMismatch);
+        serverReceivedRequest.Should().BeFalse();
+    }
+
+    [Fact]
     public void 安全Handler_应固定禁用代理和自动重定向并使用系统TLS()
     {
         using var handler = SafeAiHttpMessageHandlerFactory.CreateHandler(
@@ -101,6 +159,32 @@ public class SafeAiHttpMessageHandlerFactoryTests
         socketsHandler.PooledConnectionLifetime.Should().Be(TimeSpan.FromMinutes(5));
         socketsHandler.PooledConnectionIdleTimeout.Should().Be(TimeSpan.FromMinutes(1));
         socketsHandler.SslOptions.RemoteCertificateValidationCallback.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task 安全Handler_真实TLS应发送配置主机SNI并拒绝错误证书()
+    {
+        using var certificate = CreateWrongHostCertificate();
+        using var listener = new TcpListener(IPAddress.IPv6Any, 0);
+        listener.Server.DualMode = true;
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var observedSni = new TaskCompletionSource<string?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var serverTask = ServeTlsOnceAsync(listener, certificate, observedSni);
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            $"https://localhost:{port}",
+            TimeSpan.FromSeconds(5));
+
+        var action = () => client.GetAsync($"https://localhost:{port}/models");
+
+        var exception = await Record.ExceptionAsync(action);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+        exception.Should().BeOfType<HttpRequestException>();
+        (await observedSni.Task.WaitAsync(TimeSpan.FromSeconds(5)))
+            .Should().Be("localhost");
     }
 
     [Fact]
@@ -249,6 +333,104 @@ public class SafeAiHttpMessageHandlerFactoryTests
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         listener.Start();
         return listener;
+    }
+
+    private static async Task<bool> ObserveSingleRequestAsync(HttpListener listener)
+    {
+        try
+        {
+            var context = await listener.GetContextAsync();
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.Close();
+            return true;
+        }
+        catch (HttpListenerException) when (!listener.IsListening)
+        {
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+    }
+
+    private static X509Certificate2 CreateWrongHostCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=wrong.example",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(
+            new X509BasicConstraintsExtension(false, false, 0, false));
+        request.CertificateExtensions.Add(
+            new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment,
+                false));
+        request.CertificateExtensions.Add(
+            new X509EnhancedKeyUsageExtension(
+                new OidCollection
+                {
+                    new("1.3.6.1.5.5.7.3.1")
+                },
+                false));
+        var subjectAlternativeNames = new SubjectAlternativeNameBuilder();
+        subjectAlternativeNames.AddDnsName("wrong.example");
+        request.CertificateExtensions.Add(subjectAlternativeNames.Build());
+        using var generated = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddDays(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+        const string password = "task11-test-certificate";
+        return new X509Certificate2(
+            generated.Export(X509ContentType.Pkcs12, password),
+            password,
+            X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
+    }
+
+    private static async Task ServeTlsOnceAsync(
+        TcpListener listener,
+        X509Certificate2 certificate,
+        TaskCompletionSource<string?> observedSni)
+    {
+        try
+        {
+            using var tcpClient = await listener.AcceptTcpClientAsync();
+            await using var sslStream = new SslStream(tcpClient.GetStream());
+            var options = new SslServerAuthenticationOptions
+            {
+                ServerCertificateSelectionCallback = (_, hostName) =>
+                {
+                    observedSni.TrySetResult(hostName);
+                    return certificate;
+                },
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            };
+
+            await sslStream.AuthenticateAsServerAsync(options);
+            using var reader = new StreamReader(
+                sslStream,
+                Encoding.ASCII,
+                detectEncodingFromByteOrderMarks: false,
+                leaveOpen: true);
+            while (!string.IsNullOrEmpty(await reader.ReadLineAsync()))
+            {
+            }
+
+            await sslStream.WriteAsync(
+                Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"));
+        }
+        catch (AuthenticationException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     private static int GetFreeTcpPort()

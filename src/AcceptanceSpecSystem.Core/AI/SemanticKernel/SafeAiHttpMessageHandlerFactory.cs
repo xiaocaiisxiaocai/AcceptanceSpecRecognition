@@ -215,6 +215,20 @@ internal sealed class ExactOriginGuardHandler : DelegatingHandler
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
+        EnsureAllowed(request);
+        return base.SendAsync(request, cancellationToken);
+    }
+
+    protected override HttpResponseMessage Send(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        EnsureAllowed(request);
+        return base.Send(request, cancellationToken);
+    }
+
+    private void EnsureAllowed(HttpRequestMessage request)
+    {
         if (request.RequestUri is not { } requestUri ||
             !string.IsNullOrEmpty(request.Headers.Host) ||
             !SafeAiHttpMessageHandlerFactory.IsSameOrigin(requestUri, _origin))
@@ -223,7 +237,5 @@ internal sealed class ExactOriginGuardHandler : DelegatingHandler
                 AiEndpointAccessFailureCategory.RequestOriginMismatch,
                 "AI 请求地址与配置端点不一致");
         }
-
-        return base.SendAsync(request, cancellationToken);
     }
 }

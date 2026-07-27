@@ -1,13 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: AI 出站请求保持精确 Origin
-系统 MUST 让配置校验、连通性探测和实际模型调用共用统一受限客户端，并把每个请求约束在配置端点的精确规范化 Origin。
+系统 MUST 让配置保存使用统一的确定性 URI 规范化契约。系统 MUST 让连通性探测、模型列表、readiness、chat 和 embedding 等所有真实 AI 出站路径共用统一受限客户端，并把每个出站请求约束在配置端点的精确规范化 Origin。
 
-#### Scenario: 合法 HTTP 或 HTTPS 端点
+#### Scenario: 保存合法 HTTP 或 HTTPS 端点
 - **GIVEN** Endpoint 是结构合法的绝对 HTTP 或 HTTPS URI
 - **AND** Endpoint 可以是内网、公网、域名、IPv4 或 IPv6
-- **WHEN** 系统保存配置或创建 AI 客户端
+- **WHEN** 系统保存配置
 - **THEN** 系统不因网络位置、地址族或提供商类型拒绝该 Endpoint
+- **AND** 保存阶段不发送 AI 出站请求
+
+#### Scenario: 真实 AI 出站路径共用受限客户端
+- **WHEN** 系统执行连通性探测、模型列表、readiness、chat 或 embedding 请求
+- **THEN** 该请求使用统一受限客户端
+- **AND** 配置保存不属于真实 AI 出站路径
 
 #### Scenario: 请求尝试离开配置 Origin
 - **WHEN** 请求的 scheme、规范化 host 或有效端口与配置 Endpoint 不同
