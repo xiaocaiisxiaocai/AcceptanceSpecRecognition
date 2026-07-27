@@ -1440,16 +1440,20 @@ public class ReviewRegressionTests
     public void SmartFill_OnUnmount_ShouldAbortPreviewRequestsToo()
     {
         var smartFillContent = ReadFileText("web/src/views/smart-fill/index.vue");
+        var activationContent = ReadFileText(
+            "web/src/views/smart-fill/composables/useSmartFillActivation.ts");
         var hookStart = smartFillContent.IndexOf("onBeforeUnmount(() => {", StringComparison.Ordinal);
         hookStart.Should().BeGreaterThanOrEqualTo(0);
         var hookEnd = smartFillContent.IndexOf("\n});", hookStart, StringComparison.Ordinal);
         hookEnd.Should().BeGreaterThan(hookStart);
         var unmountHook = smartFillContent[hookStart..(hookEnd + 4)];
 
-        unmountHook.Should().Contain("invalidatePendingPreview();",
-            "页面卸载时应取消未完成的批量预览请求，避免离页后仍占用后端算力");
-        unmountHook.Should().Contain("stopLlmStream();",
-            "页面卸载时应停止流式请求，避免离页后仍占用后端算力");
+        unmountHook.Should().Contain("activation.pauseForDeactivation();",
+            "页面卸载时应通过统一生命周期入口释放页面拥有的请求");
+        activationContent.Should().Contain("actions.invalidatePreview();",
+            "统一生命周期入口应取消未完成的批量预览请求，避免离页后仍占用后端算力");
+        activationContent.Should().Contain("actions.stopStream();",
+            "统一生命周期入口应停止流式请求，避免离页后仍占用后端算力");
     }
 
     [Fact]

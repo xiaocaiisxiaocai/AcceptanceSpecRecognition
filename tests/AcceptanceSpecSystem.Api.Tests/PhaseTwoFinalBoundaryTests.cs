@@ -60,7 +60,15 @@ public sealed class PhaseTwoFinalBoundaryTests
             "IFormFile"
         };
 
-        foreach (var sourceFile in Directory.GetFiles(applicationRoot, "*.cs", SearchOption.AllDirectories))
+        foreach (var sourceFile in Directory
+                     .GetFiles(applicationRoot, "*.cs", SearchOption.AllDirectories)
+                     .Where(path =>
+                         !path.Contains(
+                             $"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}",
+                             StringComparison.OrdinalIgnoreCase)
+                         && !path.Contains(
+                             $"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}",
+                             StringComparison.OrdinalIgnoreCase)))
         {
             var content = File.ReadAllText(sourceFile);
             var relativePath = Path.GetRelativePath(applicationRoot, sourceFile);

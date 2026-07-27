@@ -128,6 +128,24 @@ public class WordFilePendingDeletionMigrationTests
               AND TABLE_NAME = 'WordFiles'
               AND COLUMN_NAME = 'DeletionStatus';
             """)).Should().Be(0);
+
+        Convert.ToInt32(await database.ExecuteScalarAsync(
+            "SELECT COUNT(*) FROM WordFiles WHERE FileHash = 'legacy-pending-default';"))
+            .Should().Be(1);
+
+        await migrator.MigrateAsync(MigrationId);
+        var reupgradedDefaults = await database.QueryAsync(
+            "SELECT DeletionStatus, DeletionRetryCount FROM WordFiles WHERE FileHash = 'legacy-pending-default';");
+        reupgradedDefaults.Rows.Count.Should().Be(1);
+        reupgradedDefaults.Rows[0]["DeletionStatus"].Should().Be(0);
+        reupgradedDefaults.Rows[0]["DeletionRetryCount"].Should().Be(0);
+        Convert.ToInt32(await database.ExecuteScalarAsync(
+            """
+            SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'WordFiles'
+              AND INDEX_NAME = 'IX_WordFiles_DeletionStatus_NextDeletionAttemptAt_Id';
+            """)).Should().Be(3);
     }
 
     private static IReadOnlyList<MigrationOperation> BuildOperations(Migration migration, string methodName)

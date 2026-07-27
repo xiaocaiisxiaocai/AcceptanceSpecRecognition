@@ -27,6 +27,8 @@ internal interface IFileCompareTemporaryStorageFaultHook
     void BeforeRequestDirectoryRename(string requestId) { }
     void AfterRequestDirectoryQuarantined(string requestId) { }
     void BeforeEntryDisposition(string entryName) { }
+    void AfterEntryQuarantined(string entryName) { }
+    void AfterEntryDeleted(string entryName) { }
     void AfterTrackedStreamDisposed() { }
 }
 
@@ -73,8 +75,10 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, 
         _faultHook = faultHook;
         _fileSystem = OperatingSystem.IsWindows()
             ? new WindowsNativeTemporaryFileSystem(root)
-            : throw new PlatformNotSupportedException(
-                "文件比较原生临时存储仅支持 Windows");
+            : OperatingSystem.IsLinux()
+                ? new LinuxNativeTemporaryFileSystem(root)
+                : throw new PlatformNotSupportedException(
+                    "文件比较原生临时存储仅支持 Windows 和 Linux");
     }
 
     public async Task<TemporaryFileLease> StageUploadAsync(

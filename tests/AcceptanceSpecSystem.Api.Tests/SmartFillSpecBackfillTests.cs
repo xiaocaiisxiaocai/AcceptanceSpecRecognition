@@ -112,7 +112,7 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
 
         var response = await _client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(403);
         json.Message.Should().Contain("无权");

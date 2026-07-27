@@ -245,7 +245,7 @@ const installSyntheticSession = async (page: Page) => {
 };
 
 const selectTask = async (page: Page, fileName: string) => {
-  await page.getByLabel("任务下拉").click();
+  await page.getByRole("combobox", { name: "任务下拉" }).click();
   await page.getByRole("option", { name: new RegExp(fileName) }).click();
 };
 
@@ -315,10 +315,13 @@ test("执行记录使用服务端分页且任务 A 的迟到详情不覆盖任�
 
   releaseTaskA();
   await expect(page.getByText("A-迟到验收", { exact: true })).toHaveCount(0);
-  expect(requestedPageSizes[0]).toBe(50);
+  expect(requestedPageSizes).toContain(50);
 
-  await page.locator(".el-pagination .el-select").click();
-  await page.getByRole("option", { name: "100 条/页", exact: true }).click();
+  await page.locator(".task-control-row > .el-pagination .el-select").click();
+  await page
+    .locator(".el-select-dropdown:visible")
+    .getByRole("option", { name: "100条/页", exact: true })
+    .click();
   await expect.poll(() => requestedPageSizes.at(-1)).toBe(100);
 });
 

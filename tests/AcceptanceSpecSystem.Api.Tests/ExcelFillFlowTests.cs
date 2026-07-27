@@ -449,7 +449,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
                 config = new { minScoreThreshold = 0.0, highConfidenceThreshold = 0.94 },
                 tables = executePayload.tables
             }));
-        changedPayloadRetry.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        changedPayloadRetry.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var changedPayloadBody = await changedPayloadRetry.ReadAsAsync<ApiResponse<JsonElement>>();
         changedPayloadBody.Code.Should().Be(409);
         changedPayloadBody.Message.Should().Contain("不同的填充请求");
@@ -545,8 +545,8 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         var responses = new[] { await firstExecution, await secondExecution };
         responses.Count(response => response.StatusCode == HttpStatusCode.OK).Should().Be(1);
-        responses.Count(response => response.StatusCode == HttpStatusCode.BadRequest).Should().Be(1);
-        var conflict = responses.Single(response => response.StatusCode == HttpStatusCode.BadRequest);
+        responses.Count(response => response.StatusCode == HttpStatusCode.Conflict).Should().Be(1);
+        var conflict = responses.Single(response => response.StatusCode == HttpStatusCode.Conflict);
         var conflictBody = await conflict.ReadAsAsync<ApiResponse<JsonElement>>();
         conflictBody.Code.Should().Be(409);
         conflictBody.Message.Should().Contain("其他文件");

@@ -2,6 +2,8 @@ using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Application.Services;
 using FluentAssertions;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Runtime.Versioning;
@@ -17,18 +19,84 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "AcceptanceSpecSystem.Api.Tests", Guid.NewGuid().ToString("N"));
 
-    [Fact]
+    [WindowsOnlyFact]
+    [SupportedOSPlatform("windows")]
     public void WindowsNativeAbi_当前支持架构的布局应与系统契约一致()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         WindowsNativeTemporaryFileSystem.ValidateAbi();
 
         WindowsNativeTemporaryFileSystem.ObjectAttributesSize.Should().Be(48);
         WindowsNativeTemporaryFileSystem.ObjectAttributesRootOffset.Should().Be(8);
         WindowsNativeTemporaryFileSystem.ObjectAttributesNameOffset.Should().Be(16);
         WindowsNativeTemporaryFileSystem.IoStatusBlockSize.Should().Be(16);
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_应可构造并完成请求隔离租约()
+    {
+        using var service = CreateService();
+
+        var lease = await service.StageUploadAsync(new MemoryStream([1, 2, 3]), 3);
+        using (var read = lease.OpenRead())
+        {
+            using var copied = new MemoryStream();
+            await read.CopyToAsync(copied);
+            copied.ToArray().Should().Equal(1, 2, 3);
+        }
+
+        await lease.DisposeAsync();
+        Directory.EnumerateFileSystemEntries(_root).Should().BeEmpty();
+    }
+
+    [LinuxOnlyFact]
+    public void LinuxNative_根目录为符号链接时应拒绝且不得触及链外目标()
+    {
+        var outsideRoot = $"{_root}-outside";
+        Directory.CreateDirectory(outsideRoot);
+        var sentinel = Path.Combine(outsideRoot, "sentinel.txt");
+        File.WriteAllText(sentinel, "outside");
+        Directory.CreateDirectory(Path.GetDirectoryName(_root)!);
+        Directory.CreateSymbolicLink(_root, outsideRoot);
+        try
+        {
+            Action create = () => CreateService();
+
+            create.Should().Throw<IOException>();
+            File.ReadAllText(sentinel).Should().Be("outside");
+        }
+        finally
+        {
+            if (Directory.Exists(_root))
+                Directory.Delete(_root);
+            if (Directory.Exists(outsideRoot))
+                Directory.Delete(outsideRoot, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_请求目录为符号链接时清理必须FailClosed且保留链外目标()
+    {
+        Directory.CreateDirectory(_root);
+        var outsideRoot = $"{_root}-outside";
+        Directory.CreateDirectory(outsideRoot);
+        var sentinel = Path.Combine(outsideRoot, "sentinel.txt");
+        File.WriteAllText(sentinel, "outside");
+        var requestId = Guid.NewGuid().ToString("N");
+        Directory.CreateSymbolicLink(Path.Combine(_root, requestId), outsideRoot);
+        using var service = CreateService();
+        try
+        {
+            await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+                .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+            File.ReadAllText(sentinel).Should().Be("outside");
+        }
+        finally
+        {
+            if (Directory.Exists(Path.Combine(_root, requestId)))
+                Directory.Delete(Path.Combine(_root, requestId));
+            if (Directory.Exists(outsideRoot))
+                Directory.Delete(outsideRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -116,7 +184,7 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
             .Should().ThrowAsync<OperationCanceledException>();
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public async Task Lease_活动标记句柄应阻止外部替换并保持有效()
     {
         var service = CreateService();
@@ -131,6 +199,44 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
 
         await lease.DisposeAsync();
         Directory.Exists(directory).Should().BeFalse();
+    }
+
+    [LinuxOnlyFact]
+    [SupportedOSPlatform("linux")]
+    public async Task LinuxNative_活动标记被篡改时释放应FailClosed保留目录()
+    {
+        using var service = CreateService();
+        var lease = await service.StageUploadAsync(new MemoryStream([1]), 1);
+        var directory = Directory.EnumerateDirectories(_root).Single();
+        var marker = Path.Combine(directory, ".acceptance-file-compare");
+        File.SetUnixFileMode(
+            marker,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.WriteAllText(marker, "tampered");
+
+        await FluentActions.Awaiting(() => lease.DisposeAsync().AsTask())
+            .Should().ThrowAsync<IOException>();
+
+        Directory.Exists(directory).Should().BeTrue();
+        File.ReadAllText(marker).Should().Be("tampered");
+    }
+
+    [LinuxOnlyFact]
+    [SupportedOSPlatform("linux")]
+    public async Task LinuxNative_请求目录和文件权限应保持最小化()
+    {
+        using var service = CreateService();
+        await using var lease = await service.StageUploadAsync(new MemoryStream([1]), 1);
+        var directory = Directory.EnumerateDirectories(_root).Single();
+
+        File.GetUnixFileMode(directory).Should().Be(
+            UnixFileMode.UserRead |
+            UnixFileMode.UserWrite |
+            UnixFileMode.UserExecute);
+        File.GetUnixFileMode(Path.Combine(directory, ".acceptance-file-compare"))
+            .Should().Be(UnixFileMode.UserRead);
+        File.GetUnixFileMode(Path.Combine(directory, "payload.tmp")).Should().Be(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
     [Fact]
@@ -223,6 +329,37 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         Directory.Exists(init).Should().BeFalse();
     }
 
+    [LinuxOnlyFact]
+    public Task LinuxNative_CleanupExpired_markerlessInit含Payload必须FailClosed保留()
+    {
+        return AssertMarkerlessInitEntryIsRetainedAsync("payload.tmp");
+    }
+
+    [LinuxOnlyFact]
+    public Task LinuxNative_CleanupExpired_markerlessInit含固定Tombstone必须FailClosed保留()
+    {
+        return AssertMarkerlessInitEntryIsRetainedAsync(".delete-payload.tmp");
+    }
+
+    private async Task AssertMarkerlessInitEntryIsRetainedAsync(string entryName)
+    {
+        Directory.CreateDirectory(_root);
+        var init = Path.Combine(
+            _root,
+            $".init-{Guid.NewGuid():N}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(init);
+        var entry = Path.Combine(init, entryName);
+        File.WriteAllText(entry, "sentinel");
+        using var service = CreateService();
+
+        var exception = await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+
+        exception.Which.FailureCount.Should().Be(1);
+        Directory.Exists(init).Should().BeTrue();
+        File.ReadAllText(entry).Should().Be("sentinel");
+    }
+
     [Theory]
     [InlineData(".gc-", false, false, false, false)]
     [InlineData(".gc-", true, true, false, false)]
@@ -308,8 +445,16 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
 
         Func<Task> create = async () => await service.CreateOutputAsync();
 
-        await create.Should().ThrowAsync<System.ComponentModel.Win32Exception>()
-            .Where(exception => exception.NativeErrorCode == 183);
+        var exception = (await create.Should().ThrowAsync<Exception>()).Which;
+        if (OperatingSystem.IsWindows())
+        {
+            exception.Should().BeOfType<System.ComponentModel.Win32Exception>()
+                .Which.NativeErrorCode.Should().Be(183);
+        }
+        else
+        {
+            exception.Should().BeOfType<IOException>();
+        }
         Directory.EnumerateDirectories(_root, ".init-*").Should().BeEmpty();
         File.ReadAllText(Path.Combine(hook.CollisionDirectory!, "sentinel.txt"))
             .Should().Be("replacement");
@@ -346,12 +491,35 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         Directory.Exists(directory).Should().BeTrue();
     }
 
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_活动Lease应先尝试目录锁再读取标记()
+    {
+        var owner = CreateService(heartbeatSeconds: 3_600);
+        var cleaner = CreateService();
+        var lease = await owner.StageUploadAsync(new MemoryStream([1]), 1);
+        var directory = Directory.EnumerateDirectories(_root).Single();
+        var marker = Path.Combine(directory, ".acceptance-file-compare");
+        var heldMarker = marker + ".held";
+        try
+        {
+            File.Move(marker, heldMarker);
+            mkfifo(marker, Convert.ToUInt32("600", 8)).Should().Be(0);
+
+            await cleaner.CleanupExpiredAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+            Directory.Exists(directory).Should().BeTrue();
+        }
+        finally
+        {
+            File.Delete(marker);
+            File.Move(heldMarker, marker);
+            await lease.DisposeAsync();
+        }
+    }
+
     [Fact]
     public async Task CleanupExpired_打开候选后原名被替换时只删除已固定对象()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         var orphan = CreateOrphanDirectory();
         var requestId = Path.GetFileName(orphan);
         var displaced = Path.Combine(_root, $".outside-{Guid.NewGuid():N}");
@@ -359,9 +527,18 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         var hook = new ReplaceCandidateAfterOpenHook(_root, displaced);
         var service = CreateService(hook);
 
-        await service.CleanupExpiredAsync();
-
-        Directory.Exists(displaced).Should().BeFalse("清理器应删除已固定的旧候选对象");
+        if (OperatingSystem.IsWindows())
+        {
+            await service.CleanupExpiredAsync();
+            Directory.Exists(displaced).Should().BeFalse("清理器应删除已固定的旧候选对象");
+        }
+        else
+        {
+            await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+                .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+            Directory.Exists(displaced).Should().BeTrue(
+                "Linux 名称交换后无法凭路径安全删除已固定的旧候选对象");
+        }
         Directory.Exists(orphan).Should().BeTrue("同名替代目录不是已固定候选");
         File.ReadAllText(sentinel).Should().Be("outside-sentinel");
         Path.GetFileName(orphan).Should().Be(requestId);
@@ -370,9 +547,6 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     [Fact]
     public async Task LeaseDispose_隔离后重建同名目录时不得删除替代对象()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         var hook = new RecreateRequestAfterQuarantineHook();
         var service = CreateService(hook);
         var lease = await service.StageUploadAsync(new MemoryStream([1]), 1);
@@ -390,9 +564,6 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     [Fact]
     public async Task CleanupExpired_隔离后出现未知条目应保留隔离对象且不递归删除()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         CreateOrphanDirectory();
         var hook = new AddUnknownEntryAfterQuarantineHook(_root);
         var service = CreateService(hook);
@@ -408,9 +579,6 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     [Fact]
     public async Task CleanupExpired_payload打开后名称被替换时不得删除替代文件()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         CreateOrphanDirectory();
         var hook = new ReplacePayloadAfterOpenHook(_root);
         var service = CreateService(hook);
@@ -420,24 +588,35 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
 
         var quarantine = Directory.EnumerateDirectories(_root, ".gc-*").Single();
         File.ReadAllText(Path.Combine(quarantine, "payload.tmp")).Should().Be("replacement");
-        File.Exists(Path.Combine(quarantine, "opened-payload.old")).Should().BeFalse(
-            "原先打开的对象应通过其句柄删除");
+        File.Exists(Path.Combine(quarantine, "opened-payload.old")).Should()
+            .Be(!OperatingSystem.IsWindows(),
+                "Linux 必须保留名称交换后的两个对象，Windows 可通过固定句柄删除旧对象");
     }
 
     [Fact]
     public async Task CleanupExpired_两个实例并发认领同一候选时只能有一个进入隔离()
     {
-        if (!OperatingSystem.IsWindows())
-            return;
-
         CreateOrphanDirectory();
-        var hook = new TwoCleanerOpenBarrierHook();
-        var first = CreateService(hook);
-        var second = CreateService(hook);
-
-        await Task.WhenAll(
-            Task.Run(() => first.CleanupExpiredAsync()),
-            Task.Run(() => second.CleanupExpiredAsync()));
+        if (OperatingSystem.IsWindows())
+        {
+            var hook = new TwoCleanerOpenBarrierHook();
+            var first = CreateService(hook);
+            var second = CreateService(hook);
+            await Task.WhenAll(
+                Task.Run(() => first.CleanupExpiredAsync()),
+                Task.Run(() => second.CleanupExpiredAsync()));
+        }
+        else
+        {
+            var hook = new BlockingQuarantineHook();
+            var first = CreateService(hook);
+            var second = CreateService();
+            var firstCleanup = Task.Run(() => first.CleanupExpiredAsync());
+            hook.Entered.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue();
+            await second.CleanupExpiredAsync();
+            hook.Release.Set();
+            await firstCleanup;
+        }
 
         Directory.EnumerateDirectories(_root)
             .Where(path => Path.GetFileName(path).Length == 32)
@@ -470,6 +649,204 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         {
             Directory.Delete(outsideRoot, recursive: true);
         }
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_payload为FIFO时应快速拒绝且不得阻塞()
+    {
+        var directory = CreateOrphanDirectory();
+        var payload = Path.Combine(directory, "payload.tmp");
+        File.Delete(payload);
+        mkfifo(payload, Convert.ToUInt32("600", 8)).Should().Be(0);
+        using var service = CreateService();
+        var inotify = inotify_init1(0x800 | 0x80000);
+        inotify.Should().BeGreaterThanOrEqualTo(0);
+        inotify_add_watch(inotify, payload, 0x20).Should().BeGreaterThanOrEqualTo(0);
+        using var writerStarted = new ManualResetEventSlim();
+        var writerTask = Task.Factory.StartNew(
+            () =>
+            {
+                writerStarted.Set();
+                return File.Open(
+                    payload,
+                    FileMode.Open,
+                    FileAccess.Write,
+                    FileShare.ReadWrite);
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        var dataOpenObserved = false;
+        var closeResult = 0;
+        try
+        {
+            writerStarted.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+            await Task.Delay(50);
+
+            Func<Task> cleanup = () => Task.Run(() => service.CleanupExpiredAsync());
+
+            await cleanup.Should().ThrowAsync<FileCompareTemporaryCleanupException>()
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            var inotifyBuffer = new byte[256];
+            dataOpenObserved = read(
+                inotify,
+                inotifyBuffer,
+                (nuint)inotifyBuffer.Length) > 0;
+        }
+        finally
+        {
+            try
+            {
+                if (!writerTask.IsCompleted)
+                {
+                    var fifoDirectory = Directory.Exists(directory)
+                        ? directory
+                        : Directory.EnumerateDirectories(_root, ".gc-*").Single();
+                    await using var reader = File.Open(
+                        Path.Combine(fifoDirectory, "payload.tmp"),
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite);
+                    await using var writer =
+                        await writerTask.WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                else
+                {
+                    await using var writer = await writerTask;
+                }
+            }
+            finally
+            {
+                closeResult = close(inotify);
+            }
+        }
+        closeResult.Should().Be(0);
+        dataOpenObserved.Should().BeFalse(
+            "特殊 inode 只能用 O_PATH 判型，不能先以数据模式打开");
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_payload为UnixSocket时应快速拒绝且不连接()
+    {
+        var directory = CreateOrphanDirectory();
+        var payload = Path.Combine(directory, "payload.tmp");
+        File.Delete(payload);
+        var shortDirectory = $"/tmp/a{Guid.NewGuid():N}"[..18];
+        Directory.CreateSymbolicLink(shortDirectory, directory);
+        using var socket = new Socket(
+            AddressFamily.Unix,
+            SocketType.Stream,
+            ProtocolType.Unspecified);
+        try
+        {
+            socket.Bind(new UnixDomainSocketEndPoint(
+                Path.Combine(shortDirectory, "payload.tmp")));
+            socket.Listen();
+            using var service = CreateService();
+
+            await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+                .Should().ThrowAsync<FileCompareTemporaryCleanupException>()
+                .WaitAsync(TimeSpan.FromSeconds(2));
+
+            socket.Connected.Should().BeFalse();
+            Directory.EnumerateDirectories(_root, ".gc-*").Should().ContainSingle();
+        }
+        finally
+        {
+            File.Delete(shortDirectory);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_根目录合法未知名称不得阻断受管目录清理()
+    {
+        var unknown = Path.Combine(_root, "linux:name?is-legal");
+        Directory.CreateDirectory(unknown);
+        CreateOrphanDirectory();
+        using var service = CreateService();
+
+        await service.CleanupExpiredAsync();
+
+        Directory.Exists(unknown).Should().BeTrue();
+        Directory.EnumerateDirectories(_root)
+            .Where(path => Path.GetFileName(path).Length == 32)
+            .Should().BeEmpty();
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_payload隔离后故障中断应可恢复()
+    {
+        CreateOrphanDirectory();
+        using var interrupted = CreateService(
+            new EntryDeletionFaultHook("payload.tmp", failAfterQuarantine: true));
+
+        await FluentActions.Awaiting(() => interrupted.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+        Directory.EnumerateFiles(
+                Directory.EnumerateDirectories(_root, ".gc-*").Single(),
+                ".delete-*")
+            .Should().ContainSingle();
+
+        using var recovery = CreateService();
+        await recovery.CleanupExpiredAsync();
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().BeEmpty();
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_payload删除后故障中断应可恢复()
+    {
+        CreateOrphanDirectory();
+        using var interrupted = CreateService(
+            new EntryDeletionFaultHook("payload.tmp", failAfterQuarantine: false));
+
+        await FluentActions.Awaiting(() => interrupted.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+        var quarantine = Directory.EnumerateDirectories(_root, ".gc-*").Single();
+        File.Exists(Path.Combine(quarantine, "payload.tmp")).Should().BeFalse();
+        File.Exists(Path.Combine(quarantine, ".acceptance-file-compare")).Should().BeTrue();
+
+        using var recovery = CreateService();
+        await recovery.CleanupExpiredAsync();
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().BeEmpty();
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_marker删除后故障中断的空Gc目录应可恢复()
+    {
+        CreateOrphanDirectory(includePayload: false);
+        using var interrupted = CreateService(
+            new EntryDeletionFaultHook(
+                ".acceptance-file-compare",
+                failAfterQuarantine: false));
+
+        await FluentActions.Awaiting(() => interrupted.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+        var quarantine = Directory.EnumerateDirectories(_root, ".gc-*").Single();
+        Directory.EnumerateFileSystemEntries(quarantine).Should().BeEmpty();
+
+        using var recovery = CreateService();
+        await recovery.CleanupExpiredAsync();
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().BeEmpty();
+    }
+
+    [LinuxOnlyFact]
+    public async Task LinuxNative_CleanupExpired_marker隔离后故障中断应从固定Tombstone恢复()
+    {
+        CreateOrphanDirectory(includePayload: false);
+        using var interrupted = CreateService(
+            new EntryDeletionFaultHook(
+                ".acceptance-file-compare",
+                failAfterQuarantine: true));
+
+        await FluentActions.Awaiting(() => interrupted.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+        var quarantine = Directory.EnumerateDirectories(_root, ".gc-*").Single();
+        File.Exists(Path.Combine(quarantine, ".delete-.acceptance-file-compare"))
+            .Should().BeTrue();
+
+        using var recovery = CreateService();
+        await recovery.CleanupExpiredAsync();
+        Directory.EnumerateDirectories(_root, ".gc-*").Should().BeEmpty();
     }
 
     [Fact]
@@ -724,7 +1101,7 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
             faultHook);
     }
 
-    private string CreateOrphanDirectory()
+    private string CreateOrphanDirectory(bool includePayload = true)
     {
         var name = Guid.NewGuid().ToString("N");
         var directory = Path.Combine(_root, name);
@@ -732,7 +1109,8 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         File.WriteAllText(
             Path.Combine(directory, ".acceptance-file-compare"),
             $"{name}:{Guid.NewGuid():N}");
-        File.WriteAllBytes(Path.Combine(directory, "payload.tmp"), [1]);
+        if (includePayload)
+            File.WriteAllBytes(Path.Combine(directory, "payload.tmp"), [1]);
         File.SetLastWriteTimeUtc(
             Path.Combine(directory, ".acceptance-file-compare"),
             DateTime.UtcNow.AddHours(-25));
@@ -958,6 +1336,29 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         }
     }
 
+    private sealed class EntryDeletionFaultHook(
+        string expectedEntry,
+        bool failAfterQuarantine) : IFileCompareTemporaryStorageFaultHook
+    {
+        private int _called;
+
+        public void AfterEntryQuarantined(string entryName)
+        {
+            if (failAfterQuarantine &&
+                entryName == expectedEntry &&
+                Interlocked.Exchange(ref _called, 1) == 0)
+                throw new IOException("injected after entry quarantine");
+        }
+
+        public void AfterEntryDeleted(string entryName)
+        {
+            if (!failAfterQuarantine &&
+                entryName == expectedEntry &&
+                Interlocked.Exchange(ref _called, 1) == 0)
+                throw new IOException("injected after entry deletion");
+        }
+    }
+
     private sealed class BlockingQuarantineHook : IFileCompareTemporaryStorageFaultHook
     {
         public ManualResetEventSlim Entered { get; } = new();
@@ -986,4 +1387,25 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         public void AfterRequestDirectoryQuarantined(string requestId) =>
             throw new IOException("cleanup-injected");
     }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int mkfifo(string pathname, uint mode);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int inotify_init1(int flags);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int inotify_add_watch(
+        int descriptor,
+        string pathname,
+        uint mask);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern nint read(
+        int descriptor,
+        byte[] buffer,
+        nuint count);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int close(int descriptor);
 }
