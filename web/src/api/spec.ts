@@ -215,10 +215,13 @@ export const detectSpecDuplicateGroups = (
 };
 
 /** 规格语义搜索 */
-export const semanticSearchSpecs = (data: SpecSemanticSearchRequest) => {
+export const semanticSearchSpecs = (
+  data: SpecSemanticSearchRequest,
+  signal?: AbortSignal
+) => {
   return http.request<ApiResponse<SpecSemanticSearchResponse>>(
     "post",
     `${baseUrl}/semantic-search`,
-    { data }
+    { data, signal }
   );
 };

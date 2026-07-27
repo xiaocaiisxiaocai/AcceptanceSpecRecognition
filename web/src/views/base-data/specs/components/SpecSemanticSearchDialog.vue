@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import {
   semanticSearchSpecs,
@@ -7,6 +7,7 @@ import {
   type SpecSemanticSearchRequest,
   type SpecSemanticSearchResponse
 } from "@/api/spec";
+import { buildSemanticSearchScopeKey } from "./specSemanticSearchScope";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -20,8 +21,20 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "view", row: SpecSemanticSearchItem): void;
-  (e: "edit", row: SpecSemanticSearchItem): void;
+  (
+    e: "edit",
+    payload: {
+      row: SpecSemanticSearchItem;
+      scope: Readonly<SpecSemanticSearchRequest>;
+    }
+  ): void;
 }>();
+
+type ScopedSemanticResult = {
+  scopeKey: string;
+  request: Readonly<SpecSemanticSearchRequest>;
+  response: SpecSemanticSearchResponse;
+};
 
 const visible = computed({
   get: () => props.modelValue,
@@ -29,8 +42,10 @@ const visible = computed({
 });
 
 const loading = ref(false);
-const result = ref<SpecSemanticSearchResponse | null>(null);
-const lastRequest = ref<SpecSemanticSearchRequest | null>(null);
+const result = ref<ScopedSemanticResult | null>(null);
+const lastRequest = ref<Readonly<SpecSemanticSearchRequest> | null>(null);
+let searchGeneration = 0;
+let searchController: AbortController | undefined;
 
 const form = reactive({
   queryText: "",
@@ -40,11 +55,15 @@ const form = reactive({
 
 const totalHits = computed(
   () =>
-    result.value?.groups.reduce((sum, group) => sum + group.totalHits, 0) ?? 0
+    result.value?.response.groups.reduce(
+      (sum, group) => sum + group.totalHits,
+      0
+    ) ?? 0
 );
 
 const hasAnyHit = computed(
-  () => result.value?.groups.some(group => group.totalHits > 0) ?? false
+  () =>
+    result.value?.response.groups.some(group => group.totalHits > 0) ?? false
 );
 
 const actionColumnWidth = computed(() => (props.allowEdit ? 140 : 80));
@@ -57,13 +76,7 @@ const parseQueries = () => {
     .filter(line => line.length > 0);
 };
 
-const buildRequest = (): SpecSemanticSearchRequest | null => {
-  const queries = parseQueries();
-  if (queries.length === 0) {
-    ElMessage.warning("请至少输入一条搜索内容");
-    return null;
-  }
-
+const buildScopeRequest = (queries: string[]): SpecSemanticSearchRequest => {
   const request: SpecSemanticSearchRequest = {
     queries,
     customerId: props.customerId,
@@ -86,22 +99,80 @@ const buildRequest = (): SpecSemanticSearchRequest | null => {
   return request;
 };
 
+const currentScopeKey = computed(() =>
+  buildSemanticSearchScopeKey(buildScopeRequest(parseQueries()))
+);
+
+const buildRequest = (): SpecSemanticSearchRequest | null => {
+  const queries = parseQueries();
+  if (queries.length === 0) {
+    ElMessage.warning("请至少输入一条搜索内容");
+    return null;
+  }
+
+  return buildScopeRequest(queries);
+};
+
+const freezeRequestScope = (
+  request: SpecSemanticSearchRequest
+): Readonly<SpecSemanticSearchRequest> =>
+  Object.freeze({
+    ...request,
+    queries: Object.freeze([...request.queries]) as string[]
+  });
+
+const invalidateSearchScope = () => {
+  searchController?.abort();
+  searchController = undefined;
+  searchGeneration += 1;
+  loading.value = false;
+  result.value = null;
+  lastRequest.value = null;
+};
+
+watch(
+  () => [props.customerId, props.machineModelId, props.processId],
+  invalidateSearchScope,
+  { flush: "sync" }
+);
+
 const performSearch = async (request: SpecSemanticSearchRequest) => {
+  searchController?.abort();
+  const controller = new AbortController();
+  searchController = controller;
+  const generation = ++searchGeneration;
+  const scopeKey = buildSemanticSearchScopeKey(request);
+  const immutableRequest = freezeRequestScope(request);
+  const isCurrentGeneration = () =>
+    generation === searchGeneration && controller === searchController;
+  const canCommit = () =>
+    isCurrentGeneration() &&
+    !controller.signal.aborted &&
+    scopeKey === currentScopeKey.value;
+
   loading.value = true;
+  lastRequest.value = immutableRequest;
   try {
-    lastRequest.value = request;
-    const res = await semanticSearchSpecs(request);
+    const res = await semanticSearchSpecs(immutableRequest, controller.signal);
+    if (!canCommit()) return;
     if (res.code === 0) {
-      result.value = res.data;
+      result.value = {
+        scopeKey,
+        request: immutableRequest,
+        response: res.data
+      };
     } else {
       result.value = null;
       ElMessage.error(res.message);
     }
   } catch {
+    if (!canCommit()) return;
     result.value = null;
     ElMessage.error("AI搜索失败");
   } finally {
-    loading.value = false;
+    if (isCurrentGeneration()) {
+      loading.value = false;
+    }
   }
 };
 
@@ -112,11 +183,10 @@ const executeSearch = async () => {
 };
 
 const resetSearch = () => {
+  invalidateSearchScope();
   form.queryText = "";
   form.topK = 5;
   form.minScore = 0.5;
-  result.value = null;
-  lastRequest.value = null;
 };
 
 const formatScore = (value: number) => `${(value * 100).toFixed(1)}%`;
@@ -141,7 +211,8 @@ const handleEdit = (row: SpecSemanticSearchItem) => {
     ElMessage.error("权限不足，无法编辑规格");
     return;
   }
-  emit("edit", row);
+  if (!result.value) return;
+  emit("edit", { row, scope: result.value.request });
 };
 
 const reloadLastSearch = async () => {
@@ -220,12 +291,14 @@ defineExpose({
         <div class="summary-panel">
           <div class="summary-card">
             <span class="summary-label">输入条数</span>
-            <strong class="summary-value">{{ result?.queryCount ?? 0 }}</strong>
+            <strong class="summary-value">{{
+              result?.response.queryCount ?? 0
+            }}</strong>
           </div>
           <div class="summary-card">
             <span class="summary-label">候选规格</span>
             <strong class="summary-value">{{
-              result?.candidateCount ?? 0
+              result?.response.candidateCount ?? 0
             }}</strong>
           </div>
           <div class="summary-card">
@@ -235,7 +308,7 @@ defineExpose({
           <div class="summary-card">
             <span class="summary-label">Embedding模型</span>
             <strong class="summary-value ellipsis">{{
-              result?.embeddingModel || "-"
+              result?.response.embeddingModel || "-"
             }}</strong>
           </div>
         </div>
@@ -252,7 +325,7 @@ defineExpose({
             />
             <div v-else class="group-list">
               <el-card
-                v-for="group in result?.groups"
+                v-for="group in result?.response.groups"
                 :key="group.queryIndex"
                 class="group-card"
                 shadow="never"

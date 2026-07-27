@@ -15,6 +15,7 @@ import {
   batchDeleteSpecs,
   type AcceptanceSpec,
   type SpecSemanticSearchItem,
+  type SpecSemanticSearchRequest,
   type SpecListRequest,
   type SpecDuplicateDetectionResult
 } from "@/api/spec";
@@ -387,7 +388,12 @@ const handleSemanticSearchView = (row: SpecSemanticSearchItem) => {
   openDetailDialog(row);
 };
 
-const handleSemanticSearchEdit = (row: SpecSemanticSearchItem) => {
+const handleSemanticSearchEdit = ({
+  row
+}: {
+  row: SpecSemanticSearchItem;
+  scope: Readonly<SpecSemanticSearchRequest>;
+}) => {
   if (!canUpdate.value) {
     ElMessage.error("权限不足，无法编辑规格");
     return;
