@@ -25,33 +25,51 @@ public class EmbeddingCacheRepositoryTests : TestBase
             "缓存写入失败",
             CreateMySqlException(
                 MySqlErrorCode.NoReferencedRow2,
-                "Cannot add or update a child row"));
+                $"Cannot add or update a child row for key '{EmbeddingCacheUniqueIndex}'"));
 
         DatabaseConstraintClassifier.IsUniqueViolation(duplicateKeyException).Should().BeTrue();
         DatabaseConstraintClassifier.IsUniqueViolation(foreignKeyException).Should().BeFalse();
+        DatabaseConstraintClassifier
+            .IsUniqueViolation(foreignKeyException, EmbeddingCacheUniqueIndex)
+            .Should()
+            .BeFalse();
         DatabaseConstraintClassifier.IsUniqueViolation(new DbUpdateException("普通数据库错误")).Should().BeFalse();
     }
 
-    [Fact]
-    public void 唯一约束分类器_指定索引时不应接受其他重复键()
+    [Theory]
+    [InlineData("Duplicate entry 'value' for key 'IX_EmbeddingCaches_SpecId_ModelName_Usage'")]
+    [InlineData("Duplicate entry 'value' for key \"EmbeddingCaches.IX_EmbeddingCaches_SpecId_ModelName_Usage\"")]
+    [InlineData("Duplicate entry 'value' for key `acceptance.EmbeddingCaches.IX_EmbeddingCaches_SpecId_ModelName_Usage`")]
+    public void 唯一约束分类器_应从ForKey子句精确识别目标索引(string message)
     {
-        var targetIndexException = new DbUpdateException(
+        var exception = new DbUpdateException(
             "缓存写入失败",
             CreateMySqlException(
                 MySqlErrorCode.DuplicateKeyEntry,
-                $"Duplicate entry for key '{EmbeddingCacheUniqueIndex}'"));
-        var otherIndexException = new DbUpdateException(
-            "缓存写入失败",
-            CreateMySqlException(
-                MySqlErrorCode.DuplicateKeyEntry,
-                "Duplicate entry for key 'IX_EmbeddingCaches_Other'"));
+                message));
 
         DatabaseConstraintClassifier
-            .IsUniqueViolation(targetIndexException, EmbeddingCacheUniqueIndex)
+            .IsUniqueViolation(exception, EmbeddingCacheUniqueIndex)
             .Should()
             .BeTrue();
+    }
+
+    [Theory]
+    [InlineData("Duplicate entry 'value' for key 'IX_EmbeddingCaches_SpecId_ModelName_Usage_Extra'")]
+    [InlineData("Duplicate entry 'value' for key 'Prefix_IX_EmbeddingCaches_SpecId_ModelName_Usage'")]
+    [InlineData("Duplicate entry 'IX_EmbeddingCaches_SpecId_ModelName_Usage' for key 'IX_EmbeddingCaches_Other'")]
+    [InlineData("Duplicate entry 'IX_EmbeddingCaches_SpecId_ModelName_Usage'")]
+    [InlineData("Duplicate entry 'value' for key IX_EmbeddingCaches_SpecId_ModelName_Usage")]
+    public void 唯一约束分类器_不应接受相似索引重复值诱导或异常格式(string message)
+    {
+        var exception = new DbUpdateException(
+            "缓存写入失败",
+            CreateMySqlException(
+                MySqlErrorCode.DuplicateKeyEntry,
+                message));
+
         DatabaseConstraintClassifier
-            .IsUniqueViolation(otherIndexException, EmbeddingCacheUniqueIndex)
+            .IsUniqueViolation(exception, EmbeddingCacheUniqueIndex)
             .Should()
             .BeFalse();
     }
