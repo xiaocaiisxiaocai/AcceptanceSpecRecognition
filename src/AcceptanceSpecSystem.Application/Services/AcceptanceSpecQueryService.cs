@@ -199,6 +199,9 @@ public sealed class AcceptanceSpecQueryService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+            ResourceWorkload.HighCostMatching,
+            cancellationToken);
         var candidateLimit = _resourceBudgetOptions.MaxDuplicateCandidates;
         var take = candidateLimit == int.MaxValue ? int.MaxValue : candidateLimit + 1;
         var allSpecs = await _unitOfWork.AcceptanceSpecs.GetDuplicateCandidatesAsync(

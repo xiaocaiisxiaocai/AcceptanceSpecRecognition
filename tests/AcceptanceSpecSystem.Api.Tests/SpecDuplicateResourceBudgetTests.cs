@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -165,6 +166,126 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
         Action moveNext = () => enumerator.MoveNext();
 
         moveNext.Should().Throw<OperationCanceledException>();
+    }
+
+    [Fact]
+    public void 一千四百一十四条多共同键项目应只访问每个外层候选对一次()
+    {
+        var commonProject = new string(Enumerable.Range(0, 500)
+            .Select(index => (char)(0x4e00 + index))
+            .ToArray());
+        var specs = Enumerable.Range(1, 1_414)
+            .Select(index => BuildSpec(index, commonProject, ((char)(0x6000 + index)).ToString()))
+            .ToList();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        using var governor = CreateGovernor(maxComparisons: 1_000_000);
+        long pairCount = 0;
+        foreach (var _ in SpecDuplicateDetectionService.EnumerateCandidatePairs(specs, timeout.Token))
+        {
+            pairCount++;
+            governor.ValidateDuplicateComparisons(pairCount);
+        }
+
+        pairCount.Should().Be(998_991);
+        governor.LastDuplicateComparison.Should().Be(998_991);
+    }
+
+    [Fact]
+    public async Task 重复查询并发闸门应覆盖数据库查询并在等待取消和完成后释放()
+    {
+        var databaseName = $"duplicate-gate-{Guid.NewGuid():N}";
+        var connectionString = $"Data Source={databaseName};Mode=Memory;Cache=Shared";
+        await using var anchor = new SqliteConnection(connectionString);
+        await anchor.OpenAsync();
+        var blocker = new BlockingDuplicateQueryInterceptor();
+        await using var firstContext = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(connectionString)
+                .AddInterceptors(blocker)
+                .Options);
+        await firstContext.Database.EnsureCreatedAsync();
+        await using var secondContext = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(connectionString)
+                .Options);
+        using var governor = new ResourceBudgetGovernor(Microsoft.Extensions.Options.Options.Create(
+            new ResourceBudgetOptions { MaxConcurrentHighCostMatching = 1 }));
+        using var firstHarness = new QueryServiceHarness(firstContext, governor);
+        using var secondHarness = new QueryServiceHarness(secondContext, governor);
+        var access = new SpecAccessContext { UserId = 1, CompanyId = 1, IsAll = true };
+
+        var first = firstHarness.Service.GetDuplicateGroupsAsync(access);
+        await blocker.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        using var waitingCancellation = new CancellationTokenSource();
+        var second = secondHarness.Service.GetDuplicateGroupsAsync(
+            access,
+            cancellationToken: waitingCancellation.Token);
+        second.IsCompleted.Should().BeFalse();
+        waitingCancellation.Cancel();
+        Func<Task> waitForSecond = async () => await second;
+        await waitForSecond.Should().ThrowAsync<OperationCanceledException>();
+
+        blocker.Release.TrySetResult();
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+        var third = await secondHarness.Service.GetDuplicateGroupsAsync(access);
+        third.ScannedCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task 重复查询422异常后应释放并发闸门供后续工作进入()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var context = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>().UseSqlite(connection).Options);
+        await context.Database.EnsureCreatedAsync();
+        var customer = new Customer { Name = "异常释放客户", CreatedAt = DateTime.UtcNow };
+        var file = new WordFile
+        {
+            CompanyId = 1,
+            FileName = "exception-release.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = [],
+            UploadedAt = DateTime.UtcNow
+        };
+        context.Customers.Add(customer);
+        context.WordFiles.Add(file);
+        await context.SaveChangesAsync();
+        context.AcceptanceSpecs.AddRange(
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "项目一",
+                Specification = "规格一",
+                WordFileId = file.Id
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "项目二",
+                Specification = "规格二",
+                WordFileId = file.Id
+            });
+        await context.SaveChangesAsync();
+        using var governor = new ResourceBudgetGovernor(Microsoft.Extensions.Options.Options.Create(
+            new ResourceBudgetOptions
+            {
+                MaxConcurrentHighCostMatching = 1,
+                MaxDuplicateCandidates = 1
+            }));
+        using var harness = new QueryServiceHarness(
+            context,
+            governor,
+            new ResourceBudgetOptions { MaxDuplicateCandidates = 1 });
+        var access = new SpecAccessContext { UserId = 1, CompanyId = 1, IsAll = true };
+
+        Func<Task> query = async () => await harness.Service.GetDuplicateGroupsAsync(access);
+        await query.Should().ThrowAsync<DuplicateAnalysisBudgetExceededException>();
+
+        using var recovered = await governor.AcquireAsync(ResourceWorkload.HighCostMatching)
+            .AsTask()
+            .WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -524,6 +645,58 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
                 .Select(parameter => parameter.Value)
                 .ToList();
             return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class BlockingDuplicateQueryInterceptor : DbCommandInterceptor
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM \"AcceptanceSpecs\"", StringComparison.Ordinal))
+            {
+                Entered.TrySetResult();
+                await Release.Task.WaitAsync(cancellationToken);
+            }
+
+            return result;
+        }
+    }
+
+    private sealed class QueryServiceHarness : IDisposable
+    {
+        private readonly ServiceProvider _provider;
+        private readonly UnitOfWork _unitOfWork;
+
+        public QueryServiceHarness(
+            AppDbContext context,
+            IResourceBudgetGovernor governor,
+            ResourceBudgetOptions? options = null)
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IAcceptanceSpecRepository>(new AcceptanceSpecRepository(context));
+            _provider = services.BuildServiceProvider();
+            _unitOfWork = new UnitOfWork(context, _provider);
+            Service = new AcceptanceSpecQueryService(
+                _unitOfWork,
+                governor,
+                Microsoft.Extensions.Options.Options.Create(options ?? new ResourceBudgetOptions()));
+        }
+
+        public AcceptanceSpecQueryService Service { get; }
+
+        public void Dispose()
+        {
+            _unitOfWork.Dispose();
+            _provider.Dispose();
         }
     }
 }

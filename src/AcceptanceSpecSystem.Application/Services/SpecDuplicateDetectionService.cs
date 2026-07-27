@@ -224,49 +224,62 @@ internal static class SpecDuplicateDetectionService
         // 1. 非包含关系要达到项目 Dice 阈值，交集必非空，因此双方必共享现有 similarity token；
         // 2. 任一非空包含关系必共享至少一个归一化字符（包括单字符和纯标点）；
         // 3. strict key 相等会直接得到 0.99，空 strict key 也必须是合法桶。
-        // 三类倒排桶取并集后只排除旧算法必不可能命中的 pair，不改变既有召回。
-        var buckets = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        // 字符与 token 分别映射到固定 256-bit FNV-1a 签名；同一元素必落到同一 bit，
+        // 因此 AND 为零才可安全排除。哈希碰撞只会增加比较，不会漏报，且结果跨进程稳定。
+        var signatures = new ProjectCandidateSignature[specs.Count];
         for (var index = 0; index < specs.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var normalized = NormalizeComparableText(specs[index].Project);
-            var strict = NormalizeStrictKey(normalized);
-            var keys = BuildSimilarityTokens(normalized, strict)
-                .Select(token => $"token:{token}")
-                .Concat(normalized.Select(character => $"char:{character}"))
-                .Append($"strict:{strict}")
-                .Distinct(StringComparer.Ordinal);
-            foreach (var key in keys)
-            {
-                if (!buckets.TryGetValue(key, out var bucket))
-                {
-                    bucket = [];
-                    buckets.Add(key, bucket);
-                }
-                bucket.Add(index);
-            }
+            signatures[index] = BuildProjectCandidateSignature(specs[index].Project);
         }
 
-        var seen = new HashSet<CandidatePair>();
-        foreach (var bucket in buckets.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value))
+        for (var leftIndex = 0; leftIndex < specs.Count; leftIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            for (var left = 0; left < bucket.Count; left++)
+            for (var rightIndex = leftIndex + 1; rightIndex < specs.Count; rightIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                for (var right = left + 1; right < bucket.Count; right++)
+                var left = signatures[leftIndex];
+                var right = signatures[rightIndex];
+                if (string.Equals(left.StrictKey, right.StrictKey, StringComparison.Ordinal) ||
+                    left.CharacterMask.SharesAny(right.CharacterMask) ||
+                    left.TokenMask.SharesAny(right.TokenMask))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var leftIndex = bucket[left];
-                    var rightIndex = bucket[right];
-                    var pair = leftIndex < rightIndex
-                        ? new CandidatePair(leftIndex, rightIndex)
-                        : new CandidatePair(rightIndex, leftIndex);
-                    if (seen.Add(pair))
-                        yield return pair;
+                    yield return new CandidatePair(leftIndex, rightIndex);
                 }
             }
         }
+    }
+
+    private static ProjectCandidateSignature BuildProjectCandidateSignature(string project)
+    {
+        var normalized = NormalizeComparableText(project);
+        var strict = NormalizeStrictKey(normalized);
+        var characterMask = SignatureMask.Empty;
+        foreach (var character in normalized)
+            characterMask = characterMask.Add(StableFnv1A(character.ToString()));
+
+        var tokenMask = SignatureMask.Empty;
+        foreach (var token in BuildSimilarityTokens(normalized, strict))
+            tokenMask = tokenMask.Add(StableFnv1A(token));
+
+        return new ProjectCandidateSignature(strict, characterMask, tokenMask);
+    }
+
+    private static ulong StableFnv1A(string value)
+    {
+        const ulong offset = 14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        var hash = offset;
+        foreach (var character in value)
+        {
+            hash ^= (byte)character;
+            hash *= prime;
+            hash ^= (byte)(character >> 8);
+            hash *= prime;
+        }
+
+        return hash;
     }
 
     private static DuplicatePairScore? TryBuildPair(
@@ -528,4 +541,32 @@ internal static class SpecDuplicateDetectionService
         string Reason);
 
     internal readonly record struct CandidatePair(int LeftIndex, int RightIndex);
+
+    private readonly record struct ProjectCandidateSignature(
+        string StrictKey,
+        SignatureMask CharacterMask,
+        SignatureMask TokenMask);
+
+    private readonly record struct SignatureMask(ulong Lane0, ulong Lane1, ulong Lane2, ulong Lane3)
+    {
+        public static SignatureMask Empty => default;
+
+        public SignatureMask Add(ulong hash)
+        {
+            var bit = 1UL << (int)(hash & 63);
+            return ((hash >> 6) & 3) switch
+            {
+                0 => this with { Lane0 = Lane0 | bit },
+                1 => this with { Lane1 = Lane1 | bit },
+                2 => this with { Lane2 = Lane2 | bit },
+                _ => this with { Lane3 = Lane3 | bit }
+            };
+        }
+
+        public bool SharesAny(SignatureMask other) =>
+            (Lane0 & other.Lane0) != 0 ||
+            (Lane1 & other.Lane1) != 0 ||
+            (Lane2 & other.Lane2) != 0 ||
+            (Lane3 & other.Lane3) != 0;
+    }
 }
