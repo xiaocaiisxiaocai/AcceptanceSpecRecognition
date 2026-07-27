@@ -241,6 +241,50 @@ public class OllamaNativeChatCompletionServiceTests
     }
 
     [Fact]
+    public void SemanticKernelServiceFactory_清出64个过期Owner后新建失败仍应立即且仅一次释放()
+    {
+        var safeClientFactory = new TrackingSafeAiHttpClientFactory();
+        var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+
+        for (var index = 0; index < 64; index++)
+        {
+            _ = factory.CreateChatCompletionService(new AiServiceConfigModel
+            {
+                Id = index + 1,
+                ServiceType = AiServiceType.OpenAI,
+                Endpoint = $"https://models-{index}.example.com/v1",
+                ApiKey = "test-placeholder",
+                LlmModel = "chat-model"
+            });
+        }
+        AgeAllCachedServices(factory, TimeSpan.FromHours(1));
+
+        var action = () => factory.CreateChatCompletionService(new AiServiceConfigModel
+        {
+            Id = 999,
+            ServiceType = AiServiceType.OpenAI,
+            Endpoint = "不是合法端点",
+            ApiKey = "test-placeholder",
+            LlmModel = "chat-model"
+        });
+
+        action.Should().Throw<InvalidOperationException>();
+        safeClientFactory.Clients.Should().HaveCount(64);
+        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
+        safeClientFactory.Clients
+            .Select(client => client.Handler)
+            .Should().AllBeOfType<TrackingHttpMessageHandler>()
+            .Which.Should().OnlyContain(handler => handler.DisposeCount == 1);
+
+        factory.Dispose();
+        factory.Dispose();
+        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
+    }
+
+    [Fact]
     public void SemanticKernelServiceFactory_关闭时应释放所有提供商聊天和Embedding客户端且仅一次()
     {
         var safeClientFactory = new TrackingSafeAiHttpClientFactory();
@@ -456,6 +500,24 @@ public class OllamaNativeChatCompletionServiceTests
         return port;
     }
 
+    private static void AgeAllCachedServices(
+        SemanticKernelServiceFactory factory,
+        TimeSpan age)
+    {
+        var cacheField = typeof(SemanticKernelServiceFactory)
+            .GetField("_cache", BindingFlags.Instance | BindingFlags.NonPublic);
+        cacheField.Should().NotBeNull();
+        var cache = cacheField!.GetValue(factory)
+            .Should().BeAssignableTo<System.Collections.IDictionary>().Subject;
+        foreach (var entry in cache.Values.Cast<object>())
+        {
+            var lastAccessField = entry.GetType()
+                .GetField("<LastAccess>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+            lastAccessField.Should().NotBeNull();
+            lastAccessField!.SetValue(entry, DateTimeOffset.UtcNow - age);
+        }
+    }
+
     private sealed class FakeSafeAiHttpClientFactory(HttpClient httpClient) : ISafeAiHttpClientFactory
     {
         public long Generation { get; set; } = 1;
@@ -495,7 +557,7 @@ public class OllamaNativeChatCompletionServiceTests
             TimeSpan? timeout = null)
         {
             var client = new TrackingHttpClient(
-                handlerFactory?.Invoke() ?? new HttpClientHandler());
+                handlerFactory?.Invoke() ?? new TrackingHttpMessageHandler());
             Clients.Add(client);
             return client;
         }
@@ -504,7 +566,26 @@ public class OllamaNativeChatCompletionServiceTests
     private sealed class TrackingHttpClient(HttpMessageHandler handler)
         : HttpClient(handler)
     {
+        public HttpMessageHandler Handler { get; } = handler;
+
         public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                DisposeCount++;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class TrackingHttpMessageHandler : HttpMessageHandler
+    {
+        public int DisposeCount { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
 
         protected override void Dispose(bool disposing)
         {

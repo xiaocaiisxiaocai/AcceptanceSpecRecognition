@@ -117,46 +117,51 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
     {
         List<object>? retired = null;
         T result;
-        lock (_cacheSync)
+        try
         {
-            ThrowIfDisposed();
-            var now = DateTimeOffset.UtcNow;
-            foreach (var expiredKey in _cache
-                         .Where(pair => now - pair.Value.LastAccess >= CacheSlidingExpiration)
-                         .Select(static pair => pair.Key)
-                         .ToArray())
+            lock (_cacheSync)
             {
-                retired ??= [];
-                retired.Add(_cache[expiredKey].Value);
-                _cache.Remove(expiredKey);
-            }
-
-            if (_cache.TryGetValue(key, out var cached))
-            {
-                cached.Touch(++_cacheAccessSequence, now);
-                result = (T)cached.Value;
-            }
-            else
-            {
-                result = factory();
-                _cache.Add(
-                    key,
-                    new ServiceCacheEntry(result, ++_cacheAccessSequence, now));
-
-                while (_cache.Count > CacheSizeLimit)
+                ThrowIfDisposed();
+                var now = DateTimeOffset.UtcNow;
+                foreach (var expiredKey in _cache
+                             .Where(pair => now - pair.Value.LastAccess >= CacheSlidingExpiration)
+                             .Select(static pair => pair.Key)
+                             .ToArray())
                 {
-                    var oldest = _cache.MinBy(static pair => pair.Value.LastAccessSequence);
                     retired ??= [];
-                    retired.Add(oldest.Value.Value);
-                    _cache.Remove(oldest.Key);
+                    retired.Add(_cache[expiredKey].Value);
+                    _cache.Remove(expiredKey);
+                }
+
+                if (_cache.TryGetValue(key, out var cached))
+                {
+                    cached.Touch(++_cacheAccessSequence, now);
+                    result = (T)cached.Value;
+                }
+                else
+                {
+                    result = factory();
+                    _cache.Add(
+                        key,
+                        new ServiceCacheEntry(result, ++_cacheAccessSequence, now));
+
+                    while (_cache.Count > CacheSizeLimit)
+                    {
+                        var oldest = _cache.MinBy(static pair => pair.Value.LastAccessSequence);
+                        retired ??= [];
+                        retired.Add(oldest.Value.Value);
+                        _cache.Remove(oldest.Key);
+                    }
                 }
             }
         }
-
-        if (retired != null)
+        finally
         {
-            foreach (var value in retired)
-                DisposeCachedValue(value);
+            if (retired != null)
+            {
+                foreach (var value in retired)
+                    DisposeCachedValue(value);
+            }
         }
 
         return result;

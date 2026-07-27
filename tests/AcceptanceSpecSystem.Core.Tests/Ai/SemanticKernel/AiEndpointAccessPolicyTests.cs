@@ -31,6 +31,10 @@ public class AiEndpointAccessPolicyTests
     [InlineData("https://[2001:10::1]")]
     [InlineData("https://[3fff::1]")]
     [InlineData("https://[5f00::1]")]
+    [InlineData("https://[2d00::1]")]
+    [InlineData("https://[2e00::1]")]
+    [InlineData("https://[3000::1]")]
+    [InlineData("https://[3ffe::1]")]
     [InlineData("https://[::ffff:10.0.0.1]")]
     public async Task 地址策略_遇到非全球单播地址时应稳定拒绝(string endpoint)
     {
@@ -66,6 +70,11 @@ public class AiEndpointAccessPolicyTests
     [InlineData("https://[2001:1::1]")]
     [InlineData("https://[2001:20::1]")]
     [InlineData("https://[2001:4860:4860::8888]")]
+    [InlineData("https://[2003::1]")]
+    [InlineData("https://[2404:6800::1]")]
+    [InlineData("https://[2606:4700::1111]")]
+    [InlineData("https://[2a00:1450::1]")]
+    [InlineData("https://[2c0f:f248::1]")]
     public async Task 地址策略_IANA广域协议块中的全球可达例外仍应允许HTTPS(string endpoint)
     {
         var result = await CreatePolicy(new FakeDnsResolver()).ValidateAsync(

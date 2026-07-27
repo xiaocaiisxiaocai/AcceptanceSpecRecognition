@@ -99,7 +99,47 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
         Range("3fff::/20", false)
     ];
 
-    private static readonly IpNetwork Ipv6GlobalUnicastSpace = IpNetwork.Parse("2000::/3");
+    // IANA IPv6 Global Unicast Address Space allocation registry, reviewed 2026-07-27.
+    // Unlisted portions of 2000::/3 are RESERVED and therefore fail closed.
+    private static readonly IpNetwork[] Ipv6AllocatedGlobalUnicastRanges =
+    [
+        IpNetwork.Parse("2001::/23"),
+        IpNetwork.Parse("2001:200::/23"),
+        IpNetwork.Parse("2001:400::/23"),
+        IpNetwork.Parse("2001:600::/23"),
+        IpNetwork.Parse("2001:800::/22"),
+        IpNetwork.Parse("2001:c00::/23"),
+        IpNetwork.Parse("2001:e00::/23"),
+        IpNetwork.Parse("2001:1200::/23"),
+        IpNetwork.Parse("2001:1400::/22"),
+        IpNetwork.Parse("2001:1800::/23"),
+        IpNetwork.Parse("2001:1a00::/23"),
+        IpNetwork.Parse("2001:1c00::/22"),
+        IpNetwork.Parse("2001:2000::/19"),
+        IpNetwork.Parse("2001:4000::/23"),
+        IpNetwork.Parse("2001:4200::/23"),
+        IpNetwork.Parse("2001:4400::/23"),
+        IpNetwork.Parse("2001:4600::/23"),
+        IpNetwork.Parse("2001:4800::/23"),
+        IpNetwork.Parse("2001:4a00::/23"),
+        IpNetwork.Parse("2001:4c00::/23"),
+        IpNetwork.Parse("2001:5000::/20"),
+        IpNetwork.Parse("2001:8000::/19"),
+        IpNetwork.Parse("2001:a000::/20"),
+        IpNetwork.Parse("2001:b000::/20"),
+        IpNetwork.Parse("2002::/16"),
+        IpNetwork.Parse("2003::/18"),
+        IpNetwork.Parse("2400::/12"),
+        IpNetwork.Parse("2410::/12"),
+        IpNetwork.Parse("2600::/12"),
+        IpNetwork.Parse("2610::/23"),
+        IpNetwork.Parse("2620::/23"),
+        IpNetwork.Parse("2630::/12"),
+        IpNetwork.Parse("2800::/12"),
+        IpNetwork.Parse("2a00::/12"),
+        IpNetwork.Parse("2a10::/12"),
+        IpNetwork.Parse("2c00::/12")
+    ];
 
     private static readonly IPAddress[] MetadataAddresses =
     [
@@ -323,7 +363,7 @@ public sealed class AiEndpointAccessPolicy : IAiEndpointAccessPolicy, IDisposabl
         }
 
         if (address.AddressFamily != AddressFamily.InterNetworkV6 ||
-            !Ipv6GlobalUnicastSpace.Contains(address))
+            !Ipv6AllocatedGlobalUnicastRanges.Any(range => range.Contains(address)))
         {
             return false;
         }
