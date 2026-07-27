@@ -513,6 +513,8 @@ public sealed class OrphanDatabaseReferenceQuery(IUnitOfWork unitOfWork) : IOrph
 
 public static class OrphanFilePathRules
 {
+    public const string DeletionQuarantinePrefix = ".delete-";
+    public const string DeletionQuarantineSuffix = ".quarantine";
     public const string WordFilesNamespace = "uploads/word-files";
     public const string ExcelFilesNamespace = "uploads/excel-files";
     public const string FilledFilesNamespace = "uploads/filled-files";
@@ -536,15 +538,37 @@ public static class OrphanFilePathRules
         }
 
         var normalized = Normalize(path);
+        var fileName = normalized[(normalized.LastIndexOf('/') + 1)..];
         if (normalized.Split('/').Any(segment => segment is "" or "." or "..") ||
             normalized.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) ||
             normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+            (normalized.EndsWith(DeletionQuarantineSuffix, StringComparison.OrdinalIgnoreCase) &&
+             !IsDeletionQuarantineFileName(fileName)) ||
             normalized.StartsWith($"{FilledFilesNamespace}/manifests/", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
         return GetManagedNamespace(normalized) != null;
+    }
+
+    public static string CreateDeletionQuarantineFileName() =>
+        $"{DeletionQuarantinePrefix}{Guid.NewGuid():N}{DeletionQuarantineSuffix}";
+
+    public static bool IsDeletionQuarantineFileName(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName) ||
+            !fileName.StartsWith(DeletionQuarantinePrefix, StringComparison.Ordinal) ||
+            !fileName.EndsWith(DeletionQuarantineSuffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var identifier = fileName[
+            DeletionQuarantinePrefix.Length..
+            ^DeletionQuarantineSuffix.Length];
+        return identifier.Length == 32 &&
+               Guid.TryParseExact(identifier, "N", out _);
     }
 
     private static bool IsRootedOnAnyPlatform(string path)

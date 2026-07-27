@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using AcceptanceSpecSystem.Application.Services;
 using Microsoft.Win32.SafeHandles;
 
 namespace AcceptanceSpecSystem.Api.Services;
@@ -7,6 +8,10 @@ namespace AcceptanceSpecSystem.Api.Services;
 public interface ISafeFileDeletionRaceHook
 {
     void AfterTargetOpened(string relativePath);
+
+    void AfterTargetIsolated(string relativePath)
+    {
+    }
 }
 
 /// <summary>
@@ -106,6 +111,7 @@ public sealed class SafeUploadedFileDeleter
             var isolationNeedsRestore = true;
             try
             {
+                _raceHook?.AfterTargetIsolated(relativePath);
                 var isolatedFd = openat(
                     dateDirectory.Value,
                     isolationName,
@@ -124,7 +130,7 @@ public sealed class SafeUploadedFileDeleter
             finally
             {
                 if (isolationNeedsRestore)
-                    TryRestoreLinuxEntry(dateDirectory.Value, isolationName, parts[3]);
+                    RestoreLinuxEntry(dateDirectory.Value, isolationName, parts[3]);
             }
         }
         catch (FileNotFoundException)
@@ -137,7 +143,7 @@ public sealed class SafeUploadedFileDeleter
     {
         for (var attempt = 0; attempt < 8; attempt++)
         {
-            var isolationName = $".delete-{Guid.NewGuid():N}.tmp";
+            var isolationName = OrphanFilePathRules.CreateDeletionQuarantineFileName();
             if (renameat2(
                     directoryFd,
                     originalName,
@@ -157,15 +163,24 @@ public sealed class SafeUploadedFileDeleter
         throw new IOException("无法创建持久文件删除隔离项");
     }
 
-    private static void TryRestoreLinuxEntry(int directoryFd, string isolationName, string originalName)
+    private static void RestoreLinuxEntry(int directoryFd, string isolationName, string originalName)
     {
-        // 恢复失败时保留隔离项，宁可留下可巡检孤儿，也不删除未经同对象校验的文件。
-        _ = renameat2(
-            directoryFd,
-            isolationName,
-            directoryFd,
-            originalName,
-            RenameNoReplace);
+        if (renameat2(
+                directoryFd,
+                isolationName,
+                directoryFd,
+                originalName,
+                RenameNoReplace) == 0)
+            return;
+
+        var error = Marshal.GetLastPInvokeError();
+        if (error == ErrorNoEntry)
+            throw new IOException("持久文件删除隔离项在恢复前已不存在");
+        if (error == ErrorAlreadyExists)
+            throw new IOException("持久文件删除原名称已被占用，隔离项已保留等待巡检");
+        if (error is ErrorPermissionDenied or ErrorOperationNotPermitted)
+            throw new UnauthorizedAccessException("持久文件删除隔离项恢复被拒绝");
+        throw new IOException("持久文件删除隔离项恢复失败", new Win32Exception(error));
     }
 
     private static LinuxFileIdentity GetLinuxFileIdentity(int fd)

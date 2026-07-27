@@ -289,10 +289,57 @@ public sealed class OrphanFileInspectionTests
     [InlineData("C:/outside.docx")]
     [InlineData("uploads/filled-files/manifests/task.json")]
     [InlineData("uploads/word-files/2026-01-01/file.tmp")]
+    [InlineData("uploads/word-files/2026-01-01/.delete-not-a-guid.quarantine")]
     [InlineData("uploads/unknown/file.docx")]
     public void PathRules_ShouldRejectUnsafeOrNonContentPaths(string path)
     {
         OrphanFilePathRules.IsManagedContentPath(path).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task QuarantineFile_ShouldBeManagedRetainedDuringGraceAndDeletedAfterStableExpiredRounds()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"orphan-quarantine-{Guid.NewGuid():N}");
+        try
+        {
+            var fileStorage = CreateFileStorage(root);
+            var quarantineName = OrphanFilePathRules.CreateDeletionQuarantineFileName();
+            OrphanFilePathRules.IsDeletionQuarantineFileName(quarantineName).Should().BeTrue();
+            var relativePath = $"uploads/word-files/2026-01-01/{quarantineName}";
+            OrphanFilePathRules.IsManagedContentPath(relativePath).Should().BeTrue();
+            var absolutePath = fileStorage.GetAbsolutePath(relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+            await File.WriteAllTextAsync(absolutePath, "replacement awaiting orphan recovery");
+            File.SetLastWriteTimeUtc(absolutePath, Now.AddHours(-1).UtcDateTime);
+
+            var store = new OrphanFileStore(fileStorage);
+            store.EnumerateManagedFiles().Should().ContainSingle()
+                .Which.RelativePath.Should().Be(relativePath);
+            var service = CreateService(store, new FakeDatabaseReferences());
+
+            var withinGrace = await service.InspectAsync(
+                new OrphanFileInspectionRequest(false, TimeSpan.FromDays(7)));
+            withinGrace.Deleted.Should().Be(0);
+            withinGrace.Retained.Should().Be(1);
+            File.Exists(absolutePath).Should().BeTrue();
+
+            File.SetLastWriteTimeUtc(absolutePath, Now.AddDays(-8).UtcDateTime);
+            var firstExpiredRound = await service.InspectAsync(
+                new OrphanFileInspectionRequest(false, TimeSpan.FromDays(7)));
+            firstExpiredRound.Deleted.Should().Be(0, "孤儿删除仍需完成首轮稳定候选确认");
+            File.Exists(absolutePath).Should().BeTrue();
+
+            var secondExpiredRound = await service.InspectAsync(
+                new OrphanFileInspectionRequest(false, TimeSpan.FromDays(7)));
+            secondExpiredRound.Deleted.Should().Be(1);
+            File.Exists(absolutePath).Should().BeFalse(
+                "原删除流程下一批可清理缺失路径对应的 metadata，隔离对象由孤儿巡检独立回收");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
     }
 
     [Fact]
@@ -359,7 +406,7 @@ public sealed class OrphanFileInspectionTests
     }
 
     private static OrphanFileInspectionAppService CreateService(
-        FakeStore store,
+        IOrphanFileStore store,
         FakeDatabaseReferences database,
         OrphanFileInspectionCoordinator? coordinator = null)
     {

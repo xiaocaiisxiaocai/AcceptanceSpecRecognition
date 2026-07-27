@@ -258,6 +258,51 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         }
     }
 
+    [LinuxOnlyFact]
+    public void Linux持久文件删除_恢复原名被占用应报告失败并保留可巡检隔离项()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-RestoreRace", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(fullPath, [1, 2, 3]);
+        var movedOriginal = $"{fullPath}.opened";
+        var hook = new OccupyNameAfterIsolationHook(fullPath, movedOriginal);
+
+        try
+        {
+            var action = () => new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
+
+            var exception = action.Should().Throw<IOException>().Which;
+            exception.Message.Should().Be("持久文件删除原名称已被占用，隔离项已保留等待巡检");
+            exception.ToString().Should().NotContain(root);
+            WordFileDeletionCleanupAppService.ClassifyFailure(exception).Should().Be("IoError");
+            File.ReadAllBytes(fullPath).Should().Equal(
+                new byte[] { 6, 5, 4 },
+                "恢复时新占用原名的对象不能被删除");
+            File.Exists(movedOriginal).Should().BeTrue("最初打开的对象已被竞态方移动，不能误删");
+
+            var quarantine = Directory.EnumerateFiles(directory, ".delete-*.quarantine")
+                .Should().ContainSingle().Subject;
+            OrphanFilePathRules.IsDeletionQuarantineFileName(Path.GetFileName(quarantine)).Should().BeTrue();
+            File.ReadAllBytes(quarantine).Should().Equal(
+                new byte[] { 9, 8, 7 },
+                "未通过同对象校验的替换对象应保留待巡检");
+
+            var snapshots = new OrphanFileStore(CreateStorageAt(root)).EnumerateManagedFiles();
+            snapshots.Should().Contain(item =>
+                item.RelativePath.EndsWith(
+                    $"/{Path.GetFileName(quarantine)}",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task 删除请求_应仅标记待删除并在普通查询中隐藏且重复请求幂等()
     {
@@ -601,6 +646,14 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         return services.BuildServiceProvider();
     }
 
+    private static FileStorageService CreateStorageAt(string root)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["FileStorage:BasePath"] = root })
+            .Build();
+        return new FileStorageService(new DeletionTestWebHostEnvironment(root), configuration);
+    }
+
     private sealed class DeletionTestWebHostEnvironment(string root) : IWebHostEnvironment
     {
         public string ApplicationName { get; set; } = nameof(DocumentFileDeletionTests);
@@ -629,6 +682,21 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         {
             File.Move(fullPath, movedPath);
             File.CreateSymbolicLink(fullPath, outsideFile);
+        }
+    }
+
+    private sealed class OccupyNameAfterIsolationHook(string fullPath, string movedPath)
+        : ISafeFileDeletionRaceHook
+    {
+        public void AfterTargetOpened(string relativePath)
+        {
+            File.Move(fullPath, movedPath);
+            File.WriteAllBytes(fullPath, [9, 8, 7]);
+        }
+
+        public void AfterTargetIsolated(string relativePath)
+        {
+            File.WriteAllBytes(fullPath, [6, 5, 4]);
         }
     }
 
