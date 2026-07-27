@@ -125,10 +125,9 @@ internal static class SpecDuplicateDetectionService
 
         var unionFind = new UnionFind(specs.Select(spec => spec.Id));
         var pairScores = new List<DuplicatePairScore>();
-        var candidatePairs = BuildCandidatePairs(specs, cancellationToken);
         long comparisonCount = 0;
 
-        foreach (var candidatePair in candidatePairs)
+        foreach (var candidatePair in EnumerateCandidatePairs(specs, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             comparisonCount++;
@@ -217,14 +216,15 @@ internal static class SpecDuplicateDetectionService
             .ToList();
     }
 
-    private static IReadOnlyList<CandidatePair> BuildCandidatePairs(
+    internal static IEnumerable<CandidatePair> EnumerateCandidatePairs(
         IReadOnlyList<AcceptanceSpecDuplicateCandidate> specs,
         CancellationToken cancellationToken)
     {
         // 安全召回依据：
         // 1. 非包含关系要达到项目 Dice 阈值，交集必非空，因此双方必共享现有 similarity token；
-        // 2. 任一非空包含关系必共享至少一个归一化字符（包括单字符和纯标点）。
-        // 两类倒排桶取并集后只排除旧算法必不可能命中的 pair，不改变既有召回。
+        // 2. 任一非空包含关系必共享至少一个归一化字符（包括单字符和纯标点）；
+        // 3. strict key 相等会直接得到 0.99，空 strict key 也必须是合法桶。
+        // 三类倒排桶取并集后只排除旧算法必不可能命中的 pair，不改变既有召回。
         var buckets = new Dictionary<string, List<int>>(StringComparer.Ordinal);
         for (var index = 0; index < specs.Count; index++)
         {
@@ -234,6 +234,7 @@ internal static class SpecDuplicateDetectionService
             var keys = BuildSimilarityTokens(normalized, strict)
                 .Select(token => $"token:{token}")
                 .Concat(normalized.Select(character => $"char:{character}"))
+                .Append($"strict:{strict}")
                 .Distinct(StringComparer.Ordinal);
             foreach (var key in keys)
             {
@@ -246,7 +247,7 @@ internal static class SpecDuplicateDetectionService
             }
         }
 
-        var pairs = new HashSet<CandidatePair>();
+        var seen = new HashSet<CandidatePair>();
         foreach (var bucket in buckets.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -258,18 +259,14 @@ internal static class SpecDuplicateDetectionService
                     cancellationToken.ThrowIfCancellationRequested();
                     var leftIndex = bucket[left];
                     var rightIndex = bucket[right];
-                    pairs.Add(leftIndex < rightIndex
+                    var pair = leftIndex < rightIndex
                         ? new CandidatePair(leftIndex, rightIndex)
-                        : new CandidatePair(rightIndex, leftIndex));
+                        : new CandidatePair(rightIndex, leftIndex);
+                    if (seen.Add(pair))
+                        yield return pair;
                 }
             }
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return pairs
-            .OrderBy(pair => specs[pair.LeftIndex].Id)
-            .ThenBy(pair => specs[pair.RightIndex].Id)
-            .ToList();
     }
 
     private static DuplicatePairScore? TryBuildPair(
@@ -530,5 +527,5 @@ internal static class SpecDuplicateDetectionService
         double CombinedScore,
         string Reason);
 
-    private readonly record struct CandidatePair(int LeftIndex, int RightIndex);
+    internal readonly record struct CandidatePair(int LeftIndex, int RightIndex);
 }

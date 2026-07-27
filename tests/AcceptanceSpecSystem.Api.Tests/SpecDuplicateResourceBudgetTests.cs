@@ -29,6 +29,9 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
     [InlineData("高速视觉检测系统安全运行保障要求", "视觉检测系统安全运行保障要求高速")]
     [InlineData("A", "A平台")]
     [InlineData("尺寸-检测", "尺寸检测")]
+    [InlineData(".", ",")]
+    [InlineData("😀", "😁")]
+    [InlineData("a-b", "ab")]
     public void 安全候选生成不应遗漏旧算法可识别的中英文短文本和标点样本(string leftProject, string rightProject)
     {
         using var governor = CreateGovernor();
@@ -43,6 +46,23 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
         (result.ExactGroupCount + result.SimilarGroupCount).Should().Be(1);
         result.ExactGroups.Concat(result.SimilarGroups)
             .Single().Items.Select(item => item.Id).Should().BeEquivalentTo([1, 2]);
+    }
+
+    [Fact]
+    public void 非空strict键相等但非精确规格仍应进入近重复判断()
+    {
+        using var governor = CreateGovernor();
+
+        var result = SpecDuplicateDetectionService.Detect(
+            [
+                BuildSpec(1, "a-b", "abcdefghij"),
+                BuildSpec(2, "ab", "abcdefghijX")
+            ],
+            governor,
+            CancellationToken.None);
+
+        result.SimilarGroupCount.Should().Be(1);
+        result.SimilarGroups.Single().Items.Select(item => item.Id).Should().BeEquivalentTo([1, 2]);
     }
 
     [Fact]
@@ -61,6 +81,27 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
         detect.Should().Throw<DuplicateAnalysisBudgetExceededException>()
             .Where(exception => exception.Code == 422 && exception.BudgetName == "duplicate_comparisons");
         governor.LastDuplicateComparison.Should().Be(1_000_001);
+    }
+
+    [Fact]
+    public void 低比较预算的大桶不得在第一次比较前预先物化全部候选对()
+    {
+        using var governor = CreateGovernor(maxComparisons: 1);
+        var specs = Enumerable.Range(1, 1_415)
+            .Select(index => BuildSpec(index, "同桶", $"不同规格-{index:D4}"))
+            .ToList();
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        Action detect = () => SpecDuplicateDetectionService.Detect(
+            specs,
+            governor,
+            CancellationToken.None);
+
+        detect.Should().Throw<DuplicateAnalysisBudgetExceededException>();
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        allocated.Should().BeLessThan(20L * 1024 * 1024,
+            "比较预算为1时只能懒生成前两个唯一pair，不能先分配百万pair集合和排序列表");
+        governor.LastDuplicateComparison.Should().Be(2);
     }
 
     [Fact]
@@ -105,6 +146,25 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
 
         detect.Should().Throw<OperationCanceledException>();
         governor.LastDuplicateComparison.Should().Be(3);
+    }
+
+    [Fact]
+    public void 候选对生成到指定位置后取消应在继续生成时立即停止()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var specs = Enumerable.Range(1, 100)
+            .Select(index => BuildSpec(index, "同桶", $"不同规格-{index}"))
+            .ToList();
+        using var enumerator = SpecDuplicateDetectionService
+            .EnumerateCandidatePairs(specs, cancellation.Token)
+            .GetEnumerator();
+        for (var index = 0; index < 10; index++)
+            enumerator.MoveNext().Should().BeTrue();
+
+        cancellation.Cancel();
+        Action moveNext = () => enumerator.MoveNext();
+
+        moveNext.Should().Throw<OperationCanceledException>();
     }
 
     [Fact]
@@ -206,14 +266,39 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
         db.Customers.Add(customer);
         db.WordFiles.Add(file);
         await db.SaveChangesAsync();
-        db.AcceptanceSpecs.AddRange(Enumerable.Range(1, 3).Select(index => new AcceptanceSpec
-        {
-            CustomerId = customer.Id,
-            Project = $"SQL项目-{index}",
-            Specification = $"SQL规格-{index}",
-            WordFileId = file.Id,
-            ImportedAt = DateTime.UtcNow
-        }));
+        db.AcceptanceSpecs.AddRange(
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "\t\r\n",
+                Specification = "不得占用候选配额",
+                WordFileId = file.Id,
+                ImportedAt = DateTime.UtcNow
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "\u00a0\u3000",
+                Specification = "也不得占用候选配额",
+                WordFileId = file.Id,
+                ImportedAt = DateTime.UtcNow
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "SQL项目-1",
+                Specification = "SQL规格-1",
+                WordFileId = file.Id,
+                ImportedAt = DateTime.UtcNow
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = "SQL项目-2",
+                Specification = "SQL规格-2",
+                WordFileId = file.Id,
+                ImportedAt = DateTime.UtcNow
+            });
         await db.SaveChangesAsync();
         interceptor.Reset();
 
@@ -227,6 +312,7 @@ public sealed class SpecDuplicateResourceBudgetTests : IClassFixture<ApiWebAppli
             2);
 
         result.Should().HaveCount(2);
+        result.Select(item => item.Project).Should().Equal("SQL项目-1", "SQL项目-2");
         interceptor.LastReaderCommandText.Should().NotBeNull().And.Contain("LIMIT");
         interceptor.LastReaderParameterValues.Should().Contain(value => Convert.ToInt32(value) == 2);
     }

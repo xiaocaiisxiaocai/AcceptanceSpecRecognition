@@ -1,6 +1,7 @@
 ﻿using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace AcceptanceSpecSystem.Data.Repositories;
 
@@ -9,6 +10,9 @@ namespace AcceptanceSpecSystem.Data.Repositories;
 /// </summary>
 public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceSpecRepository
 {
+    private static readonly Expression<Func<AcceptanceSpec, bool>> HasDuplicateCandidateContent =
+        BuildHasDuplicateCandidateContentExpression();
+
     /// <summary>
     /// 创建AcceptanceSpecRepository实例
     /// </summary>
@@ -146,8 +150,25 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
         if (take <= 0)
             return [];
 
-        return await CreateFilteredQuery(options, includeNavigation: false)
-            .Where(spec => spec.Project.Trim() != string.Empty && spec.Specification.Trim() != string.Empty)
+        return await BuildDuplicateCandidatesQuery(options, take)
+            .ToListAsync(cancellationToken);
+    }
+
+    internal IQueryable<AcceptanceSpecDuplicateCandidate> BuildDuplicateCandidatesQuery(
+        AcceptanceSpecQueryOptions options,
+        int take)
+    {
+        var query = CreateFilteredQuery(options, includeNavigation: false);
+        query = string.Equals(
+                _context.Database.ProviderName,
+                "Microsoft.EntityFrameworkCore.InMemory",
+                StringComparison.Ordinal)
+            ? query.Where(spec =>
+                !string.IsNullOrWhiteSpace(spec.Project) &&
+                !string.IsNullOrWhiteSpace(spec.Specification))
+            : query.Where(HasDuplicateCandidateContent);
+
+        return query
             .OrderBy(spec => spec.Id)
             .Take(take)
             .Select(spec => new AcceptanceSpecDuplicateCandidate
@@ -158,8 +179,44 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
                 Acceptance = spec.Acceptance,
                 Remark = spec.Remark,
                 ImportedAt = spec.ImportedAt
-            })
-            .ToListAsync(cancellationToken);
+            });
+    }
+
+    private static Expression<Func<AcceptanceSpec, bool>> BuildHasDuplicateCandidateContentExpression()
+    {
+        var parameter = Expression.Parameter(typeof(AcceptanceSpec), "spec");
+        var replaceMethod = typeof(string).GetMethod(
+            nameof(string.Replace),
+            [typeof(string), typeof(string)])!;
+
+        static Expression RemoveWhitespace(
+            Expression value,
+            System.Reflection.MethodInfo method)
+        {
+            foreach (var whitespace in Enumerable.Range(char.MinValue, char.MaxValue + 1)
+                         .Select(code => (char)code)
+                         .Where(char.IsWhiteSpace))
+            {
+                value = Expression.Call(
+                    value,
+                    method,
+                    Expression.Constant(whitespace.ToString()),
+                    Expression.Constant(string.Empty));
+            }
+
+            return value;
+        }
+
+        var project = RemoveWhitespace(
+            Expression.Property(parameter, nameof(AcceptanceSpec.Project)),
+            replaceMethod);
+        var specification = RemoveWhitespace(
+            Expression.Property(parameter, nameof(AcceptanceSpec.Specification)),
+            replaceMethod);
+        var body = Expression.AndAlso(
+            Expression.NotEqual(project, Expression.Constant(string.Empty)),
+            Expression.NotEqual(specification, Expression.Constant(string.Empty)));
+        return Expression.Lambda<Func<AcceptanceSpec, bool>>(body, parameter);
     }
 
     /// <inheritdoc />

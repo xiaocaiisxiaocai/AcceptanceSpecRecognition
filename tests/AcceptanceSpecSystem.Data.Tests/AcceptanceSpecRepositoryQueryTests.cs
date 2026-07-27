@@ -1,11 +1,34 @@
 ﻿using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 
 public class AcceptanceSpecRepositoryQueryTests : TestBase
 {
+    [Fact]
+    public void 重复候选Unicode空白表达式应由Pomelo翻译并在SQL中先过滤再限量()
+    {
+        var options = new DbContextOptionsBuilder<AcceptanceSpecSystem.Data.Context.AppDbContext>()
+            .UseMySql(
+                "Server=127.0.0.1;Database=translation_only;User=test;Password=test;",
+                new MySqlServerVersion(new Version(8, 0, 36)))
+            .Options;
+        using var context = new AcceptanceSpecSystem.Data.Context.AppDbContext(options);
+        var repo = new AcceptanceSpecRepository(context);
+
+        var sql = repo.BuildDuplicateCandidatesQuery(
+                new AcceptanceSpecQueryOptions { CompanyId = 1, IsAll = true },
+                2_001)
+            .ToQueryString();
+
+        sql.Should().ContainEquivalentOf("REPLACE");
+        sql.Should().ContainEquivalentOf("LIMIT");
+        sql.IndexOf("REPLACE", StringComparison.OrdinalIgnoreCase)
+            .Should().BeLessThan(sql.IndexOf("LIMIT", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public async Task 重复分析候选查询应在数据库侧稳定截取上限加一并排除空白项()
     {
@@ -23,11 +46,14 @@ public class AcceptanceSpecRepositoryQueryTests : TestBase
         Context.WordFiles.Add(wordFile);
         await Context.SaveChangesAsync();
 
+        var whitespaceOnly = new[] { "\t", "\r\n", "\u00a0", "\u3000" };
         Context.AcceptanceSpecs.AddRange(Enumerable.Range(1, 2_005).Select(index => new AcceptanceSpec
         {
             CustomerId = customer.Id,
-            Project = index <= 2_003 ? $"项目-{index:D4}" : " ",
-            Specification = index == 2_005 ? "\t" : $"规格-{index:D4}",
+            Project = index <= whitespaceOnly.Length ? whitespaceOnly[index - 1] : $"项目-{index:D4}",
+            Specification = index <= whitespaceOnly.Length
+                ? "不得占用候选配额"
+                : $"规格-{index:D4}",
             WordFileId = wordFile.Id,
             ImportedAt = DateTime.UtcNow.AddSeconds(index)
         }));
@@ -43,6 +69,7 @@ public class AcceptanceSpecRepositoryQueryTests : TestBase
             2_001);
 
         result.Should().HaveCount(2_001);
+        result[0].Id.Should().BeGreaterThan(4);
         result.Select(item => item.Id).Should().BeInAscendingOrder();
         result.Should().OnlyContain(item =>
             !string.IsNullOrWhiteSpace(item.Project) &&
