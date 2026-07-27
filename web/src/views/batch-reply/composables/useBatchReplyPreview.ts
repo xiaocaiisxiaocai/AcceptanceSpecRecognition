@@ -15,7 +15,10 @@ import {
   updateDuplicateDialogStrategyState,
   type BatchReplyDuplicateDialogState
 } from "../batch-reply-duplicates";
-import { createTargetPreviewLoaderResolver } from "../batch-reply-preview-state";
+import {
+  buildBatchReplyPreviewFingerprint,
+  createTargetPreviewLoaderResolver
+} from "../batch-reply-preview-state";
 import {
   toBatchTableConfig,
   type BatchReplyTableConfigItem
@@ -38,6 +41,76 @@ type UseBatchReplyPreviewParams = {
 
 export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
   const duplicateDialog = ref<BatchReplyDuplicateDialogState | null>(null);
+  const previewRequestStates = new Map<
+    string,
+    { fingerprint: string; controller: AbortController }
+  >();
+
+  const buildPreviewRequestKey = (targetId: string, tableIndex: number) =>
+    `${targetId}:${tableIndex}`;
+
+  const parsePreviewRequestKey = (requestKey: string) => {
+    const separatorIndex = requestKey.lastIndexOf(":");
+    return {
+      targetId: requestKey.slice(0, separatorIndex),
+      tableIndex: Number(requestKey.slice(separatorIndex + 1))
+    };
+  };
+
+  const buildCurrentFingerprint = (targetId: string, tableIndex: number) => {
+    const config = params.targetFiles.value
+      .find(file => file.targetId === targetId)
+      ?.configs.find(item => item.tableIndex === tableIndex);
+    return buildBatchReplyPreviewFingerprint(
+      params.sourceSessionId.value,
+      targetId,
+      config
+    );
+  };
+
+  const clearTargetPreviewResults = (
+    targetId?: string,
+    tableIndex?: number
+  ) => {
+    params.targetFiles.value = params.targetFiles.value.map(file => {
+      if (targetId !== undefined && file.targetId !== targetId) {
+        return file;
+      }
+
+      if (tableIndex === undefined) {
+        return {
+          ...file,
+          previewResults: {},
+          previewLoadingTableIndex: undefined
+        };
+      }
+
+      const previewResults = { ...file.previewResults };
+      delete previewResults[tableIndex];
+      return {
+        ...file,
+        previewResults,
+        previewLoadingTableIndex:
+          file.previewLoadingTableIndex === tableIndex
+            ? undefined
+            : file.previewLoadingTableIndex
+      };
+    });
+  };
+
+  const cancelTargetPreviews = (targetId?: string, tableIndex?: number) => {
+    previewRequestStates.forEach((requestState, requestKey) => {
+      const requestOwner = parsePreviewRequestKey(requestKey);
+      if (
+        (targetId === undefined || requestOwner.targetId === targetId) &&
+        (tableIndex === undefined || requestOwner.tableIndex === tableIndex)
+      ) {
+        requestState.controller.abort();
+        previewRequestStates.delete(requestKey);
+      }
+    });
+    clearTargetPreviewResults(targetId, tableIndex);
+  };
 
   const openDuplicateDialog = (
     targetId: string,
@@ -81,6 +154,19 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     });
     params.sourceConfigs.value = nextState.sourceConfigs;
     params.targetFiles.value = nextState.targetFiles;
+
+    if (dialog.groups.some(group => group.duplicateSource === "source")) {
+      cancelTargetPreviews();
+      return;
+    }
+
+    const affectedTableIndexes = new Set([
+      dialog.tableIndex,
+      ...dialog.groups.map(group => group.tableIndex)
+    ]);
+    affectedTableIndexes.forEach(tableIndex =>
+      cancelTargetPreviews(dialog.targetId, tableIndex)
+    );
   };
 
   const createSourcePreviewLoader = async (
@@ -158,6 +244,17 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
       return;
     }
 
+    cancelTargetPreviews(targetId, item.tableIndex);
+    const requestKey = buildPreviewRequestKey(targetId, item.tableIndex);
+    const requestState = {
+      fingerprint: buildBatchReplyPreviewFingerprint(
+        params.sourceSessionId.value,
+        targetId,
+        item
+      ),
+      controller: new AbortController()
+    };
+    previewRequestStates.set(requestKey, requestState);
     params.targetFiles.value = params.targetFiles.value.map(file =>
       file.targetId === targetId
         ? { ...file, previewLoadingTableIndex: item.tableIndex }
@@ -165,13 +262,25 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
     );
 
     try {
-      const res = await previewBatchReplyTable({
-        sessionId: params.sourceSessionId.value,
-        sourceTables:
-          params.selectedSourceConfigs.value.map(toBatchTableConfig),
-        targetId,
-        targetTable: toBatchTableConfig(item)
-      });
+      const res = await previewBatchReplyTable(
+        {
+          sessionId: params.sourceSessionId.value,
+          sourceTables:
+            params.selectedSourceConfigs.value.map(toBatchTableConfig),
+          targetId,
+          targetTable: toBatchTableConfig(item)
+        },
+        { signal: requestState.controller.signal }
+      );
+
+      if (
+        requestState.controller.signal.aborted ||
+        previewRequestStates.get(requestKey) !== requestState ||
+        requestState.fingerprint !==
+          buildCurrentFingerprint(targetId, item.tableIndex)
+      ) {
+        return;
+      }
 
       if (res.code !== 0) {
         ElMessage.error(res.message || "目标表预览失败");
@@ -200,12 +309,26 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
         ElMessage.warning("当前目标表仍存在需要处理的问题");
       }
     } catch {
+      if (
+        requestState.controller.signal.aborted ||
+        previewRequestStates.get(requestKey) !== requestState ||
+        requestState.fingerprint !==
+          buildCurrentFingerprint(targetId, item.tableIndex)
+      ) {
+        return;
+      }
+
       ElMessage.error("目标表预览失败");
-      params.targetFiles.value = params.targetFiles.value.map(file =>
-        file.targetId === targetId
-          ? { ...file, previewLoadingTableIndex: undefined }
-          : file
-      );
+    } finally {
+      if (previewRequestStates.get(requestKey) === requestState) {
+        previewRequestStates.delete(requestKey);
+        params.targetFiles.value = params.targetFiles.value.map(file =>
+          file.targetId === targetId &&
+          file.previewLoadingTableIndex === item.tableIndex
+            ? { ...file, previewLoadingTableIndex: undefined }
+            : file
+        );
+      }
     }
   };
 
@@ -233,6 +356,7 @@ export const useBatchReplyPreview = (params: UseBatchReplyPreviewParams) => {
   };
 
   return {
+    cancelTargetPreviews,
     duplicateDialog,
     closeDuplicateDialog,
     confirmDuplicateDialog,

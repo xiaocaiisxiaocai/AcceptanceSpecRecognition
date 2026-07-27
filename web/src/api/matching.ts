@@ -877,7 +877,7 @@ export const getBatchReplyTargetTablePreview = (
 
 export const previewBatchReplyTable = (
   data: BatchReplyTablePreviewRequest,
-  config?: PureHttpRequestConfig
+  options?: Pick<PureHttpRequestConfig, "signal">
 ) => {
   return http.request<ApiResponse<BatchReplyTablePreviewResponse>>(
     "post",
@@ -886,7 +886,7 @@ export const previewBatchReplyTable = (
       data,
       timeout: 300000
     },
-    config
+    options
   );
 };
 

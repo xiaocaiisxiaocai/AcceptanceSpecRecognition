@@ -12,7 +12,10 @@ import {
   triggerBrowserDownload
 } from "../batch-reply-execution";
 import type { BatchReplyTableConfigItem } from "../batch-reply-table-config";
-import type { BatchReplyTargetState } from "../batch-reply-state";
+import {
+  BATCH_REPLY_DOWNLOAD_FAILED_MESSAGE,
+  type BatchReplyTargetState
+} from "../batch-reply-state";
 
 type UseBatchReplyExecutionParams = {
   sourceSessionId: ComputedRef<string>;
@@ -26,17 +29,36 @@ export const useBatchReplyExecution = (
 ) => {
   const executeResult = ref<BatchReplyExecuteResponse | null>(null);
   const executing = ref(false);
+  const downloadError = ref("");
+  const downloadLoading = ref(false);
 
-  const executeReadyTargets = async () => {
+  const retryDownload = async () => {
+    const result = executeResult.value;
+    if (!result) return;
     if (
-      !ensurePermission(
-        "btn:batch-reply:execute",
-        "权限不足，无法执行批量回复"
-      ) ||
       !ensurePermission(
         "api:batch-reply:download",
         "权限不足，无法下载批量回复结果"
       )
+    ) {
+      return;
+    }
+
+    downloadLoading.value = true;
+    downloadError.value = "";
+    try {
+      const blob = await downloadBatchReplyResult(result.taskId);
+      triggerBrowserDownload(blob, result.downloadFileName);
+    } catch {
+      downloadError.value = BATCH_REPLY_DOWNLOAD_FAILED_MESSAGE;
+    } finally {
+      downloadLoading.value = false;
+    }
+  };
+
+  const executeReadyTargets = async () => {
+    if (
+      !ensurePermission("btn:batch-reply:execute", "权限不足，无法执行批量回复")
     ) {
       return;
     }
@@ -57,6 +79,7 @@ export const useBatchReplyExecution = (
     }
 
     executing.value = true;
+    let result: BatchReplyExecuteResponse | null = null;
     try {
       const res = await executeBatchReply(
         buildBatchReplyExecuteRequest({
@@ -72,20 +95,26 @@ export const useBatchReplyExecution = (
       }
 
       executeResult.value = res.data;
+      result = res.data;
       params.activeRootTab.value = "result";
-      const blob = await downloadBatchReplyResult(res.data.taskId);
-      triggerBrowserDownload(blob, res.data.downloadFileName);
       ElMessage.success(buildBatchReplyExecuteSuccessMessage(res.data));
     } catch {
       ElMessage.error("批量回复执行失败");
     } finally {
       executing.value = false;
     }
+
+    if (result) {
+      await retryDownload();
+    }
   };
 
   return {
+    downloadError,
+    downloadLoading,
     executeResult,
     executing,
-    executeReadyTargets
+    executeReadyTargets,
+    retryDownload
   };
 };

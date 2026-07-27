@@ -5,6 +5,8 @@ import type {
 } from "@/api/matching";
 
 defineProps<{
+  downloadError: string;
+  downloadLoading: boolean;
   executeDisabled: boolean;
   executeResult: BatchReplyExecuteResponse | null;
   executableTargetCount: number;
@@ -15,6 +17,7 @@ defineProps<{
 
 defineEmits<{
   execute: [];
+  retryDownload: [];
 }>();
 </script>
 
@@ -55,6 +58,23 @@ defineEmits<{
         :closable="false"
         show-icon
       />
+      <el-alert
+        v-if="downloadError"
+        class="download-alert"
+        :title="downloadError"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <div class="action-row">
+        <el-button
+          type="primary"
+          :loading="downloadLoading"
+          @click="$emit('retryDownload')"
+        >
+          重新下载
+        </el-button>
+      </div>
 
       <el-table class="preview-table" :data="resultFiles" border>
         <el-table-column prop="fileName" label="文件名" min-width="280" />

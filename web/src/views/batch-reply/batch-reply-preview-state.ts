@@ -13,12 +13,12 @@ type PreviewTrackedConfig = {
   selected?: boolean;
 };
 
-const toComparableSnapshot = (config: PreviewTrackedConfig | undefined) => {
+const toComparableConfig = (config: PreviewTrackedConfig | undefined) => {
   if (!config) {
     return null;
   }
 
-  return JSON.stringify({
+  return {
     tableIndex: config.tableIndex,
     sourceTableIndex: config.sourceTableIndex,
     projectColumnIndex: config.projectColumnIndex,
@@ -31,8 +31,22 @@ const toComparableSnapshot = (config: PreviewTrackedConfig | undefined) => {
     filterEmptySourceRows: config.filterEmptySourceRows,
     duplicateResolutions: config.duplicateResolutions ?? [],
     selected: config.selected
-  });
+  };
 };
+
+const toComparableSnapshot = (config: PreviewTrackedConfig | undefined) =>
+  JSON.stringify(toComparableConfig(config));
+
+export const buildBatchReplyPreviewFingerprint = (
+  sessionId: string,
+  targetId: string,
+  config: PreviewTrackedConfig | undefined
+) =>
+  JSON.stringify({
+    sessionId,
+    targetId,
+    config: toComparableConfig(config)
+  });
 
 export const prunePreviewResultsForConfigChange = <T>(
   previousResults: Record<number, T>,

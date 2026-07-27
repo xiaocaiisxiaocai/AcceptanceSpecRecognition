@@ -18,7 +18,10 @@ import {
 } from "@/api/matching";
 import type { TableInfo } from "@/api/document";
 import { validateBatchReplySourceFile } from "./target-upload";
-import { prunePreviewResultsForConfigChange } from "./batch-reply-preview-state";
+import {
+  buildBatchReplyPreviewFingerprint,
+  prunePreviewResultsForConfigChange
+} from "./batch-reply-preview-state";
 import {
   buildTableConfig,
   resolveDefaultSourceTableIndex
@@ -106,6 +109,7 @@ const {
 });
 
 const {
+  cancelTargetPreviews,
   duplicateDialog,
   closeDuplicateDialog,
   confirmDuplicateDialog,
@@ -120,13 +124,19 @@ const {
   targetFiles
 });
 
-const { executeResult, executing, executeReadyTargets } =
-  useBatchReplyExecution({
-    sourceSessionId,
-    selectedSourceConfigs,
-    executableTargets,
-    activeRootTab
-  });
+const {
+  downloadError,
+  downloadLoading,
+  executeResult,
+  executing,
+  executeReadyTargets,
+  retryDownload
+} = useBatchReplyExecution({
+  sourceSessionId,
+  selectedSourceConfigs,
+  executableTargets,
+  activeRootTab
+});
 const resultFiles = computed(() =>
   getBatchReplyResultFiles(executeResult.value)
 );
@@ -135,14 +145,6 @@ const formatFileSize = (size: number) => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const clearTargetPreviews = () => {
-  targetFiles.value = targetFiles.value.map(file => ({
-    ...file,
-    previewResults: {},
-    previewLoadingTableIndex: undefined
-  }));
 };
 
 const syncTargetSourceDefaults = () => {
@@ -179,6 +181,7 @@ const syncTargetSourceDefaults = () => {
 };
 
 const resetTargetState = () => {
+  cancelTargetPreviews();
   targetFiles.value = [];
   resetTargetUploadState();
 };
@@ -188,6 +191,7 @@ const resetAllState = () => {
   sourceTables.value = [];
   sourceConfigs.value = [];
   executeResult.value = null;
+  downloadError.value = "";
   resetTargetState();
 };
 
@@ -207,7 +211,7 @@ const fetchSourceTableState = async (sessionId: string, fileType: number) => {
 
 const handleSourceConfigChange = (value: BatchTableConfigItem[]) => {
   sourceConfigs.value = value;
-  clearTargetPreviews();
+  cancelTargetPreviews();
   syncTargetSourceDefaults();
 };
 
@@ -215,6 +219,30 @@ const handleTargetConfigChange = (
   targetId: string,
   value: BatchTableConfigItem[]
 ) => {
+  const targetFile = targetFiles.value.find(file => file.targetId === targetId);
+  if (targetFile) {
+    const nextConfigMap = new Map(
+      value.map(config => [config.tableIndex, config])
+    );
+    targetFile.configs.forEach(config => {
+      const nextConfig = nextConfigMap.get(config.tableIndex);
+      if (
+        buildBatchReplyPreviewFingerprint(
+          sourceSessionId.value,
+          targetId,
+          config
+        ) !==
+        buildBatchReplyPreviewFingerprint(
+          sourceSessionId.value,
+          targetId,
+          nextConfig
+        )
+      ) {
+        cancelTargetPreviews(targetId, config.tableIndex);
+      }
+    });
+  }
+
   targetFiles.value = targetFiles.value.map(file =>
     file.targetId === targetId
       ? {
@@ -276,6 +304,7 @@ const handleSourceUpload = async (
 };
 
 const removeTargetFile = (targetId: string) => {
+  cancelTargetPreviews(targetId);
   targetFiles.value = targetFiles.value.filter(
     item => item.targetId !== targetId
   );
@@ -381,6 +410,8 @@ const removeTargetFile = (targetId: string) => {
 
         <el-tab-pane label="执行结果" name="result">
           <BatchReplyResultPanel
+            :download-error="downloadError"
+            :download-loading="downloadLoading"
             :execute-disabled="executeDisabled"
             :execute-result="executeResult"
             :executable-target-count="executableTargets.length"
@@ -388,6 +419,7 @@ const removeTargetFile = (targetId: string) => {
             :result-files="resultFiles"
             :target-file-count="targetFiles.length"
             @execute="executeReadyTargets"
+            @retry-download="retryDownload"
           />
         </el-tab-pane>
       </el-tabs>

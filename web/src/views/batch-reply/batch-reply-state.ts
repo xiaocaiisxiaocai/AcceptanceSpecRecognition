@@ -9,6 +9,9 @@ import type {
 } from "./batch-reply-table-config";
 import { isTargetExecutable } from "./batch-reply-table-config";
 
+export const BATCH_REPLY_DOWNLOAD_FAILED_MESSAGE =
+  "批量回复已执行成功，但结果下载失败，请重试下载";
+
 export type BatchReplySourceFileState = {
   sessionId: string;
   sourceFileName: string;
