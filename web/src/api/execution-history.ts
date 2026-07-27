@@ -143,10 +143,11 @@ export const getExecutionHistoryList = (
   );
 };
 
-export const getExecutionHistoryDetail = (id: number) => {
+export const getExecutionHistoryDetail = (id: number, signal?: AbortSignal) => {
   return http.request<ApiResponse<ExecutionHistoryDetail>>(
     "get",
-    `${baseUrl}/${id}`
+    `${baseUrl}/${id}`,
+    { signal }
   );
 };
 
@@ -156,11 +157,12 @@ export const getExecutionHistorySmartFillRow = (
     fileIndex: number;
     sheetIndex: number;
     rowIndex: number;
-  }
+  },
+  signal?: AbortSignal
 ) => {
   return http.request<ApiResponse<ExecutionHistorySmartFillRow>>(
     "get",
     `${baseUrl}/${id}/smart-fill/rows`,
-    { params }
+    { params, signal }
   );
 };

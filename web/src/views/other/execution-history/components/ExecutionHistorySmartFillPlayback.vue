@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import type {
   ExecutionHistoryDetail,
   ExecutionHistorySmartFillFile,
   ExecutionHistorySmartFillRow,
   ExecutionHistorySmartFillSheet
 } from "@/api/execution-history";
+import { getExecutionHistorySmartFillRow } from "@/api/execution-history";
+import { createExecutionHistoryRequestGate } from "../useExecutionHistoryRequests";
+import ExecutionHistorySmartFillRowDetail from "./ExecutionHistorySmartFillRowDetail.vue";
 
 const props = defineProps<{
   detail: ExecutionHistoryDetail;
@@ -16,6 +19,18 @@ const statusFilter = ref("");
 const keyword = ref("");
 const page = ref(1);
 const pageSize = ref(50);
+const rowRequestGate = createExecutionHistoryRequestGate();
+const activeRowRequestKey = ref("");
+const selectedRowKey = ref("");
+const selectedSummaryRow = ref<ExecutionHistorySmartFillRow>();
+
+interface RowDetailState {
+  loading: boolean;
+  row?: ExecutionHistorySmartFillRow;
+  errorMessage?: string;
+}
+
+const rowDetailCache = reactive(new Map<string, RowDetailState>());
 
 const statusOptions = [
   { label: "全部", value: "" },
@@ -32,26 +47,39 @@ const files = computed<ExecutionHistorySmartFillFile[]>(
 
 const tabItems = computed(() =>
   files.value.flatMap((file, fileIndex) =>
-    file.sheets.map(sheet => {
+    file.sheets.map((sheet, sheetIndex) => {
       const sheetLabel = sheet.sheetName || `Sheet ${sheet.sheetIndex + 1}`;
 
       return {
-        key: `${fileIndex}:${sheet.sheetIndex}`,
+        key: `${fileIndex}:${sheetIndex}`,
         label:
           files.value.length > 1
             ? `${file.fileName} / ${sheetLabel}`
             : sheetLabel,
-        sheet
+        sheet,
+        fileIndex,
+        sheetIndex
       };
     })
   )
 );
 
-const currentSheet = computed<ExecutionHistorySmartFillSheet | null>(
+const currentTab = computed(
   () =>
-    tabItems.value.find(item => item.key === selectedTabKey.value)?.sheet ??
-    tabItems.value[0]?.sheet ??
-    null
+    tabItems.value.find(item => item.key === selectedTabKey.value) ??
+    tabItems.value[0]
+);
+
+const currentSheet = computed<ExecutionHistorySmartFillSheet | null>(
+  () => currentTab.value?.sheet ?? null
+);
+const selectedRowDetailState = computed(() =>
+  selectedRowKey.value ? rowDetailCache.get(selectedRowKey.value) : undefined
+);
+const hasPlaybackArchive = computed(
+  () =>
+    props.detail.smartFillSummary?.hasPlaybackArchive === true ||
+    playback.value?.hasFullArchive === true
 );
 
 const filteredRows = computed<ExecutionHistorySmartFillRow[]>(() => {
@@ -95,6 +123,24 @@ watch(
   },
   { immediate: true }
 );
+
+watch(
+  () => props.detail.id,
+  () => {
+    rowRequestGate.cancel();
+    activeRowRequestKey.value = "";
+    rowDetailCache.clear();
+    selectedRowKey.value = "";
+    selectedSummaryRow.value = undefined;
+  }
+);
+
+watch(selectedTabKey, () => {
+  rowRequestGate.cancel();
+  activeRowRequestKey.value = "";
+  selectedRowKey.value = "";
+  selectedSummaryRow.value = undefined;
+});
 
 watch(tabItems, items => {
   if (!items.some(item => item.key === selectedTabKey.value)) {
@@ -144,6 +190,101 @@ const getMatchOriginText = (matchOrigin: string) => {
       return "未匹配";
   }
 };
+
+const getRowCacheKey = (
+  fileIndex: number,
+  sheetIndex: number,
+  rowIndex: number
+) => `${props.detail.id}:${fileIndex}:${sheetIndex}:${rowIndex}`;
+
+const loadRowDetail = async (
+  row: ExecutionHistorySmartFillRow,
+  force = false
+) => {
+  const tab = currentTab.value;
+  if (!tab) return;
+
+  const params = {
+    fileIndex: tab.fileIndex,
+    sheetIndex: tab.sheetIndex,
+    rowIndex: row.rowIndex
+  };
+  const cacheKey = getRowCacheKey(
+    params.fileIndex,
+    params.sheetIndex,
+    params.rowIndex
+  );
+  selectedRowKey.value = cacheKey;
+  selectedSummaryRow.value = row;
+
+  const cached = rowDetailCache.get(cacheKey);
+  if (!force && cached?.loading && activeRowRequestKey.value === cacheKey) {
+    return;
+  }
+  if (!force && cached?.row) {
+    if (activeRowRequestKey.value && activeRowRequestKey.value !== cacheKey) {
+      rowRequestGate.cancel();
+      activeRowRequestKey.value = "";
+    }
+    return;
+  }
+
+  const request = rowRequestGate.begin(cacheKey);
+  activeRowRequestKey.value = cacheKey;
+  rowDetailCache.set(cacheKey, { loading: true });
+
+  try {
+    const response = await getExecutionHistorySmartFillRow(
+      props.detail.id,
+      params,
+      request.signal
+    );
+    if (!request.isCurrent() || selectedRowKey.value !== cacheKey) return;
+
+    if (response.code !== 0) {
+      throw new Error(response.message || "完整逐行回放加载失败");
+    }
+
+    rowDetailCache.set(cacheKey, {
+      loading: false,
+      row: response.data
+    });
+  } catch {
+    if (!request.isCurrent() || selectedRowKey.value !== cacheKey) return;
+
+    rowDetailCache.set(cacheKey, {
+      loading: false,
+      errorMessage: hasPlaybackArchive.value
+        ? "完整逐行回放暂不可用，当前仅展示精简概要。可重试加载该行详情。"
+        : "该行完整回放暂不可用，当前展示已有概要。"
+    });
+  } finally {
+    if (request.isCurrent()) {
+      activeRowRequestKey.value = "";
+    }
+    if (!request.isCurrent()) {
+      const state = rowDetailCache.get(cacheKey);
+      if (state?.loading) {
+        rowDetailCache.delete(cacheKey);
+      }
+    }
+  }
+};
+
+const handleRowClick = (row: ExecutionHistorySmartFillRow) => {
+  void loadRowDetail(row);
+};
+
+const retrySelectedRow = () => {
+  if (selectedSummaryRow.value) {
+    void loadRowDetail(selectedSummaryRow.value, true);
+  }
+};
+
+onBeforeUnmount(() => {
+  rowRequestGate.cancel();
+  activeRowRequestKey.value = "";
+});
 </script>
 
 <template>
@@ -184,7 +325,14 @@ const getMatchOriginText = (matchOrigin: string) => {
       </div>
 
       <div class="result-table__body">
-        <el-table :data="pagedRows" stripe border height="100%">
+        <el-table
+          :data="pagedRows"
+          stripe
+          border
+          highlight-current-row
+          height="100%"
+          @row-click="handleRowClick"
+        >
           <el-table-column label="行号" width="72">
             <template #default="{ row }">
               {{ row.rowIndex + 1 }}
@@ -252,6 +400,16 @@ const getMatchOriginText = (matchOrigin: string) => {
         </el-table>
       </div>
 
+      <ExecutionHistorySmartFillRowDetail
+        v-if="selectedSummaryRow"
+        class="result-row-detail"
+        :row="selectedSummaryRow"
+        :detail-row="selectedRowDetailState?.row"
+        :loading="selectedRowDetailState?.loading ?? false"
+        :error-message="selectedRowDetailState?.errorMessage"
+        @retry="retrySelectedRow"
+      />
+
       <div class="result-pagination">
         <el-pagination
           v-model:current-page="page"
@@ -304,6 +462,12 @@ const getMatchOriginText = (matchOrigin: string) => {
   display: flex;
   flex-shrink: 0;
   justify-content: flex-end;
+}
+
+.result-row-detail {
+  flex: 0 1 42%;
+  min-height: 150px;
+  max-height: 42%;
 }
 
 .tag-list {

@@ -797,8 +797,37 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows.GetArrayLength().Should().Be(2);
         rows[0].GetProperty("rowIndex").GetInt32().Should().Be(1);
         rows[0].GetProperty("status").GetString().Should().Be("adopted");
+        rows[0].GetProperty("previewSnapshot").GetProperty("bestMatch").ValueKind
+            .Should().Be(JsonValueKind.Null, "轻量详情只保留逐行回放概要");
+        rows[0].GetProperty("executionSnapshot").GetProperty("finalAcceptance").ValueKind
+            .Should().Be(JsonValueKind.Null, "轻量详情不应携带完整执行文本");
         rows[1].GetProperty("rowIndex").GetInt32().Should().Be(2);
         rows[1].GetProperty("status").GetString().Should().Be("unmatched");
+
+        var rowResp = await _client.GetAsync(
+            $"/api/execution-history/{recordId}/smart-fill/rows?fileIndex=0&sheetIndex=0&rowIndex=1");
+        rowResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rowJson = await rowResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        rowJson.Code.Should().Be(0);
+
+        var fullRow = rowJson.Data;
+        fullRow.GetProperty("rowIndex").GetInt32().Should().Be(1);
+        var fullBestMatch = fullRow.GetProperty("previewSnapshot").GetProperty("bestMatch");
+        fullBestMatch.GetProperty("project").GetString().Should().Be("P1");
+        fullBestMatch.GetProperty("scoreDetails").GetProperty("embedding").GetDouble().Should().Be(0.83);
+        fullBestMatch.GetProperty("evidenceSummary").EnumerateArray()
+            .Select(item => item.GetString()).Should().Equal("项目一致", "规格语义相近");
+        fullBestMatch.GetProperty("topCandidates").GetArrayLength().Should().Be(1);
+        fullBestMatch.GetProperty("llmEquivalence").GetProperty("verdict").GetString().Should().Be("equivalent");
+        fullBestMatch.GetProperty("llmEquivalence").GetProperty("reason").GetString().Should().Be("语义等价");
+
+        var executionSnapshot = fullRow.GetProperty("executionSnapshot");
+        executionSnapshot.GetProperty("overrideAcceptance").GetString().Should().Be("AC-1-人工");
+        executionSnapshot.GetProperty("overrideRemark").GetString().Should().Be("RM-1-人工");
+        executionSnapshot.GetProperty("finalAcceptance").GetString().Should().Be("AC-1-人工");
+        executionSnapshot.GetProperty("finalRemark").GetString().Should().Be("RM-1-人工");
+        executionSnapshot.GetProperty("manualConfirmed").GetBoolean().Should().BeTrue();
+        executionSnapshot.GetProperty("manualEdited").GetBoolean().Should().BeTrue();
     }
 
     private async Task<int> UploadDocumentAsync(byte[] bytes, string fileName)
@@ -982,11 +1011,89 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                                         sourceSpecification = "S1",
                                         status = "adopted",
                                         matchOrigin = "exact",
-                                        isManualConfirmed = false,
-                                        isManualEdited = false,
-                                        displayTags = new[] { "完全匹配" },
-                                        previewSnapshot = new { confidenceLevel = "high" },
-                                        executionSnapshot = new { selectedSpecId = 1, manualConfirmed = false, manualEdited = false, status = "adopted" }
+                                        isManualConfirmed = true,
+                                        isManualEdited = true,
+                                        displayTags = new[] { "完全匹配", "人工确认", "人工写入" },
+                                        previewSnapshot = new
+                                        {
+                                            confidenceLevel = "high",
+                                            bestMatch = new
+                                            {
+                                                specId = 1,
+                                                project = "P1",
+                                                specification = "S1",
+                                                acceptance = "AC-1",
+                                                remark = "RM-1",
+                                                score = 0.91,
+                                                embeddingScore = 0.83,
+                                                scoreDetails = new { embedding = 0.83, rerank = 0.91 },
+                                                decision = "manualReview",
+                                                selectionMode = "aiRerank",
+                                                selectionSummary = "AI 复核后建议人工确认",
+                                                matchBasis = "specification",
+                                                evidenceSummary = new[] { "项目一致", "规格语义相近" },
+                                                conflictSummary = new[] { "规格文本不同" },
+                                                issues = Array.Empty<object>(),
+                                                entities = Array.Empty<object>(),
+                                                topCandidates = new[]
+                                                {
+                                                    new
+                                                    {
+                                                        rank = 1,
+                                                        specId = 1,
+                                                        project = "P1",
+                                                        specification = "S1",
+                                                        acceptance = "AC-1",
+                                                        remark = "RM-1",
+                                                        score = 0.91,
+                                                        embeddingScore = 0.83,
+                                                        scoreDetails = new { embedding = 0.83, rerank = 0.91 },
+                                                        decision = "manualReview",
+                                                        selectionMode = "aiRerank",
+                                                        selectionSummary = "AI 复核保留此候选",
+                                                        matchBasis = "specification",
+                                                        evidenceSummary = new[] { "项目一致" },
+                                                        conflictSummary = new[] { "规格文本不同" },
+                                                        issues = Array.Empty<object>(),
+                                                        entities = Array.Empty<object>(),
+                                                        llmEquivalence = new
+                                                        {
+                                                            verdict = "equivalent",
+                                                            reasonType = "equivalent_expression",
+                                                            reason = "语义等价",
+                                                            confidence = 0.91
+                                                        }
+                                                    }
+                                                },
+                                                recalledCandidateCount = 2,
+                                                isAmbiguous = true,
+                                                scoreGap = 0.08,
+                                                rerankSummary = "AI 认为该候选最接近",
+                                                llmEquivalence = new
+                                                {
+                                                    verdict = "equivalent",
+                                                    reasonType = "equivalent_expression",
+                                                    reason = "语义等价",
+                                                    confidence = 0.91
+                                                },
+                                                reviewScore = 91.0,
+                                                reviewReason = "复核判定语义等价",
+                                                reviewCommentary = "允许人工确认采用"
+                                            }
+                                        },
+                                        executionSnapshot = new
+                                        {
+                                            selectedSpecId = 1,
+                                            selectedProject = "P1",
+                                            selectedSpecification = "S1",
+                                            finalAcceptance = "AC-1-人工",
+                                            finalRemark = "RM-1-人工",
+                                            overrideAcceptance = "AC-1-人工",
+                                            overrideRemark = "RM-1-人工",
+                                            manualConfirmed = true,
+                                            manualEdited = true,
+                                            status = "adopted"
+                                        }
                                     },
                                     new
                                     {
