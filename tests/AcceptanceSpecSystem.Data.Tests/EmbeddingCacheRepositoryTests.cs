@@ -1,12 +1,112 @@
-﻿using AcceptanceSpecSystem.Data.Entities;
+﻿using System.Reflection;
+using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using MySqlConnector;
 
 namespace AcceptanceSpecSystem.Data.Tests;
 
 public class EmbeddingCacheRepositoryTests : TestBase
 {
+    private const string EmbeddingCacheUniqueIndex = "IX_EmbeddingCaches_SpecId_ModelName_Usage";
+
+    [Fact]
+    public void 唯一约束分类器_应只识别嵌套的MySql重复键错误()
+    {
+        var duplicateKeyException = new DbUpdateException(
+            "缓存写入失败",
+            new InvalidOperationException(
+                "provider error",
+                CreateMySqlException(
+                    MySqlErrorCode.DuplicateKeyEntry,
+                    $"Duplicate entry for key '{EmbeddingCacheUniqueIndex}'")));
+        var foreignKeyException = new DbUpdateException(
+            "缓存写入失败",
+            CreateMySqlException(
+                MySqlErrorCode.NoReferencedRow2,
+                "Cannot add or update a child row"));
+
+        DatabaseConstraintClassifier.IsUniqueViolation(duplicateKeyException).Should().BeTrue();
+        DatabaseConstraintClassifier.IsUniqueViolation(foreignKeyException).Should().BeFalse();
+        DatabaseConstraintClassifier.IsUniqueViolation(new DbUpdateException("普通数据库错误")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void 唯一约束分类器_指定索引时不应接受其他重复键()
+    {
+        var targetIndexException = new DbUpdateException(
+            "缓存写入失败",
+            CreateMySqlException(
+                MySqlErrorCode.DuplicateKeyEntry,
+                $"Duplicate entry for key '{EmbeddingCacheUniqueIndex}'"));
+        var otherIndexException = new DbUpdateException(
+            "缓存写入失败",
+            CreateMySqlException(
+                MySqlErrorCode.DuplicateKeyEntry,
+                "Duplicate entry for key 'IX_EmbeddingCaches_Other'"));
+
+        DatabaseConstraintClassifier
+            .IsUniqueViolation(targetIndexException, EmbeddingCacheUniqueIndex)
+            .Should()
+            .BeTrue();
+        DatabaseConstraintClassifier
+            .IsUniqueViolation(otherIndexException, EmbeddingCacheUniqueIndex)
+            .Should()
+            .BeFalse();
+    }
+
+    [Fact]
+    public async Task 按规格模型用途读取_应精确匹配且不跟踪结果()
+    {
+        var repository = new EmbeddingCacheRepository(Context);
+        Context.EmbeddingCaches.AddRange(
+            new EmbeddingCache
+            {
+                SpecId = 21,
+                ModelName = "embedding-model",
+                Usage = "matching",
+                TextHash = "hash-matching",
+                Vector = [1]
+            },
+            new EmbeddingCache
+            {
+                SpecId = 21,
+                ModelName = "embedding-model",
+                Usage = "semantic-search",
+                TextHash = "hash-search",
+                Vector = [2]
+            });
+        await Context.SaveChangesAsync();
+        Context.ChangeTracker.Clear();
+
+        var result = await repository.GetBySpecModelUsageAsync(
+            21,
+            "embedding-model",
+            "semantic-search",
+            CancellationToken.None);
+
+        result.Should().NotBeNull();
+        result!.TextHash.Should().Be("hash-search");
+        Context.Entry(result).State.Should().Be(EntityState.Detached);
+    }
+
+    [Fact]
+    public async Task 按规格模型用途读取_应传递取消令牌()
+    {
+        var repository = new EmbeddingCacheRepository(Context);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var action = () => repository.GetBySpecModelUsageAsync(
+            21,
+            "embedding-model",
+            "semantic-search",
+            cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     [Fact]
     public async Task GetBySpecIdsAndModelAndUsageAsync_ShouldOnlyReturnMatchingUsage()
     {
@@ -103,5 +203,17 @@ public class EmbeddingCacheRepositoryTests : TestBase
             .Select(property => property.Name)
             .Should()
             .Equal(nameof(EmbeddingCache.SpecId), nameof(EmbeddingCache.ModelName), nameof(EmbeddingCache.Usage));
+    }
+
+    private static MySqlException CreateMySqlException(MySqlErrorCode errorCode, string message)
+    {
+        var constructor = typeof(MySqlException).GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            [typeof(MySqlErrorCode), typeof(string), typeof(string), typeof(Exception)],
+            modifiers: null);
+
+        constructor.Should().NotBeNull("MySqlConnector 2.3.5 应保留 provider 异常构造契约");
+        return (MySqlException)constructor!.Invoke([errorCode, "23000", message, null]);
     }
 }

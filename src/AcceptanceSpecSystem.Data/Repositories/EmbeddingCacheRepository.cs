@@ -33,6 +33,25 @@ public class EmbeddingCacheRepository : Repository<EmbeddingCache>, IEmbeddingCa
     }
 
     /// <summary>
+    /// 根据规格ID、模型名称与用途精确获取不跟踪的向量缓存记录。
+    /// </summary>
+    public async Task<EmbeddingCache?> GetBySpecModelUsageAsync(
+        int specId,
+        string modelName,
+        string usage,
+        CancellationToken cancellationToken)
+    {
+        return await _dbSet
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                cache =>
+                    cache.SpecId == specId &&
+                    cache.ModelName == modelName &&
+                    cache.Usage == usage,
+                cancellationToken);
+    }
+
+    /// <summary>
     /// 根据规格ID获取该规格的所有向量缓存记录。
     /// </summary>
     /// <param name="specId">验收规格ID</param>

@@ -16,6 +16,20 @@ public interface IEmbeddingCacheRepository : IRepository<EmbeddingCache>
     Task<EmbeddingCache?> GetBySpecAndModelAsync(int specId, string modelName);
 
     /// <summary>
+    /// 根据验收规格、模型名称和用途精确获取缓存。
+    /// </summary>
+    /// <param name="specId">验收规格ID</param>
+    /// <param name="modelName">模型名称</param>
+    /// <param name="usage">向量用途</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>向量缓存或null</returns>
+    Task<EmbeddingCache?> GetBySpecModelUsageAsync(
+        int specId,
+        string modelName,
+        string usage,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// 根据验收规格ID获取所有缓存
     /// </summary>
     /// <param name="specId">验收规格ID</param>

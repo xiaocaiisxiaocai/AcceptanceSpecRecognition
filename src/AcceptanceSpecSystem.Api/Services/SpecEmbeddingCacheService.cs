@@ -16,6 +16,7 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, IImportEmbeddingCache, IMatchingEmbeddingCache, ISpecSemanticEmbeddingCache
 {
     private const int EmbeddingGenerationBatchSize = 200;
+    private const string EmbeddingCacheUniqueIndex = "IX_EmbeddingCaches_SpecId_ModelName_Usage";
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IEmbeddingService _embeddingService;
@@ -337,7 +338,53 @@ public sealed class SpecEmbeddingCacheService : IEmbeddingCacheWarmupExecutor, I
         {
             cancellationToken.ThrowIfCancellationRequested();
             // 懒生成的 Embedding 缓存立即独立落库，避免后续匹配/导入流程重复生成同一批向量。
-            await _unitOfWork.SaveChangesAsync();
+            try
+            {
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex) when (
+                DatabaseConstraintClassifier.IsUniqueViolation(ex, EmbeddingCacheUniqueIndex) &&
+                ex.Entries.Count > 0 &&
+                ex.Entries.All(entry => entry.Entity is EmbeddingCache))
+            {
+                var failedAddedCaches = ex.Entries
+                    .Where(entry =>
+                        entry.State == EntityState.Added &&
+                        entry.Entity is EmbeddingCache)
+                    .ToList();
+                if (failedAddedCaches.Count == 0)
+                {
+                    throw;
+                }
+
+                foreach (var failedEntry in failedAddedCaches)
+                {
+                    failedEntry.State = EntityState.Detached;
+                }
+
+                foreach (var failedEntry in failedAddedCaches)
+                {
+                    var failedCache = (EmbeddingCache)failedEntry.Entity;
+                    var winner = await _unitOfWork.EmbeddingCaches.GetBySpecModelUsageAsync(
+                        failedCache.SpecId,
+                        failedCache.ModelName,
+                        failedCache.Usage,
+                        cancellationToken);
+                    if (winner == null ||
+                        !targetLookup.TryGetValue(failedCache.SpecId, out var target))
+                    {
+                        throw;
+                    }
+
+                    var winnerEmbedding = DeserializeVector(winner.Vector);
+                    if (winnerEmbedding.Length == 0)
+                    {
+                        throw;
+                    }
+
+                    target.SetEmbedding(winnerEmbedding);
+                }
+            }
         }
 
         _logger.LogInformation(
