@@ -32,6 +32,7 @@ public class FileCompareController : BaseApiController
     [AuditOperation("upload", "file-compare")]
     [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<FileCompareUploadResponse>), StatusCodes.Status413PayloadTooLarge)]
     public async Task<ActionResult<ApiResponse<FileCompareUploadResponse>>> Upload(
         IFormFile fileA,
         IFormFile fileB,
@@ -75,6 +76,7 @@ public class FileCompareController : BaseApiController
     [HttpPost("preview")]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status422UnprocessableEntity)]
     public async Task<ActionResult<ApiResponse<FileComparePreviewResponse>>> Preview(
         [FromBody] FileComparePreviewRequest request,
         CancellationToken cancellationToken = default)
@@ -96,6 +98,7 @@ public class FileCompareController : BaseApiController
 
     [HttpPost("download")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Download(
         [FromBody] FileComparePreviewRequest request,
         CancellationToken cancellationToken = default)

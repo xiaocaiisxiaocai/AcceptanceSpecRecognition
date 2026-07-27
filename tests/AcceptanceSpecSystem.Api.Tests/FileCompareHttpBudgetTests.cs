@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Application.Services;
@@ -11,9 +12,11 @@ using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -53,6 +56,23 @@ public sealed class FileCompareHttpBudgetTests :
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
         (await response.ReadAsAsync<ApiResponse<JsonElement>>()).Code.Should().Be(422);
     }
+
+    [Fact]
+    public void OpenApi_应声明上传413及预览下载422()
+    {
+        GetStatuses(nameof(FileCompareController.Upload))
+            .Should().Contain(StatusCodes.Status413PayloadTooLarge);
+        GetStatuses(nameof(FileCompareController.Preview))
+            .Should().Contain(StatusCodes.Status422UnprocessableEntity);
+        GetStatuses(nameof(FileCompareController.Download))
+            .Should().Contain(StatusCodes.Status422UnprocessableEntity);
+    }
+
+    private static IEnumerable<int> GetStatuses(string methodName) =>
+        typeof(FileCompareController).GetMethod(methodName)!
+            .GetCustomAttributes(typeof(ProducesResponseTypeAttribute), inherit: true)
+            .Cast<ProducesResponseTypeAttribute>()
+            .Select(attribute => attribute.StatusCode);
 
     private async Task<(int A, int B)> UploadAsync(byte[] first, byte[] second)
     {
@@ -278,6 +298,27 @@ public sealed class FileCompareLeaseCoverageTests :
 
         cancellation.Cancel();
         Func<Task> wait = async () => await preview;
+        await wait.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task Upload_表数解析应等待DocumentParsing闸门并传播取消()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var governor = scope.ServiceProvider.GetRequiredService<IResourceBudgetGovernor>();
+        using var holder = await governor.AcquireAsync(ResourceWorkload.DocumentParsing);
+        using var cancellation = new CancellationTokenSource();
+        var bytes = CreateWord("table-count");
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(bytes), "fileA", "a.docx");
+        multipart.Add(new ByteArrayContent(bytes), "fileB", "b.docx");
+
+        var upload = _client.PostAsync("/api/file-compare/upload", multipart, cancellation.Token);
+        await Task.Delay(100);
+        upload.IsCompleted.Should().BeFalse();
+        cancellation.Cancel();
+
+        Func<Task> wait = async () => await upload;
         await wait.Should().ThrowAsync<OperationCanceledException>();
     }
 

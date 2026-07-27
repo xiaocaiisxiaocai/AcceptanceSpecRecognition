@@ -15,10 +15,10 @@ public interface IFileCompareService
 
 public interface IFileCompareDocumentParser
 {
-    Task<IReadOnlyList<TableInfo>> GetTablesAsync(string filePath, CancellationToken cancellationToken);
+    Task<IReadOnlyList<TableInfo>> GetTablesAsync(Stream content, CancellationToken cancellationToken);
 
     Task<TableData> ExtractTableDataAsync(
-        string filePath,
+        Stream content,
         int tableIndex,
         ColumnMapping mapping,
         int maxDataRowCount,
@@ -28,18 +28,18 @@ public interface IFileCompareDocumentParser
 public sealed class FileCompareDocumentParser(DocumentServiceFactory factory) : IFileCompareDocumentParser
 {
     public Task<IReadOnlyList<TableInfo>> GetTablesAsync(
-        string filePath,
+        Stream content,
         CancellationToken cancellationToken) =>
-        Resolve().GetTablesAsync(filePath, cancellationToken);
+        Resolve().GetTablesAsync(content, cancellationToken);
 
     public Task<TableData> ExtractTableDataAsync(
-        string filePath,
+        Stream content,
         int tableIndex,
         ColumnMapping mapping,
         int maxDataRowCount,
         CancellationToken cancellationToken) =>
         Resolve().ExtractTableDataAsync(
-            filePath, tableIndex, mapping, maxDataRowCount, cancellationToken: cancellationToken);
+            content, tableIndex, mapping, maxDataRowCount, cancellationToken: cancellationToken);
 
     private IDocumentParser Resolve() =>
         factory.GetParser(CoreDocumentType.Excel)
@@ -107,15 +107,18 @@ public class FileCompareService : IFileCompareService
     private readonly IFileStorageService _fileStorage;
     private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
     private readonly IFileCompareDocumentParser _excelParser;
+    private readonly IFileCompareTemporaryStorage _temporaryStorage;
 
     public FileCompareService(
         DocumentServiceFactory documentServiceFactory,
         IFileStorageService fileStorage,
         IResourceBudgetGovernor resourceBudgetGovernor,
+        IFileCompareTemporaryStorage temporaryStorage,
         IFileCompareDocumentParser? excelParser = null)
     {
         _fileStorage = fileStorage;
         _resourceBudgetGovernor = resourceBudgetGovernor;
+        _temporaryStorage = temporaryStorage;
         _excelParser = excelParser ?? new FileCompareDocumentParser(documentServiceFactory);
     }
 
@@ -124,27 +127,29 @@ public class FileCompareService : IFileCompareService
         if (fileA.FileType != fileB.FileType)
             throw new InvalidOperationException("仅支持同类型文件对比");
 
-        await using var documentA = await MaterializedDocument.CreateAsync(
-            fileA, _fileStorage, _resourceBudgetGovernor, cancellationToken);
-        await using var documentB = await MaterializedDocument.CreateAsync(
-            fileB, _fileStorage, _resourceBudgetGovernor, cancellationToken);
+        await using var documentA = await ComparisonDocument.CreateAsync(
+            fileA, _fileStorage, _temporaryStorage, _resourceBudgetGovernor, cancellationToken);
+        await using var documentB = await ComparisonDocument.CreateAsync(
+            fileB, _fileStorage, _temporaryStorage, _resourceBudgetGovernor, cancellationToken);
         return fileA.FileType switch
         {
-            UploadedFileType.WordDocx => await CompareWordAsync(documentA.Path, documentB.Path, cancellationToken),
-            UploadedFileType.ExcelXlsx => await CompareExcelAsync(documentA.Path, documentB.Path, cancellationToken),
+            UploadedFileType.WordDocx => await CompareWordAsync(documentA, documentB, cancellationToken),
+            UploadedFileType.ExcelXlsx => await CompareExcelAsync(documentA, documentB, cancellationToken),
             _ => throw new InvalidOperationException("不支持的文件类型")
         };
     }
 
     private Task<FileCompareResult> CompareWordAsync(
-        string pathA,
-        string pathB,
+        ComparisonDocument documentA,
+        ComparisonDocument documentB,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         long nodes = 0;
-        var paragraphsA = ExtractWordParagraphs(pathA, ref nodes, cancellationToken);
-        var paragraphsB = ExtractWordParagraphs(pathB, ref nodes, cancellationToken);
+        using var streamA = documentA.OpenRead();
+        var paragraphsA = ExtractWordParagraphs(streamA, ref nodes, cancellationToken);
+        using var streamB = documentB.OpenRead();
+        var paragraphsB = ExtractWordParagraphs(streamB, ref nodes, cancellationToken);
         var ops = BuildParagraphDiff(paragraphsA, paragraphsB, cancellationToken);
         var items = BuildWordDiffItems(ops, cancellationToken);
 
@@ -156,10 +161,17 @@ public class FileCompareService : IFileCompareService
         });
     }
 
-    private async Task<FileCompareResult> CompareExcelAsync(string pathA, string pathB, CancellationToken cancellationToken)
+    private async Task<FileCompareResult> CompareExcelAsync(
+        ComparisonDocument documentA,
+        ComparisonDocument documentB,
+        CancellationToken cancellationToken)
     {
-        var sheetsA = await _excelParser.GetTablesAsync(pathA, cancellationToken);
-        var sheetsB = await _excelParser.GetTablesAsync(pathB, cancellationToken);
+        IReadOnlyList<TableInfo> sheetsA;
+        IReadOnlyList<TableInfo> sheetsB;
+        using (var streamA = documentA.OpenRead())
+            sheetsA = await _excelParser.GetTablesAsync(streamA, cancellationToken);
+        using (var streamB = documentB.OpenRead())
+            sheetsB = await _excelParser.GetTablesAsync(streamB, cancellationToken);
         ValidateCompareDimensions(sheetsA);
         ValidateCompareDimensions(sheetsB);
         long predictedNodes = 0;
@@ -188,19 +200,25 @@ public class FileCompareService : IFileCompareService
             TableData? tableB = null;
 
             if (infoA != null)
+            {
+                using var streamA = documentA.OpenRead();
                 tableA = await _excelParser.ExtractTableDataAsync(
-                    pathA,
+                    streamA,
                     sheetIndex,
                     mapping,
                     MaxCompareRowsPerSheet,
                     cancellationToken: cancellationToken);
+            }
             if (infoB != null)
+            {
+                using var streamB = documentB.OpenRead();
                 tableB = await _excelParser.ExtractTableDataAsync(
-                    pathB,
+                    streamB,
                     sheetIndex,
                     mapping,
                     MaxCompareRowsPerSheet,
                     cancellationToken: cancellationToken);
+            }
 
             var mapA = BuildExcelCellMap(tableA, infoA, ref actualNodes, cancellationToken);
             var mapB = BuildExcelCellMap(tableB, infoB, ref actualNodes, cancellationToken);
@@ -258,8 +276,7 @@ public class FileCompareService : IFileCompareService
             var headerCells = sheet.RowCount > 0
                 ? Math.Min(sheet.ColumnCount, sheet.Headers?.Count ?? sheet.ColumnCount)
                 : 0;
-            var dataRows = Math.Max(0, sheet.RowCount - 1);
-            total = checked(total + headerCells + checked((long)dataRows * sheet.ColumnCount));
+            total = checked(total + headerCells + checked((long)sheet.RowCount * sheet.ColumnCount));
             _resourceBudgetGovernor.ValidateFileCompareCells(total);
         }
     }
@@ -270,17 +287,11 @@ public class FileCompareService : IFileCompareService
         {
             if (sheet.RowCount > MaxCompareRowsPerSheet)
             {
-                throw new ResourceBudgetExceededException(
-                    "file_compare_sheet_rows",
-                    sheet.RowCount,
-                    MaxCompareRowsPerSheet);
+                throw new FileCompareBudgetExceededException("file_compare_sheet_rows");
             }
             if (sheet.ColumnCount > MaxCompareColumnsPerSheet)
             {
-                throw new ResourceBudgetExceededException(
-                    "file_compare_sheet_columns",
-                    sheet.ColumnCount,
-                    MaxCompareColumnsPerSheet);
+                throw new FileCompareBudgetExceededException("file_compare_sheet_columns");
             }
         }
     }
@@ -308,12 +319,12 @@ public class FileCompareService : IFileCompareService
     }
 
     private List<string> ExtractWordParagraphs(
-        string path,
+        Stream content,
         ref long nodeCount,
         CancellationToken cancellationToken)
     {
         var list = new List<string>();
-        using var doc = WordprocessingDocument.Open(path, false);
+        using var doc = WordprocessingDocument.Open(content, false);
         var body = doc.MainDocumentPart?.Document?.Body;
         if (body == null)
             return list;
@@ -357,18 +368,20 @@ public class FileCompareService : IFileCompareService
 
     private readonly record struct DiffOp(DiffOpType Type, string Text, int IndexA, int IndexB);
 
-    private static List<DiffOp> BuildParagraphDiff(
+    private List<DiffOp> BuildParagraphDiff(
         IReadOnlyList<string> a,
         IReadOnlyList<string> b,
         CancellationToken cancellationToken)
     {
         var n = a.Count;
         var m = b.Count;
+        long changedOps = 0;
 
         // 大文档走分块近似算法，避免 O(n*m) 动态规划造成高延迟与高内存占用
         if ((long)n * m > MaxLcsMatrixCells)
         {
-            return BuildParagraphDiffByChunk(a, b, ChunkLookAhead, cancellationToken);
+            return BuildParagraphDiffByChunk(
+                a, b, ChunkLookAhead, ref changedOps, cancellationToken);
         }
 
         var dp = new int[n + 1, m + 1];
@@ -398,42 +411,50 @@ public class FileCompareService : IFileCompareService
             cancellationToken.ThrowIfCancellationRequested();
             if (a[x - 1] == b[y - 1])
             {
-                ops.Add(new DiffOp(DiffOpType.Equal, a[x - 1], x - 1, y - 1));
+                AppendDiffOp(ops, new DiffOp(DiffOpType.Equal, a[x - 1], x - 1, y - 1), ref changedOps, cancellationToken);
                 x--;
                 y--;
             }
             else if (dp[x - 1, y] >= dp[x, y - 1])
             {
-                ops.Add(new DiffOp(DiffOpType.Remove, a[x - 1], x - 1, -1));
+                AppendDiffOp(ops, new DiffOp(DiffOpType.Remove, a[x - 1], x - 1, -1), ref changedOps, cancellationToken);
                 x--;
             }
             else
             {
-                ops.Add(new DiffOp(DiffOpType.Add, b[y - 1], -1, y - 1));
+                AppendDiffOp(ops, new DiffOp(DiffOpType.Add, b[y - 1], -1, y - 1), ref changedOps, cancellationToken);
                 y--;
             }
         }
 
         while (x > 0)
         {
-            ops.Add(new DiffOp(DiffOpType.Remove, a[x - 1], x - 1, -1));
+            cancellationToken.ThrowIfCancellationRequested();
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Remove, a[x - 1], x - 1, -1), ref changedOps, cancellationToken);
             x--;
         }
 
         while (y > 0)
         {
-            ops.Add(new DiffOp(DiffOpType.Add, b[y - 1], -1, y - 1));
+            cancellationToken.ThrowIfCancellationRequested();
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Add, b[y - 1], -1, y - 1), ref changedOps, cancellationToken);
             y--;
         }
 
-        ops.Reverse();
+        for (var left = 0; left < ops.Count / 2; left++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var right = ops.Count - left - 1;
+            (ops[left], ops[right]) = (ops[right], ops[left]);
+        }
         return ops;
     }
 
-    private static List<DiffOp> BuildParagraphDiffByChunk(
+    private List<DiffOp> BuildParagraphDiffByChunk(
         IReadOnlyList<string> a,
         IReadOnlyList<string> b,
         int lookAhead,
+        ref long changedOps,
         CancellationToken cancellationToken)
     {
         var ops = new List<DiffOp>();
@@ -445,20 +466,20 @@ public class FileCompareService : IFileCompareService
             cancellationToken.ThrowIfCancellationRequested();
             if (a[i] == b[j])
             {
-                ops.Add(new DiffOp(DiffOpType.Equal, a[i], i, j));
+                AppendDiffOp(ops, new DiffOp(DiffOpType.Equal, a[i], i, j), ref changedOps, cancellationToken);
                 i++;
                 j++;
                 continue;
             }
 
-            var matchInB = FindMatchIndex(b, j + 1, lookAhead, a[i]);
-            var matchInA = FindMatchIndex(a, i + 1, lookAhead, b[j]);
+            var matchInB = FindMatchIndex(b, j + 1, lookAhead, a[i], cancellationToken);
+            var matchInA = FindMatchIndex(a, i + 1, lookAhead, b[j], cancellationToken);
 
             if (matchInB >= 0 && (matchInA < 0 || matchInB - j <= matchInA - i))
             {
                 while (j < matchInB)
                 {
-                    ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+                    AppendDiffOp(ops, new DiffOp(DiffOpType.Add, b[j], -1, j), ref changedOps, cancellationToken);
                     j++;
                 }
                 continue;
@@ -468,35 +489,42 @@ public class FileCompareService : IFileCompareService
             {
                 while (i < matchInA)
                 {
-                    ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
+                    AppendDiffOp(ops, new DiffOp(DiffOpType.Remove, a[i], i, -1), ref changedOps, cancellationToken);
                     i++;
                 }
                 continue;
             }
 
             // 无近邻锚点：按同位置差异处理，后续会组合为 Modified
-            ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
-            ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Remove, a[i], i, -1), ref changedOps, cancellationToken);
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Add, b[j], -1, j), ref changedOps, cancellationToken);
             i++;
             j++;
         }
 
         while (i < a.Count)
         {
-            ops.Add(new DiffOp(DiffOpType.Remove, a[i], i, -1));
+            cancellationToken.ThrowIfCancellationRequested();
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Remove, a[i], i, -1), ref changedOps, cancellationToken);
             i++;
         }
 
         while (j < b.Count)
         {
-            ops.Add(new DiffOp(DiffOpType.Add, b[j], -1, j));
+            cancellationToken.ThrowIfCancellationRequested();
+            AppendDiffOp(ops, new DiffOp(DiffOpType.Add, b[j], -1, j), ref changedOps, cancellationToken);
             j++;
         }
 
         return ops;
     }
 
-    private static int FindMatchIndex(IReadOnlyList<string> source, int start, int lookAhead, string expected)
+    private static int FindMatchIndex(
+        IReadOnlyList<string> source,
+        int start,
+        int lookAhead,
+        string expected,
+        CancellationToken cancellationToken)
     {
         if (start >= source.Count)
             return -1;
@@ -504,11 +532,30 @@ public class FileCompareService : IFileCompareService
         var end = Math.Min(source.Count - 1, start + lookAhead);
         for (var k = start; k <= end; k++)
         {
+            if ((k & 31) == 0)
+                cancellationToken.ThrowIfCancellationRequested();
             if (source[k] == expected)
                 return k;
         }
 
         return -1;
+    }
+
+    private void AppendDiffOp(
+        List<DiffOp> operations,
+        DiffOp operation,
+        ref long changedOperations,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (operation.Type != DiffOpType.Equal)
+        {
+            var nextChangedOperations = checked(changedOperations + 1);
+            _resourceBudgetGovernor.ValidateFileCompareDiffItems(
+                checked((nextChangedOperations + 1) / 2));
+            changedOperations = nextChangedOperations;
+        }
+        operations.Add(operation);
     }
 
     private List<FileCompareDiffItem> BuildWordDiffItems(
@@ -722,7 +769,12 @@ public class FileCompareService : IFileCompareService
         Dictionary<WordCellKey, string> mapB,
         CancellationToken cancellationToken)
     {
-        var set = new HashSet<WordCellKey>();
+        var set = new SortedSet<WordCellKey>(
+            Comparer<WordCellKey>.Create((left, right) =>
+            {
+                var row = left.RowIndex.CompareTo(right.RowIndex);
+                return row != 0 ? row : left.ColumnIndex.CompareTo(right.ColumnIndex);
+            }));
         foreach (var key in mapA.Keys)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -733,10 +785,18 @@ public class FileCompareService : IFileCompareService
             cancellationToken.ThrowIfCancellationRequested();
             set.Add(key);
         }
-        cancellationToken.ThrowIfCancellationRequested();
-        var ordered = set.OrderBy(k => k.RowIndex).ThenBy(k => k.ColumnIndex).ToArray();
-        cancellationToken.ThrowIfCancellationRequested();
-        return ordered;
+        return EnumerateWithCancellation(set, cancellationToken);
+    }
+
+    private static IEnumerable<WordCellKey> EnumerateWithCancellation(
+        IEnumerable<WordCellKey> source,
+        CancellationToken cancellationToken)
+    {
+        foreach (var key in source)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return key;
+        }
     }
 
     private static string ToExcelColumnName(int columnNumber)
@@ -864,60 +924,53 @@ public class FileCompareService : IFileCompareService
 
     private readonly record struct WordCellKey(int RowIndex, int ColumnIndex);
 
-    private sealed class MaterializedDocument : IAsyncDisposable
+    private sealed class ComparisonDocument : IAsyncDisposable
     {
-        private readonly bool _ownsPath;
+        private const long MaxLegacyFileBytes = 50L * 1024 * 1024;
+        private readonly Func<Stream> _openRead;
+        private readonly TemporaryFileLease? _lease;
 
-        private MaterializedDocument(string path, bool ownsPath)
+        private ComparisonDocument(Func<Stream> openRead, TemporaryFileLease? lease = null)
         {
-            Path = path;
-            _ownsPath = ownsPath;
+            _openRead = openRead;
+            _lease = lease;
         }
 
-        public string Path { get; }
+        public Stream OpenRead() => _openRead();
 
-        public static async Task<MaterializedDocument> CreateAsync(
+        public static async Task<ComparisonDocument> CreateAsync(
             WordFile file,
             IFileStorageService fileStorage,
+            IFileCompareTemporaryStorage temporaryStorage,
             IResourceBudgetGovernor resourceBudgetGovernor,
             CancellationToken cancellationToken)
         {
             if (!string.IsNullOrWhiteSpace(file.FilePath))
             {
-                var storedPath = fileStorage.GetAbsolutePath(file.FilePath);
-                if (File.Exists(storedPath))
+                try
                 {
-                    resourceBudgetGovernor.ValidateDocumentSize(new FileInfo(storedPath).Length);
-                    return new MaterializedDocument(storedPath, ownsPath: false);
+                    using var stored = fileStorage.OpenReadStream(file.FilePath);
+                    if (stored.CanSeek)
+                        resourceBudgetGovernor.ValidateDocumentSize(stored.Length);
+                    return new ComparisonDocument(() => fileStorage.OpenReadStream(file.FilePath));
+                }
+                catch (Exception exception) when (
+                    exception is FileNotFoundException or DirectoryNotFoundException)
+                {
                 }
             }
 
             var content = file.FileContent ?? Array.Empty<byte>();
             resourceBudgetGovernor.ValidateDocumentSize(content.LongLength);
-            var extension = file.FileType == UploadedFileType.ExcelXlsx ? ".xlsx" : ".docx";
-            var temporaryPath = System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(),
-                $"acceptance-file-compare-{Guid.NewGuid():N}{extension}");
-            try
-            {
-                await File.WriteAllBytesAsync(temporaryPath, content, cancellationToken);
-                return new MaterializedDocument(temporaryPath, ownsPath: true);
-            }
-            catch
-            {
-                File.Delete(temporaryPath);
-                throw;
-            }
+            using var source = new MemoryStream(content, writable: false);
+            var lease = await temporaryStorage.StageUploadAsync(
+                source,
+                MaxLegacyFileBytes,
+                cancellationToken);
+            return new ComparisonDocument(lease.OpenRead, lease);
         }
 
-        public ValueTask DisposeAsync()
-        {
-            if (_ownsPath)
-            {
-                File.Delete(Path);
-            }
-
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask DisposeAsync() =>
+            _lease?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 }

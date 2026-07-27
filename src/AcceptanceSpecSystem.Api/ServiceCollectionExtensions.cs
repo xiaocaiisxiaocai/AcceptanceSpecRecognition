@@ -63,6 +63,12 @@ public static class ApiServiceCollectionExtensions
             .Bind(configuration.GetSection(FileCompareTemporaryStorageOptions.SectionName))
             .Validate(options => options.RetentionHours > 0, "文件比较临时文件保留时间必须大于 0")
             .Validate(options => options.CleanupIntervalMinutes > 0, "文件比较临时文件清理间隔必须大于 0")
+            .Validate(options => options.HeartbeatSeconds > 0, "文件比较临时文件心跳间隔必须大于 0")
+            .Validate(
+                options => options.RetentionHours > 0 &&
+                           options.HeartbeatSeconds <=
+                           checked((long)options.RetentionHours * 60 * 60 / 4),
+                "文件比较临时文件心跳间隔不能超过保留时间的四分之一")
             .ValidateOnStart();
         services.AddOptions<BatchReplyCleanupOptions>()
             .Bind(configuration.GetSection(BatchReplyCleanupOptions.SectionName))

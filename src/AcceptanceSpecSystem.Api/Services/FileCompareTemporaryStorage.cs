@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using System.ComponentModel;
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Application.Services;
 using Microsoft.Extensions.Options;
@@ -11,33 +13,67 @@ public sealed class FileCompareTemporaryStorageOptions
     public const string SectionName = "FileCompareTemporaryStorage";
     public int RetentionHours { get; set; } = 24;
     public int CleanupIntervalMinutes { get; set; } = 60;
+    public int HeartbeatSeconds { get; set; } = 60;
 }
 
-public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage
+internal interface IFileCompareTemporaryStorageFaultHook
 {
-    private const string MarkerName = ".acceptance-file-compare";
-    private readonly string _root;
+    void AfterRequestDirectoryCreated() { }
+    void BeforeMarkerFlush() { }
+    void AfterMarkerCreated() { }
+    void AfterCleanupDirectoryOpened(string requestId) { }
+    void BeforeCleanupDirectory() { }
+    void BeforeRequestDirectoryRename(string requestId) { }
+    void AfterRequestDirectoryQuarantined(string requestId) { }
+    void BeforeEntryDisposition(string entryName) { }
+    void AfterTrackedStreamDisposed() { }
+}
+
+public sealed class FileCompareTemporaryCleanupException(int failureCount)
+    : IOException($"文件比较临时资源清理有 {failureCount} 项失败")
+{
+    public int FailureCount { get; } = failureCount;
+}
+
+public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage, IDisposable
+{
     private readonly TimeProvider _timeProvider;
     private readonly FileCompareTemporaryStorageOptions _options;
-    private readonly ConcurrentDictionary<string, byte> _activeDirectories =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly IFileCompareTemporaryStorageFaultHook? _faultHook;
+    private readonly INativeTemporaryFileSystem _fileSystem;
+    private readonly object _lifecycleGate = new();
+    private readonly ConcurrentDictionary<FileSystemTemporaryFileLease, byte> _activeLeases = new();
+    private int _disposed;
 
     public FileCompareTemporaryStorage(
         IWebHostEnvironment environment,
         IConfiguration configuration,
         IOptions<FileCompareTemporaryStorageOptions> options,
         TimeProvider timeProvider)
+        : this(environment, configuration, options, timeProvider, null)
+    {
+    }
+
+    internal FileCompareTemporaryStorage(
+        IWebHostEnvironment environment,
+        IConfiguration configuration,
+        IOptions<FileCompareTemporaryStorageOptions> options,
+        TimeProvider timeProvider,
+        IFileCompareTemporaryStorageFaultHook? faultHook = null)
     {
         var configuredRoot = configuration["FileCompareTemporaryStorage:Root"];
-        _root = string.IsNullOrWhiteSpace(configuredRoot)
+        var root = string.IsNullOrWhiteSpace(configuredRoot)
             ? Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem", "file-compare")
             : Path.IsPathRooted(configuredRoot)
                 ? Path.GetFullPath(configuredRoot)
                 : Path.GetFullPath(Path.Combine(environment.ContentRootPath, configuredRoot));
-        Directory.CreateDirectory(_root);
-        RejectReparsePath(_root);
         _timeProvider = timeProvider;
         _options = options.Value;
+        _faultHook = faultHook;
+        _fileSystem = OperatingSystem.IsWindows()
+            ? new WindowsNativeTemporaryFileSystem(root)
+            : throw new PlatformNotSupportedException(
+                "文件比较原生临时存储仅支持 Windows");
     }
 
     public async Task<TemporaryFileLease> StageUploadAsync(
@@ -87,133 +123,117 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage
 
     public Task CleanupExpiredAsync(CancellationToken cancellationToken = default)
     {
-        RejectReparsePath(_root);
-        var cutoff = _timeProvider.GetUtcNow().UtcDateTime.AddHours(-_options.RetentionHours);
-        foreach (var directory in Directory.EnumerateDirectories(_root))
+        lock (_lifecycleGate)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (_activeDirectories.ContainsKey(directory) ||
-                !TryValidateManagedDirectory(directory) ||
-                Directory.GetLastWriteTimeUtc(directory) > cutoff)
-                continue;
-            try
-            {
-                Directory.Delete(directory, recursive: true);
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
+            ObjectDisposedException.ThrowIf(_disposed != 0, this);
+            var cutoff = _timeProvider.GetUtcNow().AddHours(-_options.RetentionHours);
+            var failureCount = _fileSystem.CleanupExpired(cutoff, _faultHook, cancellationToken);
+            if (failureCount > 0)
+                throw new FileCompareTemporaryCleanupException(failureCount);
         }
         return Task.CompletedTask;
     }
 
     private FileSystemTemporaryFileLease CreateLease()
     {
-        RejectReparsePath(_root);
-        var directoryName = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-        var directory = Path.Combine(_root, directoryName);
-        Directory.CreateDirectory(directory);
-        var markerValue = $"{directoryName}:{Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()}";
-        File.WriteAllText(Path.Combine(directory, MarkerName), markerValue);
-        _activeDirectories.TryAdd(directory, 0);
-        return new FileSystemTemporaryFileLease(
-            _root,
-            directory,
-            Path.Combine(directory, "payload.tmp"),
-            markerValue,
-            () => _activeDirectories.TryRemove(directory, out _));
+        lock (_lifecycleGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed != 0, this);
+            var requestId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            var markerValue =
+                $"{requestId}:{Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant()}";
+            var nativeDirectory = _fileSystem.CreateRequestDirectory(
+                requestId,
+                markerValue,
+                _timeProvider.GetUtcNow(),
+                _faultHook);
+            Action? afterStreamDisposed = _faultHook is null
+                ? null
+                : () => _faultHook.AfterTrackedStreamDisposed();
+            FileSystemTemporaryFileLease? lease = null;
+            lease = new FileSystemTemporaryFileLease(
+                nativeDirectory,
+                TimeSpan.FromSeconds(_options.HeartbeatSeconds),
+                _timeProvider,
+                afterStreamDisposed,
+                () =>
+                {
+                    if (lease is not null)
+                        _activeLeases.TryRemove(lease, out _);
+                });
+            _activeLeases.TryAdd(lease, 0);
+            return lease;
+        }
     }
 
-    private bool TryValidateManagedDirectory(string directory)
+    public void Dispose()
     {
-        var name = Path.GetFileName(directory);
-        if (name.Length != 32 || !name.All(Uri.IsHexDigit))
-            return false;
-        var expected = Path.Combine(_root, name);
-        if (!string.Equals(Path.GetFullPath(directory), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
-            return false;
+        FileSystemTemporaryFileLease[] leases;
+        lock (_lifecycleGate)
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            leases = _activeLeases.Keys.ToArray();
+        }
+        Exception? failure = null;
         try
         {
-            RejectReparsePoint(directory);
-            var marker = Path.Combine(directory, MarkerName);
-            if (!File.Exists(marker) ||
-                (File.GetAttributes(marker) & FileAttributes.ReparsePoint) != 0 ||
-                new FileInfo(marker).Length > 65)
-                return false;
-            var markerValue = File.ReadAllText(marker);
-            var parts = markerValue.Split(':');
-            if (parts.Length != 2 ||
-                !string.Equals(parts[0], name, StringComparison.Ordinal) ||
-                parts[1].Length != 32 ||
-                !parts[1].All(Uri.IsHexDigit))
-                return false;
-            foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+            foreach (var lease in leases)
             {
-                var entryName = Path.GetFileName(entry);
-                if (entryName is not MarkerName and not "payload.tmp" ||
-                    (File.GetAttributes(entry) & FileAttributes.ReparsePoint) != 0)
-                    return false;
+                try
+                {
+                    lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+                catch (Exception exception)
+                {
+                    failure ??= exception;
+                }
             }
-            return true;
         }
-        catch (IOException)
+        finally
         {
-            return false;
+            try
+            {
+                _fileSystem.Dispose();
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
         }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private static void RejectReparsePoint(string path)
-    {
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-            throw new ApplicationServiceException(400, "文件比较临时目录不安全");
-    }
-
-    private static void RejectReparsePath(string path)
-    {
-        var fullPath = Path.GetFullPath(path);
-        var root = Path.GetPathRoot(fullPath)
-            ?? throw new ApplicationServiceException(400, "文件比较临时目录不安全");
-        var current = root;
-        foreach (var segment in Path.GetRelativePath(root, fullPath).Split(
-                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                     StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, segment);
-            if (Directory.Exists(current) || File.Exists(current))
-                RejectReparsePoint(current);
-        }
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
     private sealed class FileSystemTemporaryFileLease : TemporaryFileLease
     {
-        private readonly string _root;
-        private readonly string _directory;
-        private readonly string _path;
-        private readonly string _markerValue;
+        private readonly NativeTemporaryDirectory _directory;
+        private readonly TimeSpan _heartbeatInterval;
+        private readonly TimeProvider _timeProvider;
+        private readonly Action? _afterStreamDisposed;
         private readonly Action _release;
+        private readonly ConcurrentDictionary<LeaseTrackedStream, byte> _openStreams = new();
+        private readonly object _stateGate = new();
+        private readonly CancellationTokenSource _heartbeatCancellation = new();
+        private readonly Task _heartbeatTask;
+        private Task? _disposeTask;
         private int _disposed;
         private long _length;
         private string _sha256 = string.Empty;
 
         public FileSystemTemporaryFileLease(
-            string root,
-            string directory,
-            string path,
-            string markerValue,
+            NativeTemporaryDirectory directory,
+            TimeSpan heartbeatInterval,
+            TimeProvider timeProvider,
+            Action? afterStreamDisposed,
             Action release)
         {
-            _root = root;
             _directory = directory;
-            _path = path;
-            _markerValue = markerValue;
+            _heartbeatInterval = heartbeatInterval;
+            _timeProvider = timeProvider;
+            _afterStreamDisposed = afterStreamDisposed;
             _release = release;
+            _heartbeatTask = RunHeartbeatAsync();
         }
 
         public override long Length => _length;
@@ -227,84 +247,187 @@ public sealed class FileCompareTemporaryStorage : IFileCompareTemporaryStorage
 
         public override Stream OpenRead()
         {
-            EnsureSafe();
-            return new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            lock (_stateGate)
+            {
+                ThrowIfDisposed();
+                _directory.Heartbeat(_timeProvider.GetUtcNow());
+                return Track(_directory.OpenPayloadReadStream());
+            }
         }
 
         public override Stream OpenWrite()
         {
-            EnsureSafe();
-            return new FileStream(_path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            lock (_stateGate)
+            {
+                ThrowIfDisposed();
+                _directory.Heartbeat(_timeProvider.GetUtcNow());
+                return Track(_directory.CreatePayloadWriteStream());
+            }
         }
 
         public override ValueTask DisposeAsync()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0)
-                return ValueTask.CompletedTask;
+            lock (_stateGate)
+                return new ValueTask(_disposeTask ??= DisposeCoreAsync());
+        }
+
+        private async Task DisposeCoreAsync()
+        {
+            Exception? failure = null;
+            Volatile.Write(ref _disposed, 1);
+            _heartbeatCancellation.Cancel();
             try
             {
-                var expected = Path.Combine(_root, Path.GetFileName(_directory));
-                if (string.Equals(Path.GetFullPath(_directory), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    RejectReparsePath(_root);
-                    RejectReparsePoint(_directory);
-                    var marker = Path.Combine(_directory, MarkerName);
-                    if (File.Exists(marker) &&
-                        (File.GetAttributes(marker) & FileAttributes.ReparsePoint) == 0 &&
-                        string.Equals(File.ReadAllText(marker), _markerValue, StringComparison.Ordinal) &&
-                        HasOnlySafeOwnedEntries())
-                        Directory.Delete(_directory, recursive: true);
+                    await _heartbeatTask;
                 }
-            }
-            catch (DirectoryNotFoundException)
-            {
-            }
-            catch (FileNotFoundException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException or
+                    ApplicationServiceException or Win32Exception)
+                {
+                }
             }
             finally
             {
-                _release();
+                try
+                {
+                    foreach (var stream in _openStreams.Keys)
+                    {
+                        try
+                        {
+                            await stream.DisposeAsync();
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException or UnauthorizedAccessException or
+                            Win32Exception or ObjectDisposedException)
+                        {
+                        }
+                        catch (Exception exception)
+                        {
+                            failure ??= exception;
+                        }
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        await _directory.DisposeAsync();
+                    }
+                    finally
+                    {
+                        _heartbeatCancellation.Dispose();
+                        _release();
+                    }
+                }
             }
-            return ValueTask.CompletedTask;
+            if (failure is not null)
+                ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        private void EnsureSafe()
+        private void ThrowIfDisposed() =>
+            ObjectDisposedException.ThrowIf(
+                Volatile.Read(ref _disposed) != 0,
+                nameof(TemporaryFileLease));
+
+        private Stream Track(Stream inner)
         {
-            if (Volatile.Read(ref _disposed) != 0)
-                throw new ObjectDisposedException(nameof(TemporaryFileLease));
-            var expected = Path.Combine(_root, Path.GetFileName(_directory));
-            if (!string.Equals(Path.GetFullPath(_directory), Path.GetFullPath(expected), StringComparison.OrdinalIgnoreCase))
-                throw new ApplicationServiceException(400, "文件比较临时资源不安全");
-            RejectReparsePath(_root);
-            RejectReparsePoint(_directory);
-            var marker = Path.Combine(_directory, MarkerName);
-            if (!File.Exists(marker) ||
-                (File.GetAttributes(marker) & FileAttributes.ReparsePoint) != 0 ||
-                !string.Equals(File.ReadAllText(marker), _markerValue, StringComparison.Ordinal))
-                throw new ApplicationServiceException(400, "文件比较临时资源不安全");
-            if (File.Exists(_path) && (File.GetAttributes(_path) & FileAttributes.ReparsePoint) != 0)
-                throw new ApplicationServiceException(400, "文件比较临时资源不安全");
+            LeaseTrackedStream? tracked = null;
+            tracked = new LeaseTrackedStream(
+                inner,
+                _afterStreamDisposed,
+                () =>
+                {
+                    if (tracked is not null)
+                        _openStreams.TryRemove(tracked, out _);
+                });
+            _openStreams.TryAdd(tracked, 0);
+            return tracked;
         }
 
-        private bool HasOnlySafeOwnedEntries()
+        private async Task RunHeartbeatAsync()
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(_directory))
+            while (true)
             {
-                var name = Path.GetFileName(entry);
-                if (name is not MarkerName and not "payload.tmp" ||
-                    (File.GetAttributes(entry) & FileAttributes.ReparsePoint) != 0)
-                    return false;
+                await Task.Delay(
+                    _heartbeatInterval,
+                    _timeProvider,
+                    _heartbeatCancellation.Token);
+                _directory.Heartbeat(_timeProvider.GetUtcNow());
             }
-            return true;
+        }
+    }
+
+    private sealed class LeaseTrackedStream(
+        Stream inner,
+        Action? afterDisposed,
+        Action release) : Stream
+    {
+        private readonly object _disposeGate = new();
+        private Task? _disposeTask;
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            inner.FlushAsync(cancellationToken);
+        public override int Read(byte[] buffer, int offset, int count) =>
+            inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => inner.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) =>
+            inner.Write(buffer, offset, count);
+        public override void Write(ReadOnlySpan<byte> buffer) => inner.Write(buffer);
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            inner.WriteAsync(buffer, cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                GetOrCreateDisposeTask().GetAwaiter().GetResult();
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync() =>
+            new(GetOrCreateDisposeTask());
+
+        private Task GetOrCreateDisposeTask()
+        {
+            lock (_disposeGate)
+                return _disposeTask ??= DisposeCoreAsync();
+        }
+
+        private async Task DisposeCoreAsync()
+        {
+            try
+            {
+                await inner.DisposeAsync();
+            }
+            finally
+            {
+                release();
+            }
+            afterDisposed?.Invoke();
+            GC.SuppressFinalize(this);
         }
     }
 }
