@@ -113,6 +113,64 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         }
     }
 
+    [ReparsePointFact]
+    public void Windows持久文件删除_word日期目录指向base内filled目录也必须拒绝()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-InternalJunction", Guid.NewGuid().ToString("N"));
+        var targetDirectory = Path.Combine(root, "uploads", "filled-files", "2026-07-27");
+        var linkDirectory = Path.Combine(root, "uploads", "word-files", "2026-07-27");
+        var fileName = $"{Guid.NewGuid():N}.docx";
+        Directory.CreateDirectory(targetDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(linkDirectory)!);
+        Directory.CreateSymbolicLink(linkDirectory, targetDirectory);
+        var targetFile = Path.Combine(targetDirectory, fileName);
+        File.WriteAllBytes(targetFile, [1, 2, 3]);
+
+        try
+        {
+            var action = () => new SafeUploadedFileDeleter(root).DeleteIfExists(
+                $"uploads/word-files/2026-07-27/{fileName}");
+
+            action.Should().Throw<UnsafeWordFilePathException>();
+            File.Exists(targetFile).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(linkDirectory))
+                Directory.Delete(linkDirectory);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [ReparsePointFact]
+    public void Windows持久文件删除_最终GUID链接指向base内其他文件也必须拒绝()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-InternalFileLink", Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(root, "uploads", "word-files", "2026-07-27");
+        Directory.CreateDirectory(directory);
+        var targetFile = Path.Combine(directory, $"{Guid.NewGuid():N}.docx");
+        var linkFile = Path.Combine(directory, $"{Guid.NewGuid():N}.docx");
+        File.WriteAllBytes(targetFile, [1, 2, 3]);
+        File.CreateSymbolicLink(linkFile, targetFile);
+
+        try
+        {
+            var relativePath = Path.GetRelativePath(root, linkFile).Replace('\\', '/');
+            var action = () => new SafeUploadedFileDeleter(root).DeleteIfExists(relativePath);
+
+            action.Should().Throw<UnsafeWordFilePathException>();
+            File.Exists(targetFile).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(linkFile))
+                File.Delete(linkFile);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [WindowsOnlyFact]
     public void Windows持久文件删除_路径在打开后被替换不得删除替换对象()
     {
@@ -156,11 +214,12 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
 
         try
         {
-            new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
+            var action = () => new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
 
-            File.Exists(outsideFile).Should().BeTrue("unlinkat 只能删除受信目录内的链接本身");
+            action.Should().Throw<UnsafeWordFilePathException>();
+            File.Exists(outsideFile).Should().BeTrue("替换链接指向的外部对象绝不能被删除");
             File.ReadAllBytes(outsideFile).Should().Equal(9, 8, 7);
-            File.Exists(fullPath).Should().BeFalse("替换后目录项是链接时只应删除链接");
+            File.Exists(fullPath).Should().BeTrue("未通过同对象校验的目录项应恢复到原名称");
             File.Exists(movedOriginal).Should().BeTrue("竞态下原对象已被重命名，安全优先保留等待孤儿巡检");
         }
         finally
@@ -169,6 +228,33 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
                 Directory.Delete(root, recursive: true);
             if (Directory.Exists(outsideRoot))
                 Directory.Delete(outsideRoot, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public void Linux持久文件删除_打开后替换为普通文件不得删除替换对象()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-InodeRace", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllBytes(fullPath, [1, 2, 3]);
+        var movedOriginal = $"{fullPath}.opened";
+        var hook = new ReplaceOpenedTargetHook(fullPath, movedOriginal);
+
+        try
+        {
+            var action = () => new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
+
+            action.Should().Throw<UnsafeWordFilePathException>();
+            File.Exists(fullPath).Should().BeTrue("替换后的普通文件未通过 inode 校验，必须恢复并保留");
+            File.ReadAllBytes(fullPath).Should().Equal(9, 8, 7);
+            File.Exists(movedOriginal).Should().BeTrue("原对象已被竞态方改名，不应误删");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
         }
     }
 

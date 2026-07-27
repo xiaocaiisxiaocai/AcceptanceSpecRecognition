@@ -743,6 +743,13 @@ public class AppDbContext : DbContext
     {
         foreach (var id in referenceIds)
         {
+            var trackedUnavailable = ChangeTracker.Entries<WordFile>()
+                .Any(entry => entry.Entity.Id == id &&
+                              (entry.State == EntityState.Deleted ||
+                               entry.Entity.DeletionStatus != WordFileDeletionStatus.Active));
+            if (trackedUnavailable)
+                throw new WordFileReferenceUnavailableException(id);
+
             if (id <= 0)
             {
                 var tracked = ChangeTracker.Entries<WordFile>()
@@ -769,6 +776,13 @@ public class AppDbContext : DbContext
     {
         foreach (var id in referenceIds)
         {
+            var trackedUnavailable = ChangeTracker.Entries<WordFile>()
+                .Any(entry => entry.Entity.Id == id &&
+                              (entry.State == EntityState.Deleted ||
+                               entry.Entity.DeletionStatus != WordFileDeletionStatus.Active));
+            if (trackedUnavailable)
+                throw new WordFileReferenceUnavailableException(id);
+
             if (id <= 0)
             {
                 var tracked = ChangeTracker.Entries<WordFile>()

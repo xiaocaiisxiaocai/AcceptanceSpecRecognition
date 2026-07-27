@@ -58,8 +58,10 @@ public sealed class SafeUploadedFileDeleter
 
         var rootFinalPath = NormalizeWindowsFinalPath(GetWindowsFinalPath(rootHandle));
         var targetFinalPath = NormalizeWindowsFinalPath(GetWindowsFinalPath(targetHandle));
-        var rootPrefix = rootFinalPath.TrimEnd('\\') + '\\';
-        if (!targetFinalPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        var expectedFinalPath = Path.GetFullPath(Path.Combine(
+            rootFinalPath,
+            relativePath.Replace('/', '\\')));
+        if (!string.Equals(targetFinalPath, expectedFinalPath, StringComparison.OrdinalIgnoreCase))
             throw new UnsafeWordFilePathException();
 
         if (!GetFileInformationByHandle(targetHandle, out var information))
@@ -100,17 +102,77 @@ public sealed class SafeUploadedFileDeleter
             using var target = new SafeLinuxFd(targetFd);
             _raceHook?.AfterTargetOpened(relativePath);
 
-            if (unlinkat(dateDirectory.Value, parts[3], 0) != 0)
+            var isolationName = MoveLinuxEntryToIsolation(dateDirectory.Value, parts[3]);
+            var isolationNeedsRestore = true;
+            try
             {
-                var error = Marshal.GetLastPInvokeError();
-                if (error != ErrorNoEntry)
-                    ThrowLinuxError(error);
+                var isolatedFd = openat(
+                    dateDirectory.Value,
+                    isolationName,
+                    OpenReadOnly | OpenNoFollow | OpenCloseOnExec);
+                if (isolatedFd < 0)
+                    ThrowLinuxError(Marshal.GetLastPInvokeError());
+
+                using var isolated = new SafeLinuxFd(isolatedFd);
+                if (GetLinuxFileIdentity(target.Value) != GetLinuxFileIdentity(isolated.Value))
+                    throw new UnsafeWordFilePathException();
+
+                if (unlinkat(dateDirectory.Value, isolationName, 0) != 0)
+                    ThrowLinuxError(Marshal.GetLastPInvokeError());
+                isolationNeedsRestore = false;
+            }
+            finally
+            {
+                if (isolationNeedsRestore)
+                    TryRestoreLinuxEntry(dateDirectory.Value, isolationName, parts[3]);
             }
         }
         catch (FileNotFoundException)
         {
             // 任一级目录或目标文件已不存在，幂等删除视为成功。
         }
+    }
+
+    private static string MoveLinuxEntryToIsolation(int directoryFd, string originalName)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var isolationName = $".delete-{Guid.NewGuid():N}.tmp";
+            if (renameat2(
+                    directoryFd,
+                    originalName,
+                    directoryFd,
+                    isolationName,
+                    RenameNoReplace) == 0)
+                return isolationName;
+
+            var error = Marshal.GetLastPInvokeError();
+            if (error == ErrorAlreadyExists)
+                continue;
+            if (error == ErrorNoEntry)
+                throw new UnsafeWordFilePathException();
+            ThrowLinuxError(error);
+        }
+
+        throw new IOException("无法创建持久文件删除隔离项");
+    }
+
+    private static void TryRestoreLinuxEntry(int directoryFd, string isolationName, string originalName)
+    {
+        // 恢复失败时保留隔离项，宁可留下可巡检孤儿，也不删除未经同对象校验的文件。
+        _ = renameat2(
+            directoryFd,
+            isolationName,
+            directoryFd,
+            originalName,
+            RenameNoReplace);
+    }
+
+    private static LinuxFileIdentity GetLinuxFileIdentity(int fd)
+    {
+        if (fstat(fd, out var stat) != 0)
+            ThrowLinuxError(Marshal.GetLastPInvokeError());
+        return new LinuxFileIdentity(stat.Device, stat.Inode);
     }
 
     private static SafeLinuxFd OpenLinuxDirectory(int parentFd, string path)
@@ -215,6 +277,18 @@ public sealed class SafeUploadedFileDeleter
         public uint FileIndexLow;
     }
 
+    [StructLayout(LayoutKind.Explicit, Size = 256)]
+    private struct LinuxStat
+    {
+        [FieldOffset(0)]
+        public ulong Device;
+
+        [FieldOffset(8)]
+        public ulong Inode;
+    }
+
+    private readonly record struct LinuxFileIdentity(ulong Device, ulong Inode);
+
     private enum FileInfoByHandleClass
     {
         FileDispositionInfo = 4
@@ -240,7 +314,9 @@ public sealed class SafeUploadedFileDeleter
     private const int ErrorOperationNotPermitted = 1;
     private const int ErrorNoEntry = 2;
     private const int ErrorPermissionDenied = 13;
+    private const int ErrorAlreadyExists = 17;
     private const int ErrorTooManySymbolicLinks = 40;
+    private const uint RenameNoReplace = 1;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(
@@ -281,6 +357,17 @@ public sealed class SafeUploadedFileDeleter
 
     [DllImport("libc", SetLastError = true)]
     private static extern int unlinkat(int directoryFd, string pathname, int flags);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int renameat2(
+        int oldDirectoryFd,
+        string oldPath,
+        int newDirectoryFd,
+        string newPath,
+        uint flags);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int fstat(int fd, out LinuxStat stat);
 
     [DllImport("libc", SetLastError = true)]
     private static extern int close(int fd);

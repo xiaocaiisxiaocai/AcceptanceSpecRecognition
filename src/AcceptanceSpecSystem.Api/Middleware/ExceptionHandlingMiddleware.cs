@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Core.Diagnostics;
+using AcceptanceSpecSystem.Data.Entities;
 
 namespace AcceptanceSpecSystem.Api.Middleware;
 
@@ -106,6 +107,7 @@ public class ExceptionHandlingMiddleware
         var (code, message) = exception switch
         {
             ApplicationServiceException appEx => (appEx.Code, appEx.Message),
+            WordFileReferenceUnavailableException => (409, "源文件状态已变化，请刷新后重试"),
             ArgumentException argEx => (400, SensitiveLogFormatter.SanitizeMessage(argEx.Message, "请求参数错误")),
             KeyNotFoundException => (404, "请求的资源不存在"),
             UnauthorizedAccessException => (401, "未授权访问"),

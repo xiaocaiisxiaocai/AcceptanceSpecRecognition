@@ -9,6 +9,7 @@ public sealed class WordFileReferenceGuardTests
 {
     [Theory]
     [InlineData("acceptance")]
+    [InlineData("import")]
     [InlineData("matching-add")]
     [InlineData("matching-update")]
     public async Task 旧请求已读取活动文件_删除标记提交后恢复写引用必须失败(string scenario)
@@ -68,6 +69,19 @@ public sealed class WordFileReferenceGuardTests
                 WordFileId = targetId
             });
         }
+        else if (scenario == "import")
+        {
+            oldRequest.DocumentImportExecutions.Add(new DocumentImportExecution
+            {
+                RequestKey = Guid.NewGuid().ToString("N"),
+                RequestFingerprint = Guid.NewGuid().ToString("N"),
+                SourceFileId = targetId,
+                CreatedByUserId = 1,
+                CompanyId = 1,
+                ResultJson = "{}",
+                Message = string.Empty
+            });
+        }
         else if (scenario == "matching-add")
         {
             oldRequest.MatchingFillTasks.Add(new MatchingFillTask
@@ -84,6 +98,62 @@ public sealed class WordFileReferenceGuardTests
         }
 
         await oldRequest.Invoking(context => context.SaveChangesAsync())
+            .Should().ThrowAsync<WordFileReferenceUnavailableException>();
+    }
+
+    [Fact]
+    public void 同步保存_删除标记已提交后新增引用必须失败()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"word-file-reference-sync-{Guid.NewGuid():N}")
+            .Options;
+        int fileId;
+        using (var seed = new AppDbContext(options))
+        {
+            var file = CreateFile("sync");
+            seed.WordFiles.Add(file);
+            seed.SaveChanges();
+            fileId = file.Id;
+        }
+        using (var delete = new AppDbContext(options))
+        {
+            var file = delete.WordFiles.Single(item => item.Id == fileId);
+            file.DeletionStatus = WordFileDeletionStatus.PendingDeletion;
+            delete.SaveChanges();
+        }
+        using var stale = new AppDbContext(options);
+        stale.MatchingFillTasks.Add(new MatchingFillTask
+        {
+            TaskId = Guid.NewGuid().ToString("N"),
+            SourceFileId = fileId,
+            PayloadJson = "{}"
+        });
+
+        stale.Invoking(context => context.SaveChanges())
+            .Should().Throw<WordFileReferenceUnavailableException>();
+    }
+
+    [Fact]
+    public async Task 同一保存中父文件改为待删除且新增引用必须拒绝()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"word-file-reference-same-save-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new AppDbContext(options);
+        var file = CreateFile("same-save");
+        context.WordFiles.Add(file);
+        await context.SaveChangesAsync();
+
+        file.DeletionStatus = WordFileDeletionStatus.PendingDeletion;
+        file.DeletionRequestedAt = DateTime.UtcNow;
+        context.MatchingFillTasks.Add(new MatchingFillTask
+        {
+            TaskId = Guid.NewGuid().ToString("N"),
+            SourceFileId = file.Id,
+            PayloadJson = "{}"
+        });
+
+        await context.Invoking(db => db.SaveChangesAsync())
             .Should().ThrowAsync<WordFileReferenceUnavailableException>();
     }
 

@@ -2,6 +2,7 @@
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Application;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -156,6 +157,27 @@ public class ExceptionHandlingMiddlewareTests
         document.RootElement.GetProperty("message").GetString()
             .Should().Be("数据已被其他请求修改");
         document.RootElement.GetProperty("traceId").GetString().Should().Be(traceId);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_文件引用竞态应返回稳定409且不泄漏内部文件编号()
+    {
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new WordFileReferenceUnavailableException(987654),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext();
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        responseBody.Position = 0;
+        var document = await JsonDocument.ParseAsync(responseBody);
+        document.RootElement.GetProperty("code").GetInt32().Should().Be(409);
+        document.RootElement.GetProperty("message").GetString()
+            .Should().Be("源文件状态已变化，请刷新后重试");
+        document.RootElement.GetRawText().Should().NotContain("987654");
     }
 
     private sealed class CollectingLogger<T> : ILogger<T>
