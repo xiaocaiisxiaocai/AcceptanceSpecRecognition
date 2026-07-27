@@ -44,7 +44,10 @@ import {
   getRequestErrorMessage,
   isGloballyHandledAuthError
 } from "@/utils/error-message";
-import { loadAllPagedItems } from "@/utils/paged-options";
+import {
+  createPagedOptionsRequestGate,
+  loadAllPagedItems
+} from "@/utils/paged-options";
 import { ensurePermission } from "@/utils/permission-guard";
 import { useSmartFillPreviewProgress } from "./composables/useSmartFillPreviewProgress";
 import { useSmartFillBackfillState } from "./composables/useSmartFillBackfillState";
@@ -190,7 +193,7 @@ const customers = ref<Customer[]>([]);
 const processes = ref<Process[]>([]);
 const machineModels = ref<MachineModel[]>([]);
 const loadingScopeOptions = ref(false);
-let scopeOptionsController: AbortController | undefined;
+const scopeOptionsGate = createPagedOptionsRequestGate();
 
 const {
   recognizing: smartRecognizing,
@@ -251,40 +254,37 @@ const selectedScopeSummary = computed(() => {
 });
 
 const loadScopeOptions = async () => {
-  scopeOptionsController?.abort();
-  const controller = new AbortController();
-  scopeOptionsController = controller;
+  const request = scopeOptionsGate.begin();
   loadingScopeOptions.value = true;
   try {
     const [customerItems, processItems, machineModelItems] = await Promise.all([
       loadAllPagedItems(
         (page, pageSize, signal) =>
           getCustomerList({ page, pageSize }, { signal }),
-        { getKey: item => item.id, signal: controller.signal }
+        { getKey: item => item.id, signal: request.signal }
       ),
       loadAllPagedItems(
         (page, pageSize, signal) =>
           getProcessList({ page, pageSize }, { signal }),
-        { getKey: item => item.id, signal: controller.signal }
+        { getKey: item => item.id, signal: request.signal }
       ),
       loadAllPagedItems(
         (page, pageSize, signal) =>
           getMachineModelList({ page, pageSize }, { signal }),
-        { getKey: item => item.id, signal: controller.signal }
+        { getKey: item => item.id, signal: request.signal }
       )
     ]);
 
-    if (scopeOptionsController !== controller) return;
+    if (!request.isCurrent()) return;
     customers.value = customerItems;
     processes.value = processItems;
     machineModels.value = machineModelItems;
   } catch (error) {
-    if (!controller.signal.aborted && !isGloballyHandledAuthError(error)) {
+    if (!request.signal.aborted && !isGloballyHandledAuthError(error)) {
       ElMessage.error(getRequestErrorMessage(error, "加载匹配范围失败"));
     }
   } finally {
-    if (scopeOptionsController === controller) {
-      scopeOptionsController = undefined;
+    if (request.isCurrent()) {
       loadingScopeOptions.value = false;
     }
   }
@@ -506,8 +506,7 @@ const resumeTaskStatusPolling = (retainedTaskId: string) => {
 const activation = useSmartFillActivation({
   getCurrentTaskId: () => taskId.value,
   abortScope: () => {
-    scopeOptionsController?.abort();
-    scopeOptionsController = undefined;
+    scopeOptionsGate.cancel();
     loadingScopeOptions.value = false;
   },
   invalidatePreview: invalidatePendingPreview,

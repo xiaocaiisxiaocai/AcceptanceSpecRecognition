@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ApiResponse, PagedData } from "@/api/customer";
-import { loadAllPagedItems } from "./paged-options";
+import {
+  createPagedOptionsRequestGate,
+  loadAllPagedItems
+} from "./paged-options";
 
 type Item = {
   id: number;
@@ -162,5 +165,29 @@ describe("loadAllPagedItems", () => {
       })
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(fetchPage).not.toHaveBeenCalled();
+  });
+});
+
+describe("分页选项请求闸门", () => {
+  it("新一代请求取消旧请求并拒绝旧结果提交", () => {
+    const gate = createPagedOptionsRequestGate();
+
+    const oldRequest = gate.begin();
+    const currentRequest = gate.begin();
+
+    expect(oldRequest.signal.aborted).toBe(true);
+    expect(oldRequest.isCurrent()).toBe(false);
+    expect(currentRequest.signal.aborted).toBe(false);
+    expect(currentRequest.isCurrent()).toBe(true);
+  });
+
+  it("作用域销毁后当前请求也不能提交", () => {
+    const gate = createPagedOptionsRequestGate();
+    const request = gate.begin();
+
+    gate.cancel();
+
+    expect(request.signal.aborted).toBe(true);
+    expect(request.isCurrent()).toBe(false);
   });
 });

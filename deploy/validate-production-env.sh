@@ -62,6 +62,15 @@ do
     echo "ERROR: $key 长度不满足最低要求" >&2
     validation_failed=1
   fi
+
+  case "$key" in
+    AUTH_SEED_ADMIN_PASSWORD|AUTH_SEED_COMMON_PASSWORD)
+      if [ "${#value}" -gt 200 ]; then
+        echo "ERROR: $key 长度不能超过 200 位" >&2
+        validation_failed=1
+      fi
+      ;;
+  esac
 done
 
 unset value normalized_value

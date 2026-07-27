@@ -342,6 +342,18 @@ export type SmartStructureExcelRangeValidation = {
   >;
 };
 
+export type SmartStructureExcelRangeMapping = {
+  fieldErrors: SmartStructureExcelRangeValidation["fieldErrors"];
+  normalizedRanges?: Partial<Record<SmartStructureExcelRangeField, string>>;
+  projectColumnIndex?: number;
+  specificationColumnIndex?: number;
+  acceptanceColumnIndex?: number;
+  remarkColumnIndex?: number;
+  dataStartRow?: number;
+  dataEndRow?: number;
+  isSpecificationOnly?: boolean;
+};
+
 export const validateSmartStructureExcelRanges = (
   ranges: Record<SmartStructureExcelRangeField, string>,
   bounds: {
@@ -438,6 +450,51 @@ export const validateSmartStructureExcelRanges = (
   }
 
   return { fieldErrors, parsedRanges };
+};
+
+export const resolveSmartStructureExcelRangeMapping = (
+  ranges: Record<SmartStructureExcelRangeField, string>,
+  bounds: {
+    baseColumn: number;
+    columnCount: number;
+    baseRow: number;
+    maximumRow: number;
+  }
+): SmartStructureExcelRangeMapping => {
+  const validation = validateSmartStructureExcelRanges(ranges, bounds);
+  if (Object.keys(validation.fieldErrors).length > 0) {
+    return { fieldErrors: validation.fieldErrors };
+  }
+
+  const primaryRange =
+    validation.parsedRanges.projectRange ??
+    validation.parsedRanges.specificationRange;
+  if (!primaryRange) {
+    return { fieldErrors: validation.fieldErrors };
+  }
+
+  const normalizedRanges = Object.fromEntries(
+    Object.entries(validation.parsedRanges).map(([field, range]) => [
+      field,
+      range.normalized
+    ])
+  ) as Partial<Record<SmartStructureExcelRangeField, string>>;
+  const toColumnIndex = (field: SmartStructureExcelRangeField) => {
+    const range = validation.parsedRanges[field];
+    return range ? range.columnNumber - bounds.baseColumn : undefined;
+  };
+
+  return {
+    fieldErrors: validation.fieldErrors,
+    normalizedRanges,
+    projectColumnIndex: toColumnIndex("projectRange"),
+    specificationColumnIndex: toColumnIndex("specificationRange"),
+    acceptanceColumnIndex: toColumnIndex("acceptanceRange"),
+    remarkColumnIndex: toColumnIndex("remarkRange"),
+    dataStartRow: primaryRange.startRow,
+    dataEndRow: primaryRange.endRow,
+    isSpecificationOnly: !validation.parsedRanges.projectRange
+  };
 };
 
 export const formatDisplayRowRange = ({

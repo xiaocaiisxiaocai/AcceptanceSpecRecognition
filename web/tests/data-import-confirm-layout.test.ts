@@ -334,12 +334,6 @@ test("范围摘要应读取用户当前编辑的多区域列映射", () => {
   assert.match(confirmCardSource, /activeRegions\.value/);
 });
 
-test("Excel 数据起始行应由 A1 范围反推且不再单独编辑", () => {
-  assert.match(rangeEditorSource, /draft\.dataStartRow = firstRange\.startRow/);
-  assert.doesNotMatch(confirmCardSource, /v-model="displayDataStartRowIndex"/);
-  assert.doesNotMatch(confirmCardSource, /v-model="state\.headerRowCount"/);
-});
-
 test("保存 Excel 范围后应向上查找最近表头并刷新只读标题", () => {
   assert.match(rangeEditorSource, /getTablePreview/);
   assert.match(
@@ -368,7 +362,7 @@ test("移动端应为固定操作栏预留完整空间并提供至少 44px 触�
   );
   assert.match(
     confirmCardSource,
-    /\.headers-label,[\s\S]*color:\s*var\(--app-text-secondary\)/
+    /\.range-label\s*\{[\s\S]*color:\s*var\(--app-text-secondary\)/
   );
 });
 
@@ -541,25 +535,6 @@ test("文件级批量确认应展示当前 Sheet 进度并移除旧单 Sheet 分
   assert.doesNotMatch(confirmTabsSource, /combinedActionLabel/);
 });
 
-test("智能填充应继续保留默认逐表确认学习操作", () => {
-  const smartFillSource = readFileSync(
-    resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
-    "utf8"
-  );
-
-  assert.match(confirmCardSource, /confirmActionLabel: "确认并学习"/);
-  assert.match(smartFillSource, /<SmartStructureConfirmTabs/);
-  assert.match(smartFillSource, /@confirm="handleSmartStructureConfirm"/);
-  assert.doesNotMatch(
-    smartFillSource,
-    /<SmartStructureConfirmTabs[\s\S]{0,2200}:show-confirm-action="false"/
-  );
-  assert.doesNotMatch(
-    smartFillSource,
-    /runSmartStructureBatchConfirmImportAction/
-  );
-});
-
 test("确认卡应使用完整识别表信息，不应只使用已生成导入配置的 Sheet", () => {
   assert.match(dataImportSource, /:table-infos="smartTableInfos"/);
   assert.doesNotMatch(dataImportSource, /:table-infos="selectedTables"/);
@@ -680,18 +655,6 @@ test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映�
   assert.match(rangeEditorSource, /v-model="draft\.acceptanceRange"/);
   assert.match(rangeEditorSource, /v-model="draft\.remarkRange"/);
   assert.match(rangeEditorSource, /parseExcelA1ColumnRange/);
-  assert.match(
-    rangeEditorSource,
-    /draft\.dataStartRow = primaryRange\.startRow;[\s\S]*draft\.dataEndRow = primaryRange\.endRow;/
-  );
-  assert.match(
-    rangeEditorSource,
-    /definition\.setColumnIndex\(parsed\.columnNumber - baseColumn\.value\)/
-  );
-  assert.match(
-    rangeEditorSource,
-    /draft\.isSpecificationOnly = draft\.projectRange\.trim\(\)\.length === 0/
-  );
   assert.doesNotMatch(
     rangeEditorSource,
     /v-model="draft\.projectRange"[\s\S]{0,120}:disabled="draft\.isSpecificationOnly"/

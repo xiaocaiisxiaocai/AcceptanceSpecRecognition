@@ -1,0 +1,10 @@
+<Project>
+  <Target
+    Name="FailLockedRestoreWhenLockFileIsMissing"
+    BeforeTargets="_GenerateRestoreGraphProjectEntry;_GenerateProjectRestoreGraph"
+    Condition="'$(RestoreLockedMode)' == 'true' and '$(RestorePackagesWithLockFile)' == 'true'">
+    <Error
+      Condition="!Exists('$(NuGetLockFilePath)')"
+      Text="Locked restore requires the committed lock file '$(NuGetLockFilePath)'." />
+  </Target>
+</Project>

@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -35,15 +35,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore AcceptanceSpecSystem.sln
+        run: dotnet restore AcceptanceSpecSystem.sln --locked-mode
 
       - name: Check repository hygiene
         run: |
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload backend coverage baseline
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-coverage
           path: artifacts/backend-coverage
@@ -101,15 +101,15 @@ jobs:
           --health-retries=30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
       - name: Restore
-        run: dotnet restore AcceptanceSpecSystem.sln
+        run: dotnet restore AcceptanceSpecSystem.sln --locked-mode
 
       - name: Run real MySQL contracts
         env:
@@ -125,15 +125,15 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload frontend coverage baseline
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: frontend-coverage
           path: web/coverage
@@ -197,20 +197,20 @@ jobs:
           --health-retries=30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: 8.0.x
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.32.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -231,7 +231,7 @@ jobs:
 
       - name: Restore and build API
         run: |
-          dotnet restore AcceptanceSpecSystem.sln
+          dotnet restore AcceptanceSpecSystem.sln --locked-mode
           dotnet build src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj -c Release --no-restore --nologo
 
       - name: Start API against real MySQL
@@ -299,7 +299,7 @@ jobs:
 
       - name: Upload browser diagnostics
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-e2e-diagnostics
           path: |
@@ -314,7 +314,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Validate production deployment guard
         shell: bash
@@ -328,8 +328,8 @@ jobs:
           MYSQL_ROOT_PASSWORD=replace_with_root_password
           MYSQL_PASSWORD=replace_with_app_password
           JWT_SIGNING_KEY=replace_with_at_least_32_chars_random_key
-          AUTH_SEED_ADMIN_PASSWORD=replace_with_at_least_12_chars_admin_password
-          AUTH_SEED_COMMON_PASSWORD=replace_with_at_least_12_chars_common_password
+          AUTH_SEED_ADMIN_PASSWORD=replace_with_4_to_200_chars_admin_password
+          AUTH_SEED_COMMON_PASSWORD=replace_with_4_to_200_chars_common_password
           EOF
           if sh deploy/validate-production-env.sh /tmp/production-placeholder.env; then
             echo "known placeholders must never pass production secret validation"

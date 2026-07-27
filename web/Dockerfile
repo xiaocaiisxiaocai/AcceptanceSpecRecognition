@@ -2,18 +2,22 @@
 
 FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS build
 WORKDIR /app/web
+ARG NPM_REGISTRY=https://registry.npmjs.org/
 
 COPY web/package.json web/pnpm-lock.yaml ./
+COPY deploy/validate-npm-registry.sh /tmp/validate-npm-registry.sh
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-  corepack enable \
+  sh /tmp/validate-npm-registry.sh "$NPM_REGISTRY" \
+  && corepack enable \
   && corepack prepare pnpm@10.32.1 --activate \
-  && pnpm config set registry https://registry.npmmirror.com \
   && pnpm config set fetch-retries 5 \
   && pnpm config set fetch-retry-factor 2 \
   && pnpm config set fetch-retry-mintimeout 10000 \
   && pnpm config set fetch-retry-maxtimeout 120000 \
   && pnpm config set network-timeout 300000 \
-  && pnpm install --frozen-lockfile --store-dir /root/.local/share/pnpm/store
+  && pnpm install --frozen-lockfile \
+    --registry="$NPM_REGISTRY" \
+    --store-dir /root/.local/share/pnpm/store
 
 COPY web/ ./
 COPY shared/ /app/shared/

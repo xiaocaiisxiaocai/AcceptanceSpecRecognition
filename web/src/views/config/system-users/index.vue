@@ -97,7 +97,12 @@ const createFormRules: FormRules<typeof createForm> = {
   ],
   password: [
     { required: true, message: "请输入密码", trigger: ["blur", "change"] },
-    { min: 4, message: "密码长度至少4位", trigger: ["blur", "change"] }
+    {
+      min: 4,
+      max: 200,
+      message: "密码长度必须在4到200位之间",
+      trigger: ["blur", "change"]
+    }
   ],
   nickname: [requiredTrimmedRule("请输入昵称")],
   roleCode: [requiredSelectionRule("请选择一个角色")],
@@ -113,7 +118,12 @@ const editFormRules: FormRules<typeof editForm> = {
 const resetPasswordFormRules: FormRules<typeof resetPasswordForm> = {
   newPassword: [
     { required: true, message: "请输入新密码", trigger: ["blur", "change"] },
-    { min: 4, message: "新密码长度至少4位", trigger: ["blur", "change"] }
+    {
+      min: 4,
+      max: 200,
+      message: "新密码长度必须在4到200位之间",
+      trigger: ["blur", "change"]
+    }
   ],
   confirmPassword: [
     {
@@ -602,7 +612,7 @@ onMounted(initPage);
             v-model="createForm.password"
             type="password"
             show-password
-            placeholder="至少4位"
+            placeholder="4到200位"
           />
         </el-form-item>
         <el-form-item label="昵称" prop="nickname">
@@ -742,7 +752,7 @@ onMounted(initPage);
             v-model="resetPasswordForm.newPassword"
             type="password"
             show-password
-            placeholder="至少4位"
+            placeholder="4到200位"
           />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirmPassword">

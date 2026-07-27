@@ -10,6 +10,7 @@ import type {
 import {
   findNearestSmartStructureHeaderRowIndex,
   parseExcelA1ColumnRange,
+  resolveSmartStructureExcelRangeMapping,
   toExcelColumnLabel,
   validateSmartStructureExcelRanges,
   type SmartStructureExcelRangeField
@@ -505,42 +506,13 @@ const saveDisabled = computed(
 
 const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
   draft.rangeError = "";
-  draft.isSpecificationOnly = draft.projectRange.trim().length === 0;
-  const definitions: Array<{
-    field: ExcelRangeField;
-    label: string;
-    setColumnIndex: (value: number | undefined) => void;
-  }> = [
-    {
-      field: "projectRange",
-      label: "项目范围",
-      setColumnIndex: value => {
-        draft.projectColumnIndex = value;
-      }
-    },
-    {
-      field: "specificationRange",
-      label: "规格范围",
-      setColumnIndex: value => {
-        draft.specificationColumnIndex = value;
-      }
-    },
-    {
-      field: "acceptanceRange",
-      label: "验收范围",
-      setColumnIndex: value => {
-        draft.acceptanceColumnIndex = value;
-      }
-    },
-    {
-      field: "remarkRange",
-      label: "备注范围",
-      setColumnIndex: value => {
-        draft.remarkColumnIndex = value;
-      }
-    }
+  const rangeFields: ExcelRangeField[] = [
+    "projectRange",
+    "specificationRange",
+    "acceptanceRange",
+    "remarkRange"
   ];
-  const validation = validateSmartStructureExcelRanges(
+  const validation = resolveSmartStructureExcelRangeMapping(
     {
       projectRange: draft.projectRange,
       specificationRange: draft.specificationRange,
@@ -554,30 +526,22 @@ const applyExcelRanges = (draft: RegionDraft, regionIndex: number) => {
       maximumRow: maximumRow.value
     }
   );
-  const invalidDefinition = definitions.find(
-    definition => validation.fieldErrors[definition.field]
-  );
-  if (invalidDefinition) {
-    draft.rangeError = validation.fieldErrors[invalidDefinition.field] ?? "";
+  const invalidField = rangeFields.find(field => validation.fieldErrors[field]);
+  if (invalidField) {
+    draft.rangeError = validation.fieldErrors[invalidField] ?? "";
     return `区域 ${regionIndex + 1}的${draft.rangeError}`;
   }
 
-  for (const definition of definitions) {
-    const parsed = validation.parsedRanges[definition.field];
-    if (!parsed) {
-      definition.setColumnIndex(undefined);
-      continue;
-    }
-    draft[definition.field] = parsed.normalized;
-    definition.setColumnIndex(parsed.columnNumber - baseColumn.value);
+  for (const field of rangeFields) {
+    draft[field] = validation.normalizedRanges?.[field] ?? "";
   }
-
-  const primaryRange =
-    validation.parsedRanges.projectRange ??
-    validation.parsedRanges.specificationRange;
-  if (!primaryRange) return `区域 ${regionIndex + 1}的数据范围无效`;
-  draft.dataStartRow = primaryRange.startRow;
-  draft.dataEndRow = primaryRange.endRow;
+  draft.projectColumnIndex = validation.projectColumnIndex;
+  draft.specificationColumnIndex = validation.specificationColumnIndex;
+  draft.acceptanceColumnIndex = validation.acceptanceColumnIndex;
+  draft.remarkColumnIndex = validation.remarkColumnIndex;
+  draft.dataStartRow = validation.dataStartRow!;
+  draft.dataEndRow = validation.dataEndRow!;
+  draft.isSpecificationOnly = validation.isSpecificationOnly!;
   return "";
 };
 

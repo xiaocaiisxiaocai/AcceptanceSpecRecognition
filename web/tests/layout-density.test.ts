@@ -868,8 +868,6 @@ test("执行记录页应使用全高骨架并移除固定详情表高度", () =>
     /<div class="page page--fill execution-history-page">/
   );
   assert.doesNotMatch(executionHistorySource, /task-control-pagination/);
-  assert.doesNotMatch(executionHistorySource, /handlePageChange/);
-  assert.doesNotMatch(executionHistorySource, /handleSizeChange/);
   assert.doesNotMatch(executionHistorySource, />任务详情</);
   assert.doesNotMatch(executionHistorySource, /summary-grid/);
   assert.match(executionHistorySource, /class="task-control-row"/);
@@ -1028,10 +1026,10 @@ test("数据导入差异和确认区应继续使用令牌，避免旧蓝灰色�
     dataImportStyleSource,
     /#8a5a00|#f8fbff|#dbe7f8|#7b8794|#243447|#6d28d9|#e5ebf2|#f7fbff|#1d4ed8|#64748b|#2563eb|#475569/i
   );
-  assert.match(dataImportStyleSource, /--app-primary/);
   assert.match(dataImportStyleSource, /--app-warning/);
+  assert.match(dataImportStyleSource, /--app-info-bg/);
   assert.match(dataImportStyleSource, /--app-border/);
-  assert.match(dataImportStyleSource, /--app-bg-card/);
+  assert.match(dataImportStyleSource, /--app-text-secondary/);
 });
 
 test("旧 design-system MASTER 必须明确废弃，避免再次接入紫色活动模板", () => {

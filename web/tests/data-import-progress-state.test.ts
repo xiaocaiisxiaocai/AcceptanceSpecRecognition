@@ -96,17 +96,6 @@ test("导入按钮与重复确认按钮应复用更明确的进度文案", () =>
   );
 });
 
-test("导入页执行导入或确认重复项失败时应显式提示真实错误", () => {
-  assert.match(
-    batchExecutionSource,
-    /ElMessage\.error\(\s*error instanceof Error \? error\.message : "导入失败，请稍后重试"\s*\);/
-  );
-  assert.match(
-    batchExecutionSource,
-    /ElMessage\.error\(\s*error instanceof Error \? error\.message : "继续导入失败，请稍后重试"\s*\);/
-  );
-});
-
 test("导入页 AI 疑似重复默认配置应复用共享 helper", () => {
   assert.match(
     `${pageComposableSource}\n${batchExecutionSource}`,

@@ -7,6 +7,35 @@ type LoadAllPagedItemsOptions<T, TKey> = {
   maxPages?: number;
 };
 
+export type PagedOptionsRequestTicket = {
+  signal: AbortSignal;
+  isCurrent: () => boolean;
+};
+
+export const createPagedOptionsRequestGate = () => {
+  let controller: AbortController | undefined;
+  let version = 0;
+
+  return {
+    begin(): PagedOptionsRequestTicket {
+      controller?.abort();
+      controller = new AbortController();
+      const requestVersion = ++version;
+      const requestController = controller;
+      return {
+        signal: requestController.signal,
+        isCurrent: () =>
+          requestVersion === version && !requestController.signal.aborted
+      };
+    },
+    cancel() {
+      version += 1;
+      controller?.abort();
+      controller = undefined;
+    }
+  };
+};
+
 export async function loadAllPagedItems<T, TKey>(
   fetchPage: (
     page: number,

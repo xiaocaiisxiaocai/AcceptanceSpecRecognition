@@ -52,13 +52,19 @@ public class SystemUserPasswordValidationTests
         errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateProcessRequest.Name)));
     }
 
-    [Fact]
-    public void CreateSystemUserRequest_WhenPasswordHasThreeCharacters_ShouldFailValidation()
+    [Theory]
+    [InlineData(3, true)]
+    [InlineData(4, false)]
+    [InlineData(200, false)]
+    [InlineData(201, true)]
+    public void CreateSystemUserRequest_ShouldEnforcePasswordLengthBoundary(
+        int passwordLength,
+        bool shouldHaveValidationError)
     {
         var request = new CreateSystemUserRequest
         {
             Username = "admin",
-            Password = "123",
+            Password = new string('p', passwordLength),
             Nickname = "管理员",
             RoleCode = "admin",
             OrgUnitId = 1
@@ -66,20 +72,28 @@ public class SystemUserPasswordValidationTests
 
         var errors = Validate(request);
 
-        errors.Should().Contain(item => item.MemberNames.Contains(nameof(CreateSystemUserRequest.Password)));
+        errors.Any(item => item.MemberNames.Contains(nameof(CreateSystemUserRequest.Password)))
+            .Should().Be(shouldHaveValidationError);
     }
 
-    [Fact]
-    public void ResetSystemUserPasswordRequest_WhenPasswordHasFourCharacters_ShouldPassValidation()
+    [Theory]
+    [InlineData(3, true)]
+    [InlineData(4, false)]
+    [InlineData(200, false)]
+    [InlineData(201, true)]
+    public void ResetSystemUserPasswordRequest_ShouldEnforcePasswordLengthBoundary(
+        int passwordLength,
+        bool shouldHaveValidationError)
     {
         var request = new ResetSystemUserPasswordRequest
         {
-            NewPassword = "1234"
+            NewPassword = new string('p', passwordLength)
         };
 
         var errors = Validate(request);
 
-        errors.Should().NotContain(item => item.MemberNames.Contains(nameof(ResetSystemUserPasswordRequest.NewPassword)));
+        errors.Any(item => item.MemberNames.Contains(nameof(ResetSystemUserPasswordRequest.NewPassword)))
+            .Should().Be(shouldHaveValidationError);
     }
 
     private static List<ValidationResult> Validate(object instance)

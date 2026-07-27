@@ -10,7 +10,10 @@ import {
 import ExecutionHistoryBatchReplyDetail from "./components/ExecutionHistoryBatchReplyDetail.vue";
 import ExecutionHistorySmartFillPlayback from "./components/ExecutionHistorySmartFillPlayback.vue";
 import { formatExecutionHistoryDateTime } from "./executionHistory.formatters";
-import { createExecutionHistoryRequestGate } from "./useExecutionHistoryRequests";
+import {
+  buildExecutionHistoryListRequest,
+  createExecutionHistoryRequestGate
+} from "./useExecutionHistoryRequests";
 
 defineOptions({
   name: "ExecutionHistory"
@@ -83,20 +86,19 @@ const loadDetailById = async (id: number) => {
 };
 
 const loadList = async () => {
-  const request = listGate.begin(
-    `list:${pagination.page}:${pagination.pageSize}:${queryParams.keyword}:${queryParams.taskType}`
-  );
+  const descriptor = buildExecutionHistoryListRequest({
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    keyword: queryParams.keyword,
+    taskType: queryParams.taskType
+  });
+  const request = listGate.begin(descriptor.key);
   detailGate.cancel();
   detailLoading.value = false;
   loading.value = true;
   try {
     const res = await getExecutionHistoryList(
-      {
-        page: pagination.page,
-        pageSize: pagination.pageSize,
-        keyword: queryParams.keyword || undefined,
-        taskType: queryParams.taskType || undefined
-      },
+      descriptor.params,
       request.signal
     );
     if (!request.isCurrent()) return;

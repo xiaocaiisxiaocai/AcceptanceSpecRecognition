@@ -9,10 +9,14 @@ COPY src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj src/Acceptance
 COPY src/AcceptanceSpecSystem.Application/AcceptanceSpecSystem.Application.csproj src/AcceptanceSpecSystem.Application/
 COPY src/AcceptanceSpecSystem.Core/AcceptanceSpecSystem.Core.csproj src/AcceptanceSpecSystem.Core/
 COPY src/AcceptanceSpecSystem.Data/AcceptanceSpecSystem.Data.csproj src/AcceptanceSpecSystem.Data/
+COPY src/AcceptanceSpecSystem.Api/packages.lock.json src/AcceptanceSpecSystem.Api/
+COPY src/AcceptanceSpecSystem.Application/packages.lock.json src/AcceptanceSpecSystem.Application/
+COPY src/AcceptanceSpecSystem.Core/packages.lock.json src/AcceptanceSpecSystem.Core/
+COPY src/AcceptanceSpecSystem.Data/packages.lock.json src/AcceptanceSpecSystem.Data/
 COPY shared/ shared/
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
-    dotnet restore src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj
+    dotnet restore src/AcceptanceSpecSystem.Api/AcceptanceSpecSystem.Api.csproj --locked-mode
 
 COPY src/ src/
 RUN --mount=type=cache,target=/root/.nuget/packages \

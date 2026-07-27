@@ -14,9 +14,21 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup Condition="
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Api' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Application' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Core' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Data' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Api.Tests' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Core.Tests' Or
+    '$(MSBuildProjectName)' == 'AcceptanceSpecSystem.Data.Tests'">
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <NuGetLockFilePath>$(MSBuildProjectDirectory)\packages.lock.json</NuGetLockFilePath>
+  </PropertyGroup>
+
   <ItemGroup>
     <!-- 代码分析器 -->
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="9.0.*">
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="9.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

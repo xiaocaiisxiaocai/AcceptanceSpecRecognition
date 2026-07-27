@@ -36,7 +36,10 @@ test("smart-fill 第四步在没有预览结果时应显示明确空状态，避
     "web/src/views/smart-fill/components/SmartFillPreviewStep.vue"
   );
 
-  assert.match(source, /v-else-if="!loading && batchPreviewResults\.length === 0"/);
+  assert.match(
+    source,
+    /<template v-else>[\s\S]*?<el-empty\s+v-else-if="batchPreviewResults\.length === 0"/
+  );
   assert.match(source, /当前没有预览结果/);
   assert.match(source, /页面状态可能已失效，请返回上一步重新匹配/);
 });

@@ -207,7 +207,7 @@ sed -i 's#^WEB_IMAGE=.*#WEB_IMAGE=$webImage#' .env
 sudo docker compose --env-file .env -f docker-compose.yml up -d
 sudo docker compose --env-file .env -f docker-compose.yml ps
 
-校验脚本只输出不合格的变量名，不会回显任何密钥值；两个初始化密码至少 12 位，JWT 密钥至少 32 位。
+校验脚本只输出不合格的变量名，不会回显任何密钥值；两个初始化密码至少 4 位，JWT 密钥至少 32 位。
 数据库备份保存在 api-backups 卷中。请定期复制到异机或对象存储，生产环境不要执行 docker compose down -v。
 
 验证命令：

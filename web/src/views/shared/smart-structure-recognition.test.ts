@@ -17,6 +17,7 @@ import {
   getSmartStructureImportSelectionDisabledReason,
   needsManualStructureFallback,
   parseExcelA1ColumnRange,
+  resolveSmartStructureExcelRangeMapping,
   countSmartStructureRegionRows,
   resolveSmartStructureRegionEndRowIndex,
   shouldShowSmartStructureManualFallback,
@@ -644,6 +645,57 @@ describe("smart-structure-recognition", () => {
     );
 
     expect(valid.fieldErrors).toEqual({});
+  });
+
+  it("A1 范围同步为实际行区间和相对列索引", () => {
+    expect(
+      resolveSmartStructureExcelRangeMapping(
+        {
+          projectRange: " C9:C112 ",
+          specificationRange: "D9:D112",
+          acceptanceRange: "I9:I112",
+          remarkRange: ""
+        },
+        { baseColumn: 2, columnCount: 8, baseRow: 1, maximumRow: 200 }
+      )
+    ).toEqual({
+      fieldErrors: {},
+      normalizedRanges: {
+        projectRange: "C9:C112",
+        specificationRange: "D9:D112",
+        acceptanceRange: "I9:I112"
+      },
+      projectColumnIndex: 1,
+      specificationColumnIndex: 2,
+      acceptanceColumnIndex: 7,
+      remarkColumnIndex: undefined,
+      dataStartRow: 9,
+      dataEndRow: 112,
+      isSpecificationOnly: false
+    });
+  });
+
+  it("仅规格模式以规格范围反推数据行且清空项目列", () => {
+    expect(
+      resolveSmartStructureExcelRangeMapping(
+        {
+          projectRange: "",
+          specificationRange: "D12:D20",
+          acceptanceRange: "I12:I20",
+          remarkRange: "J12:J20"
+        },
+        { baseColumn: 2, columnCount: 9, baseRow: 1, maximumRow: 200 }
+      )
+    ).toMatchObject({
+      fieldErrors: {},
+      projectColumnIndex: undefined,
+      specificationColumnIndex: 2,
+      acceptanceColumnIndex: 7,
+      remarkColumnIndex: 8,
+      dataStartRow: 12,
+      dataEndRow: 20,
+      isSpecificationOnly: true
+    });
   });
 
   it("按表格实际使用区域换算识别出的行列位置", () => {

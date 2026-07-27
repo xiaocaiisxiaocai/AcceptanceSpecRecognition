@@ -72,8 +72,9 @@ docker save -o acceptance-web-20260319.tar acceptance-web:20260319
 
 - 服务器实际生效文件名是 `docker-compose.yml`
 - 如果服务器里已经有 `.env`，后续不要用示例文件覆盖
-- 首次部署和已有环境升级都必须在 `.env` 中设置 `AUTH_SEED_ADMIN_PASSWORD`、`AUTH_SEED_COMMON_PASSWORD`；两项均至少 12 位，且不得沿用示例值
+- 首次部署和已有环境升级都必须在 `.env` 中设置 `AUTH_SEED_ADMIN_PASSWORD`、`AUTH_SEED_COMMON_PASSWORD`；两项均至少 4 位，且不得沿用示例值
 - `JWT_SIGNING_KEY` 至少 32 位，并应使用独立生成的随机值
+- Web 镜像默认使用官方 `https://registry.npmjs.org/`；如需覆盖 `NPM_REGISTRY`，只允许不含凭据的 HTTP(S) URL，私有源认证不在当前发布流程中实现
 
 已有环境升级时，必须运行机器校验：
 
