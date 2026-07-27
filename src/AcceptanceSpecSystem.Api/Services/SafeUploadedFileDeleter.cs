@@ -100,14 +100,17 @@ public sealed class SafeUploadedFileDeleter
             var targetFd = openat(
                 dateDirectory.Value,
                 parts[3],
-                OpenReadOnly | OpenNoFollow | OpenCloseOnExec);
+                OpenPath | OpenNoFollow | OpenCloseOnExec);
             if (targetFd < 0)
                 ThrowLinuxError(Marshal.GetLastPInvokeError());
 
             using var target = new SafeLinuxFd(targetFd);
+            EnsureLinuxRegularFile(target.Value);
             _raceHook?.AfterTargetOpened(relativePath);
 
             var isolationName = MoveLinuxEntryToIsolation(dateDirectory.Value, parts[3]);
+            if (isolationName == null)
+                return;
             var isolationNeedsRestore = true;
             try
             {
@@ -115,11 +118,12 @@ public sealed class SafeUploadedFileDeleter
                 var isolatedFd = openat(
                     dateDirectory.Value,
                     isolationName,
-                    OpenReadOnly | OpenNoFollow | OpenCloseOnExec);
+                    OpenPath | OpenNoFollow | OpenCloseOnExec);
                 if (isolatedFd < 0)
                     ThrowLinuxError(Marshal.GetLastPInvokeError());
 
                 using var isolated = new SafeLinuxFd(isolatedFd);
+                EnsureLinuxRegularFile(isolated.Value);
                 if (GetLinuxFileIdentity(target.Value) != GetLinuxFileIdentity(isolated.Value))
                     throw new UnsafeWordFilePathException();
 
@@ -139,7 +143,7 @@ public sealed class SafeUploadedFileDeleter
         }
     }
 
-    private static string MoveLinuxEntryToIsolation(int directoryFd, string originalName)
+    private static string? MoveLinuxEntryToIsolation(int directoryFd, string originalName)
     {
         for (var attempt = 0; attempt < 8; attempt++)
         {
@@ -156,7 +160,7 @@ public sealed class SafeUploadedFileDeleter
             if (error == ErrorAlreadyExists)
                 continue;
             if (error == ErrorNoEntry)
-                throw new UnsafeWordFilePathException();
+                return null;
             ThrowLinuxError(error);
         }
 
@@ -188,6 +192,20 @@ public sealed class SafeUploadedFileDeleter
         if (fstat(fd, out var stat) != 0)
             ThrowLinuxError(Marshal.GetLastPInvokeError());
         return new LinuxFileIdentity(stat.Device, stat.Inode);
+    }
+
+    private static void EnsureLinuxRegularFile(int fd)
+    {
+        if (fstat(fd, out var stat) != 0)
+            ThrowLinuxError(Marshal.GetLastPInvokeError());
+        var mode = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => stat.ModeX64,
+            Architecture.Arm64 => stat.ModeArm64,
+            _ => throw new PlatformNotSupportedException("当前 Linux 架构不支持安全的持久文件类型校验")
+        };
+        if ((mode & LinuxFileTypeMask) != LinuxRegularFile)
+            throw new UnsafeWordFilePathException();
     }
 
     private static SafeLinuxFd OpenLinuxDirectory(int parentFd, string path)
@@ -300,6 +318,14 @@ public sealed class SafeUploadedFileDeleter
 
         [FieldOffset(8)]
         public ulong Inode;
+
+        // glibc/musl x86_64: st_nlink 位于 16，st_mode 位于 24。
+        [FieldOffset(24)]
+        public uint ModeX64;
+
+        // glibc/musl aarch64: st_mode 位于 16。
+        [FieldOffset(16)]
+        public uint ModeArm64;
     }
 
     private readonly record struct LinuxFileIdentity(ulong Device, ulong Inode);
@@ -326,6 +352,9 @@ public sealed class SafeUploadedFileDeleter
     private const int OpenDirectory = 0x10000;
     private const int OpenNoFollow = 0x20000;
     private const int OpenCloseOnExec = 0x80000;
+    private const int OpenPath = 0x200000;
+    private const uint LinuxFileTypeMask = 0xF000;
+    private const uint LinuxRegularFile = 0x8000;
     private const int ErrorOperationNotPermitted = 1;
     private const int ErrorNoEntry = 2;
     private const int ErrorPermissionDenied = 13;

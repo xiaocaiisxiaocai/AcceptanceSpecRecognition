@@ -111,15 +111,6 @@ public sealed partial class DocumentImportAppService
             return;
         }
 
-        // 调用方已开启可序列化事务。该读取在 MySQL 上持有父文件共享锁：
-        // 若清理器先取得排他锁并删除，导入会在等待后看到不存在；若导入先读取，
-        // 清理器会等待快照提交并在最终引用复核中保留文件。
-        var activeSourceFile = await _unitOfWork.WordFiles.GetByIdAsync(sourceFileId);
-        if (activeSourceFile == null)
-        {
-            throw new ApplicationServiceException(409, "源文件已进入删除流程，无法创建导入执行记录");
-        }
-
         var createdAt = DateTime.UtcNow;
         await _importExecutions.AddAsync(new DocumentImportExecution
         {

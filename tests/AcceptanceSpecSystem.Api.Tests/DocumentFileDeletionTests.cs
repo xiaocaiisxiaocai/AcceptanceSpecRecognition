@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application.Services;
@@ -295,6 +296,80 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
                 item.RelativePath.EndsWith(
                     $"/{Path.GetFileName(quarantine)}",
                     StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public async Task Linux持久文件删除_FIFO应快速拒绝且不得阻塞()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-Fifo", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        try
+        {
+            mkfifo(fullPath, Convert.ToUInt32("600", 8)).Should().Be(0);
+
+            Func<Task> action = () => Task.Run(
+                () => new SafeUploadedFileDeleter(root).DeleteIfExists(relativePath));
+
+            await action.Should().ThrowAsync<UnsafeWordFilePathException>()
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            File.Exists(fullPath).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public void Linux持久文件删除_目录目标应拒绝且不得改名或删除()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-DirectoryTarget", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(fullPath);
+        try
+        {
+            var action = () => new SafeUploadedFileDeleter(root).DeleteIfExists(relativePath);
+
+            action.Should().Throw<UnsafeWordFilePathException>();
+            Directory.Exists(fullPath).Should().BeTrue();
+            Directory.EnumerateFileSystemEntries(Path.GetDirectoryName(fullPath)!, ".delete-*.quarantine")
+                .Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public void Linux持久文件删除_打开后原名称消失应按幂等成功且不创建隔离项()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-MissingRace", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(fullPath, [1, 2, 3]);
+        try
+        {
+            var action = () => new SafeUploadedFileDeleter(
+                root,
+                new RemoveOpenedNameHook(fullPath)).DeleteIfExists(relativePath);
+
+            action.Should().NotThrow();
+            File.Exists(fullPath).Should().BeFalse();
+            Directory.EnumerateFiles(directory, ".delete-*.quarantine").Should().BeEmpty();
         }
         finally
         {
@@ -700,6 +775,11 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         }
     }
 
+    private sealed class RemoveOpenedNameHook(string fullPath) : ISafeFileDeletionRaceHook
+    {
+        public void AfterTargetOpened(string relativePath) => File.Delete(fullPath);
+    }
+
     private sealed class FaultingDeletionStorage : TestFileStorageService, IDisposable
     {
         private readonly string _failure;
@@ -733,6 +813,9 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
                 Directory.Delete(_root, recursive: true);
         }
     }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int mkfifo(string pathname, uint mode);
 }
 
 internal sealed class ReparsePointFactAttribute : FactAttribute

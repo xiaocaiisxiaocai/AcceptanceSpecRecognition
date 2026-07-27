@@ -157,6 +157,31 @@ public sealed class WordFileReferenceGuardTests
             .Should().ThrowAsync<WordFileReferenceUnavailableException>();
     }
 
+    [Fact]
+    public async Task 多个源文件引用_必须按文件编号升序返回以固定加锁顺序()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"word-file-reference-order-{Guid.NewGuid():N}")
+            .Options;
+        await using var context = new AppDbContext(options);
+        var files = new[] { CreateFile("one"), CreateFile("two"), CreateFile("three") };
+        context.WordFiles.AddRange(files);
+        await context.SaveChangesAsync();
+
+        foreach (var file in files.Reverse())
+        {
+            context.MatchingFillTasks.Add(new MatchingFillTask
+            {
+                TaskId = Guid.NewGuid().ToString("N"),
+                SourceFileId = file.Id,
+                PayloadJson = "{}"
+            });
+        }
+
+        context.GetChangedWordFileReferenceIds()
+            .Should().Equal(files.Select(file => file.Id).OrderBy(id => id));
+    }
+
     private static WordFile CreateFile(string prefix) => new()
     {
         FileName = $"{prefix}.docx",

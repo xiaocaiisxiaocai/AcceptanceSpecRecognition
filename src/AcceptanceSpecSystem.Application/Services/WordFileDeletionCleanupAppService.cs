@@ -53,11 +53,12 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
                 .ToArrayAsync(cancellationToken);
         }
 
-        var claimed = new List<(int Id, string Token)>(candidateIds.Length);
+        var completed = 0;
         foreach (var id in candidateIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var token = Guid.NewGuid().ToString("N");
+            var claimNow = DateTime.UtcNow;
             using var claimScope = _scopeFactory.CreateScope();
             var db = claimScope.ServiceProvider.GetRequiredService<AppDbContext>();
             var affected = await db.WordFiles
@@ -71,30 +72,25 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
                      file.DeletionLeaseExpiresAt <= now))
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(file => file.DeletionLeaseToken, token)
-                    .SetProperty(file => file.DeletionLeaseExpiresAt, now.Add(LeaseDuration)),
+                    .SetProperty(file => file.DeletionLeaseExpiresAt, claimNow.Add(LeaseDuration)),
                     cancellationToken);
-            if (affected == 1)
-                claimed.Add((id, token));
-        }
-
-        var completed = 0;
-        foreach (var item in claimed)
-        {
+            if (affected != 1)
+                continue;
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (await ProcessClaimedItemAsync(item.Id, item.Token, cancellationToken))
+                if (await ProcessClaimedItemAsync(id, token, cancellationToken))
                     completed++;
             }
             catch (OperationCanceledException)
             {
-                await ReleaseLeaseAsync(item.Id, item.Token);
+                await ReleaseLeaseAsync(id, token);
                 throw;
             }
             catch (Exception exception)
             {
-                await RecordFailureAsync(item.Id, item.Token, ClassifyFailure(exception));
-                _logger.LogWarning(exception, "待删除文件清理失败，已安排重试: {FileId} {Category}", item.Id, ClassifyFailure(exception));
+                await RecordFailureAsync(id, token, ClassifyFailure(exception));
+                _logger.LogWarning(exception, "待删除文件清理失败，已安排重试: {FileId} {Category}", id, ClassifyFailure(exception));
             }
         }
 

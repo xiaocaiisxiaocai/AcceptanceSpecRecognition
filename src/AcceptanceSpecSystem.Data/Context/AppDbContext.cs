@@ -716,7 +716,7 @@ public class AppDbContext : DbContext
         }
     }
 
-    private int[] GetChangedWordFileReferenceIds()
+    internal int[] GetChangedWordFileReferenceIds()
     {
         ChangeTracker.DetectChanges();
         return ChangeTracker.Entries()
@@ -736,6 +736,7 @@ public class AppDbContext : DbContext
             })
             .Where(id => id != int.MinValue)
             .Distinct()
+            .OrderBy(id => id)
             .ToArray();
     }
 
