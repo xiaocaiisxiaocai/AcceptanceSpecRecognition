@@ -1,6 +1,7 @@
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace AcceptanceSpecSystem.Data.Context;
@@ -651,19 +652,180 @@ public class AppDbContext : DbContext
     {
         RefreshColumnMappingRuleUniqueIdentities();
         BumpAiServiceConfigRowVersions();
-        return base.SaveChanges(acceptAllChangesOnSuccess);
+        var referencedWordFileIds = GetChangedWordFileReferenceIds();
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (referencedWordFileIds.Length > 0 &&
+                Database.IsRelational() &&
+                Database.CurrentTransaction == null)
+                ownedTransaction = Database.BeginTransaction(System.Data.IsolationLevel.Serializable);
+            EnsureActiveWordFileReferences(referencedWordFileIds);
+            var result = base.SaveChanges(acceptAllChangesOnSuccess);
+            ownedTransaction?.Commit();
+            return result;
+        }
+        catch
+        {
+            ownedTransaction?.Rollback();
+            throw;
+        }
+        finally
+        {
+            ownedTransaction?.Dispose();
+        }
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
         SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
 
-    public override Task<int> SaveChangesAsync(
+    public override async Task<int> SaveChangesAsync(
         bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
         RefreshColumnMappingRuleUniqueIdentities();
         BumpAiServiceConfigRowVersions();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        var referencedWordFileIds = GetChangedWordFileReferenceIds();
+        IDbContextTransaction? ownedTransaction = null;
+        try
+        {
+            if (referencedWordFileIds.Length > 0 &&
+                Database.IsRelational() &&
+                Database.CurrentTransaction == null)
+            {
+                ownedTransaction = await Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable,
+                    cancellationToken);
+            }
+            await EnsureActiveWordFileReferencesAsync(referencedWordFileIds, cancellationToken);
+            var result = await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+            if (ownedTransaction != null)
+                await ownedTransaction.CommitAsync(cancellationToken);
+            return result;
+        }
+        catch
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.RollbackAsync(CancellationToken.None);
+            throw;
+        }
+        finally
+        {
+            if (ownedTransaction != null)
+                await ownedTransaction.DisposeAsync();
+        }
+    }
+
+    private int[] GetChangedWordFileReferenceIds()
+    {
+        ChangeTracker.DetectChanges();
+        return ChangeTracker.Entries()
+            .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+            .Select(entry => entry.Entity switch
+            {
+                AcceptanceSpec spec when entry.State == EntityState.Added ||
+                                         entry.Property(nameof(AcceptanceSpec.WordFileId)).IsModified
+                    => spec.WordFileId,
+                MatchingFillTask task when entry.State == EntityState.Added ||
+                                             entry.Property(nameof(MatchingFillTask.SourceFileId)).IsModified
+                    => task.SourceFileId,
+                DocumentImportExecution execution when entry.State == EntityState.Added ||
+                                                       entry.Property(nameof(DocumentImportExecution.SourceFileId)).IsModified
+                    => execution.SourceFileId,
+                _ => int.MinValue
+            })
+            .Where(id => id != int.MinValue)
+            .Distinct()
+            .ToArray();
+    }
+
+    private void EnsureActiveWordFileReferences(IEnumerable<int> referenceIds)
+    {
+        foreach (var id in referenceIds)
+        {
+            if (id <= 0)
+            {
+                var tracked = ChangeTracker.Entries<WordFile>()
+                    .Any(entry => entry.Entity.Id == id &&
+                                  entry.State != EntityState.Deleted &&
+                                  entry.Entity.DeletionStatus == WordFileDeletionStatus.Active);
+                if (!tracked)
+                    throw new WordFileReferenceUnavailableException(id);
+                continue;
+            }
+
+            var active = IsMySqlProvider()
+                ? LockActiveWordFileMySql(id)
+                : WordFiles.IgnoreQueryFilters().AsNoTracking()
+                    .Any(file => file.Id == id && file.DeletionStatus == WordFileDeletionStatus.Active);
+            if (!active)
+                throw new WordFileReferenceUnavailableException(id);
+        }
+    }
+
+    private async Task EnsureActiveWordFileReferencesAsync(
+        IEnumerable<int> referenceIds,
+        CancellationToken cancellationToken)
+    {
+        foreach (var id in referenceIds)
+        {
+            if (id <= 0)
+            {
+                var tracked = ChangeTracker.Entries<WordFile>()
+                    .Any(entry => entry.Entity.Id == id &&
+                                  entry.State != EntityState.Deleted &&
+                                  entry.Entity.DeletionStatus == WordFileDeletionStatus.Active);
+                if (!tracked)
+                    throw new WordFileReferenceUnavailableException(id);
+                continue;
+            }
+
+            var active = IsMySqlProvider()
+                ? await LockActiveWordFileMySqlAsync(id, cancellationToken)
+                : await WordFiles.IgnoreQueryFilters().AsNoTracking()
+                    .AnyAsync(
+                        file => file.Id == id && file.DeletionStatus == WordFileDeletionStatus.Active,
+                        cancellationToken);
+            if (!active)
+                throw new WordFileReferenceUnavailableException(id);
+        }
+    }
+
+    private bool IsMySqlProvider() =>
+        Database.ProviderName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true;
+
+    private bool LockActiveWordFileMySql(int id)
+    {
+        using var command = CreateWordFileReferenceLockCommand(id);
+        return command.ExecuteScalar() != null;
+    }
+
+    private async Task<bool> LockActiveWordFileMySqlAsync(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        await using var command = CreateWordFileReferenceLockCommand(id);
+        return await command.ExecuteScalarAsync(cancellationToken) != null;
+    }
+
+    private System.Data.Common.DbCommand CreateWordFileReferenceLockCommand(int id)
+    {
+        var transaction = Database.CurrentTransaction
+            ?? throw new InvalidOperationException("WordFile 引用锁必须在数据库事务内获取");
+        var command = Database.GetDbConnection().CreateCommand();
+        command.Transaction = transaction.GetDbTransaction();
+        command.CommandText =
+            "SELECT `Id` FROM `WordFiles` " +
+            "WHERE `Id` = @wordFileId AND `DeletionStatus` = @activeStatus FOR UPDATE;";
+        var idParameter = command.CreateParameter();
+        idParameter.ParameterName = "@wordFileId";
+        idParameter.Value = id;
+        command.Parameters.Add(idParameter);
+        var statusParameter = command.CreateParameter();
+        statusParameter.ParameterName = "@activeStatus";
+        statusParameter.Value = (int)WordFileDeletionStatus.Active;
+        command.Parameters.Add(statusParameter);
+        return command;
     }
 
     private void RefreshColumnMappingRuleUniqueIdentities()

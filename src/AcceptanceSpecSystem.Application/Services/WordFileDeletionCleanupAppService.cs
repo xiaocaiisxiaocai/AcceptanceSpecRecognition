@@ -2,6 +2,7 @@ using System.Data;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -43,7 +44,9 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
                 .Where(file =>
                     file.DeletionStatus == WordFileDeletionStatus.PendingDeletion &&
                     (file.NextDeletionAttemptAt == null || file.NextDeletionAttemptAt <= now) &&
-                    (file.DeletionLeaseToken == null || file.DeletionLeaseExpiresAt <= now))
+                    (file.DeletionLeaseToken == null ||
+                     file.DeletionLeaseExpiresAt == null ||
+                     file.DeletionLeaseExpiresAt <= now))
                 .OrderBy(file => file.Id)
                 .Select(file => file.Id)
                 .Take(batchSize)
@@ -63,7 +66,9 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
                     file.Id == id &&
                     file.DeletionStatus == WordFileDeletionStatus.PendingDeletion &&
                     (file.NextDeletionAttemptAt == null || file.NextDeletionAttemptAt <= now) &&
-                    (file.DeletionLeaseToken == null || file.DeletionLeaseExpiresAt <= now))
+                    (file.DeletionLeaseToken == null ||
+                     file.DeletionLeaseExpiresAt == null ||
+                     file.DeletionLeaseExpiresAt <= now))
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(file => file.DeletionLeaseToken, token)
                     .SetProperty(file => file.DeletionLeaseExpiresAt, now.Add(LeaseDuration)),
@@ -139,10 +144,21 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
     {
         if (db.Database.ProviderName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true)
         {
+            var transaction = db.Database.CurrentTransaction
+                ?? throw new InvalidOperationException("待删除文件行锁必须在数据库事务内获取");
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.Transaction = transaction.GetDbTransaction();
+            command.CommandText = "SELECT `Id` FROM `WordFiles` WHERE `Id` = @id FOR UPDATE;";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = id;
+            command.Parameters.Add(parameter);
+            var lockedId = await command.ExecuteScalarAsync(cancellationToken);
+            if (lockedId == null)
+                return null;
             return await db.WordFiles
-                .FromSqlInterpolated($"SELECT * FROM `WordFiles` WHERE `Id` = {id} FOR UPDATE")
                 .IgnoreQueryFilters()
-                .SingleOrDefaultAsync(cancellationToken);
+                .SingleAsync(file => file.Id == id, cancellationToken);
         }
 
         return await db.WordFiles
@@ -163,19 +179,8 @@ public sealed class WordFileDeletionCleanupAppService : IWordFileDeletionCleanup
     private async Task RecordFailureAsync(int id, string token, string category)
     {
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var file = await db.WordFiles
-            .IgnoreQueryFilters()
-            .SingleOrDefaultAsync(item => item.Id == id && item.DeletionLeaseToken == token);
-        if (file == null)
-            return;
-
-        file.DeletionRetryCount++;
-        file.LastDeletionError = category;
-        file.NextDeletionAttemptAt = DateTime.UtcNow.Add(CalculateRetryDelay(file.DeletionRetryCount));
-        file.DeletionLeaseToken = null;
-        file.DeletionLeaseExpiresAt = null;
-        await db.SaveChangesAsync(CancellationToken.None);
+        var store = scope.ServiceProvider.GetRequiredService<WordFileDeletionLeaseStore>();
+        await store.RecordFailureAsync(id, token, category, CancellationToken.None);
     }
 
     private async Task ReleaseLeaseAsync(int id, string token)

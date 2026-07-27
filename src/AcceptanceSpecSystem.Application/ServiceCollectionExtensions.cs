@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ColumnMappingRuleInitializer>();
         services.AddScoped<IDocumentFileAppService, DocumentFileAppService>();
         services.AddSingleton<IWordFileDeletionCleanupAppService, WordFileDeletionCleanupAppService>();
+        services.AddScoped<WordFileDeletionLeaseStore>();
         services.AddScoped<IDocumentTableQueryAppService, DocumentTableQueryAppService>();
         services.AddScoped<ImportDuplicateDetectionService>();
         services.AddScoped<ColumnMappingLearningService>();

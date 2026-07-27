@@ -6,6 +6,7 @@ using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -109,6 +110,65 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
                 Directory.Delete(root, recursive: true);
             if (Directory.Exists(outside))
                 Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [WindowsOnlyFact]
+    public void Windows持久文件删除_路径在打开后被替换不得删除替换对象()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-HandleRace", Guid.NewGuid().ToString("N"));
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        File.WriteAllBytes(fullPath, [1, 2, 3]);
+        var movedOriginal = $"{fullPath}.opened";
+        var hook = new ReplaceOpenedTargetHook(fullPath, movedOriginal);
+
+        try
+        {
+            new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
+
+            File.Exists(fullPath).Should().BeTrue("打开后放回路径的新对象不能被旧句柄删除");
+            File.ReadAllBytes(fullPath).Should().Equal(9, 8, 7);
+            File.Exists(movedOriginal).Should().BeFalse("被打开并验证的原对象应通过同一句柄删除");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [LinuxOnlyFact]
+    public void Linux持久文件删除_目录句柄固定后替换为外部链接不得删除外部对象()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-DirFdRace", Guid.NewGuid().ToString("N"));
+        var outsideRoot = $"{root}-outside";
+        var relativePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx";
+        var fullPath = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var outsideFile = Path.Combine(outsideRoot, "outside.docx");
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        Directory.CreateDirectory(outsideRoot);
+        File.WriteAllBytes(fullPath, [1, 2, 3]);
+        File.WriteAllBytes(outsideFile, [9, 8, 7]);
+        var movedOriginal = $"{fullPath}.opened";
+        var hook = new ReplaceWithExternalLinkHook(fullPath, movedOriginal, outsideFile);
+
+        try
+        {
+            new SafeUploadedFileDeleter(root, hook).DeleteIfExists(relativePath);
+
+            File.Exists(outsideFile).Should().BeTrue("unlinkat 只能删除受信目录内的链接本身");
+            File.ReadAllBytes(outsideFile).Should().Equal(9, 8, 7);
+            File.Exists(fullPath).Should().BeFalse("替换后目录项是链接时只应删除链接");
+            File.Exists(movedOriginal).Should().BeTrue("竞态下原对象已被重命名，安全优先保留等待孤儿巡检");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+            if (Directory.Exists(outsideRoot))
+                Directory.Delete(outsideRoot, recursive: true);
         }
     }
 
@@ -241,6 +301,38 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task 清理器_租约令牌存在但过期时间为空时应允许重新领取()
+    {
+        var fileId = await SeedPendingFileAsync(leaseToken: "broken-lease", leaseExpiresAt: null);
+        var cleanup = _factory.Services.GetRequiredService<IWordFileDeletionCleanupAppService>();
+
+        await cleanup.RunBatchAsync(100, CancellationToken.None);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.WordFiles.IgnoreQueryFilters().AnyAsync(item => item.Id == fileId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task 清理器_旧工作者记录失败不得覆盖新租约()
+    {
+        var fileId = await SeedPendingFileAsync(
+            leaseToken: "worker-b",
+            leaseExpiresAt: DateTime.UtcNow.AddMinutes(5));
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<WordFileDeletionLeaseStore>();
+
+        (await store.RecordFailureAsync(fileId, "worker-a", "IoError", CancellationToken.None))
+            .Should().BeFalse();
+
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var file = await db.WordFiles.IgnoreQueryFilters().SingleAsync(item => item.Id == fileId);
+        file.DeletionLeaseToken.Should().Be("worker-b");
+        file.DeletionRetryCount.Should().Be(0);
+        file.LastDeletionError.Should().BeNull();
+    }
+
+    [Fact]
     public async Task 清理器_非法路径应分类退避且不删除元数据()
     {
         var fileId = await SeedPendingFileAsync("../outside.docx");
@@ -260,7 +352,7 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task 清理器_最终复核发现引用应分类退避且保留文件()
     {
-        var fileId = await SeedPendingFileAsync();
+        var fileId = await SeedFileAsync();
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -271,6 +363,13 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
                 PayloadJson = "{}"
             });
             await db.SaveChangesAsync();
+            await db.WordFiles
+                .IgnoreQueryFilters()
+                .Where(item => item.Id == fileId)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.DeletionStatus, WordFileDeletionStatus.PendingDeletion)
+                    .SetProperty(item => item.DeletionRequestedAt, DateTime.UtcNow)
+                    .SetProperty(item => item.NextDeletionAttemptAt, DateTime.UtcNow.AddSeconds(-1)));
         }
 
         var cleanup = _factory.Services.GetRequiredService<IWordFileDeletionCleanupAppService>();
@@ -299,6 +398,63 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         var file = await db.WordFiles.IgnoreQueryFilters().SingleAsync(item => item.Id == fileId);
         file.DeletionRetryCount.Should().Be(0);
         file.LastDeletionError.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("io", "IoError")]
+    [InlineData("access", "AccessDenied")]
+    public async Task 清理器_IO或权限失败应持久化分类递增退避并释放租约(
+        string failure,
+        string expectedCategory)
+    {
+        await using var provider = BuildFaultingCleanupProvider(failure);
+        int fileId;
+        using (var seedScope = provider.CreateScope())
+        {
+            var db = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.EnsureCreatedAsync();
+            var file = new WordFile
+            {
+                FileName = "fault.docx",
+                FileHash = Guid.NewGuid().ToString("N"),
+                FilePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx",
+                DeletionStatus = WordFileDeletionStatus.PendingDeletion,
+                DeletionRequestedAt = DateTime.UtcNow,
+                NextDeletionAttemptAt = DateTime.UtcNow.AddSeconds(-1)
+            };
+            db.WordFiles.Add(file);
+            await db.SaveChangesAsync();
+            fileId = file.Id;
+        }
+
+        var cleanup = provider.GetRequiredService<IWordFileDeletionCleanupAppService>();
+        var firstStartedAt = DateTime.UtcNow;
+        await cleanup.RunBatchAsync(10, CancellationToken.None);
+
+        using (var firstScope = provider.CreateScope())
+        {
+            var db = firstScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var file = await db.WordFiles.IgnoreQueryFilters().SingleAsync(item => item.Id == fileId);
+            file.DeletionRetryCount.Should().Be(1);
+            file.LastDeletionError.Should().Be(expectedCategory);
+            file.DeletionLeaseToken.Should().BeNull();
+            file.DeletionLeaseExpiresAt.Should().BeNull();
+            file.NextDeletionAttemptAt.Should().BeOnOrAfter(firstStartedAt.AddMinutes(1));
+            file.NextDeletionAttemptAt.Should().BeBefore(DateTime.UtcNow.AddMinutes(1).AddSeconds(5));
+            file.NextDeletionAttemptAt = DateTime.UtcNow.AddSeconds(-1);
+            await db.SaveChangesAsync();
+        }
+
+        var secondStartedAt = DateTime.UtcNow;
+        await cleanup.RunBatchAsync(10, CancellationToken.None);
+        using var secondScope = provider.CreateScope();
+        var secondDb = secondScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var second = await secondDb.WordFiles.IgnoreQueryFilters().SingleAsync(item => item.Id == fileId);
+        second.DeletionRetryCount.Should().Be(2);
+        second.LastDeletionError.Should().Be(expectedCategory);
+        second.DeletionLeaseToken.Should().BeNull();
+        second.NextDeletionAttemptAt.Should().BeOnOrAfter(secondStartedAt.AddMinutes(2));
+        second.NextDeletionAttemptAt.Should().BeBefore(DateTime.UtcNow.AddMinutes(2).AddSeconds(5));
     }
 
     private async Task<int> SeedFileAsync()
@@ -344,6 +500,21 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         return fileId;
     }
 
+    private static ServiceProvider BuildFaultingCleanupProvider(string failure)
+    {
+        var services = new ServiceCollection();
+        var connection = new SqliteConnection($"Data Source=fault-cleanup-{Guid.NewGuid():N};Mode=Memory;Cache=Shared");
+        connection.Open();
+        services.AddSingleton(connection);
+        services.AddDbContext<AppDbContext>((provider, options) =>
+            options.UseSqlite(provider.GetRequiredService<SqliteConnection>()));
+        services.AddLogging();
+        services.AddSingleton<IFileStorageService>(_ => new FaultingDeletionStorage(failure));
+        services.AddScoped<WordFileDeletionLeaseStore>();
+        services.AddSingleton<IWordFileDeletionCleanupAppService, WordFileDeletionCleanupAppService>();
+        return services.BuildServiceProvider();
+    }
+
     private sealed class DeletionTestWebHostEnvironment(string root) : IWebHostEnvironment
     {
         public string ApplicationName { get; set; } = nameof(DocumentFileDeletionTests);
@@ -352,6 +523,61 @@ public class DocumentFileDeletionTests : IClassFixture<ApiWebApplicationFactory>
         public string EnvironmentName { get; set; } = "Testing";
         public string ContentRootPath { get; set; } = root;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class ReplaceOpenedTargetHook(string fullPath, string movedPath) : ISafeFileDeletionRaceHook
+    {
+        public void AfterTargetOpened(string relativePath)
+        {
+            File.Move(fullPath, movedPath);
+            File.WriteAllBytes(fullPath, [9, 8, 7]);
+        }
+    }
+
+    private sealed class ReplaceWithExternalLinkHook(
+        string fullPath,
+        string movedPath,
+        string outsideFile) : ISafeFileDeletionRaceHook
+    {
+        public void AfterTargetOpened(string relativePath)
+        {
+            File.Move(fullPath, movedPath);
+            File.CreateSymbolicLink(fullPath, outsideFile);
+        }
+    }
+
+    private sealed class FaultingDeletionStorage : TestFileStorageService, IDisposable
+    {
+        private readonly string _failure;
+        private readonly string _root;
+
+        public FaultingDeletionStorage(string failure)
+            : this(failure, Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem-FaultDelete", Guid.NewGuid().ToString("N")))
+        {
+        }
+
+        private FaultingDeletionStorage(string failure, string root) : base(root)
+        {
+            _failure = failure;
+            _root = root;
+            Directory.CreateDirectory(root);
+        }
+
+        public override Task DeleteUploadedWordFileIfExistsAsync(
+            string? relativePath,
+            UploadedFileType fileType,
+            CancellationToken cancellationToken = default)
+        {
+            return _failure == "access"
+                ? Task.FromException(new UnauthorizedAccessException("模拟权限失败"))
+                : Task.FromException(new IOException("模拟 IO 失败"));
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
+        }
     }
 }
 
@@ -383,5 +609,23 @@ internal sealed class ReparsePointFactAttribute : FactAttribute
             {
             }
         }
+    }
+}
+
+internal sealed class WindowsOnlyFactAttribute : FactAttribute
+{
+    public WindowsOnlyFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows())
+            Skip = "该测试验证 Windows 同句柄删除语义";
+    }
+}
+
+internal sealed class LinuxOnlyFactAttribute : FactAttribute
+{
+    public LinuxOnlyFactAttribute()
+    {
+        if (!OperatingSystem.IsLinux())
+            Skip = "该测试验证 Linux dirfd/openat/unlinkat 删除语义";
     }
 }

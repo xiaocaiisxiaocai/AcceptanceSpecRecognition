@@ -20,6 +20,7 @@ public class MatchingFillTaskRepositoryTests : TestBase
     public async Task GetByTaskIdAsync_ExistingTask_ShouldReturnTask()
     {
         // Arrange
+        await SeedSourceFileAsync(1);
         var task = new MatchingFillTask
         {
             TaskId = "task-001",
@@ -112,6 +113,7 @@ public class MatchingFillTaskRepositoryTests : TestBase
     public async Task Add_ShouldPersistTask()
     {
         // Arrange
+        await SeedSourceFileAsync(42);
         var task = new MatchingFillTask
         {
             TaskId = "new-task",
@@ -131,5 +133,17 @@ public class MatchingFillTaskRepositoryTests : TestBase
         saved.Should().NotBeNull();
         saved!.SourceFileId.Should().Be(42);
         saved.PayloadJson.Should().Contain("tables");
+    }
+
+    private async Task SeedSourceFileAsync(int id)
+    {
+        Context.WordFiles.Add(new WordFile
+        {
+            Id = id,
+            FileName = $"source-{id}.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FilePath = $"uploads/word-files/2026-07-27/{Guid.NewGuid():N}.docx"
+        });
+        await Context.SaveChangesAsync();
     }
 }

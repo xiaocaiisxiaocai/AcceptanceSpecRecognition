@@ -2,7 +2,7 @@
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
-public sealed class TestFileStorageService : IFileStorageService
+public class TestFileStorageService : IFileStorageService
 {
     private readonly string _root;
 
@@ -61,7 +61,7 @@ public sealed class TestFileStorageService : IFileStorageService
         return Task.CompletedTask;
     }
 
-    public Task DeleteUploadedWordFileIfExistsAsync(
+    public virtual Task DeleteUploadedWordFileIfExistsAsync(
         string? relativePath,
         AcceptanceSpecSystem.Data.Entities.UploadedFileType fileType,
         CancellationToken cancellationToken = default)
