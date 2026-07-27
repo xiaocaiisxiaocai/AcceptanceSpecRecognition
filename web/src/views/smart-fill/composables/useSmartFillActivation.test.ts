@@ -156,6 +156,39 @@ describe("useSmartFillActivation", () => {
     expect(actions.invalidateStaleResponse).not.toHaveBeenCalled();
   });
 
+  it("A 完成响应迟到时不能恢复 A 下载或改变新任务 B", async () => {
+    let currentTaskId: string | null = "task-a";
+    const request = deferred<any>();
+    apiMocks.getMatchingTaskStatus.mockReturnValueOnce(request.promise);
+    const actions = createActions(() => currentTaskId);
+    const activation = useSmartFillActivation(actions);
+    const pending = activation.reconcileOnActivation("task-a");
+
+    currentTaskId = "task-b";
+    activation.cancelReconciliation();
+    request.resolve({
+      code: 0,
+      data: {
+        taskId: "task-a",
+        status: "completed",
+        canDownload: true,
+        updatedAt: "2026-07-27T00:00:00Z"
+      }
+    });
+    await pending;
+
+    expect(currentTaskId).toBe("task-b");
+    expect(actions.abortScope).not.toHaveBeenCalled();
+    expect(actions.invalidatePreview).not.toHaveBeenCalled();
+    expect(actions.stopProgress).not.toHaveBeenCalled();
+    expect(actions.stopStream).not.toHaveBeenCalled();
+    expect(actions.cancelRecognition).not.toHaveBeenCalled();
+    expect(actions.resumeProgress).not.toHaveBeenCalled();
+    expect(actions.restoreDownload).not.toHaveBeenCalled();
+    expect(actions.invalidateStaleResponse).not.toHaveBeenCalled();
+    expect(messageMocks.error).not.toHaveBeenCalled();
+  });
+
   it("A 失败响应迟到且当前任务已清空时不作废新流程状态", async () => {
     let currentTaskId: string | null = "task-a";
     const request = deferred<any>();
