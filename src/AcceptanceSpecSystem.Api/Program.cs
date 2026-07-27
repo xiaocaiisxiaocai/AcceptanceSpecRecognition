@@ -43,7 +43,7 @@ if (proxyForwarding.Enabled)
     forwardedHeadersOptions = ProxyForwardingConfiguration.Create(proxyForwarding);
 }
 
-builder.Services.AddScoped<AuditOperationFilter>();
+builder.Services.AddSingleton<AuditOperationFilter>();
 builder.Services.AddHttpContextAccessor();
 
 // 添加控制器

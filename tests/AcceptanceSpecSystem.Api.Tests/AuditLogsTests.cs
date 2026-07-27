@@ -1,7 +1,12 @@
 ﻿using System.Net;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Services;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -104,5 +109,143 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
 
         using var resp = await _client.SendAsync(req);
         resp.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task AuditedConflict_ShouldPersistFinal409WithoutReplayingFailedBusinessEntity()
+    {
+        var traceId = $"audit-conflict-{Guid.NewGuid():N}";
+        using var request = await BuildStaleAiConfigUpdateRequestAsync(_client, traceId);
+
+        using var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var audit = await FindAuditByTraceIdAsync(_client, traceId);
+        audit.GetProperty("statusCode").GetInt32().Should().Be(409);
+        audit.GetProperty("level").GetInt32().Should().Be((int)AuditLogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task AuditedUnhandledException_ShouldPersistFinal500()
+    {
+        var traceId = $"audit-server-error-{Guid.NewGuid():N}";
+        using var baseFactory = new ApiWebApplicationFactory();
+        using var serverErrorFactory = CreateServerErrorFactory(baseFactory);
+        using var client = serverErrorFactory.CreateClient();
+        using var request = AuthCookieTestHelper.CreateLoginRequest("audit-user", "audit-password");
+        request.Headers.Add("X-Client-Trace-Id", traceId);
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        var audit = await FindAuditByTraceIdAsync(client, traceId);
+        audit.GetProperty("statusCode").GetInt32().Should().Be(500);
+        audit.GetProperty("level").GetInt32().Should().Be((int)AuditLogLevel.Error);
+    }
+
+    [Fact]
+    public async Task AuditWriteFailure_ShouldNotReplaceConflictResponse()
+    {
+        using var factory = new AuditWriteFailureApiWebApplicationFactory();
+        using var client = factory.CreateClient();
+        var traceId = $"audit-write-failure-conflict-{Guid.NewGuid():N}";
+        using var request = await BuildStaleAiConfigUpdateRequestAsync(client, traceId);
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task AuditWriteFailure_ShouldNotReplaceUnhandledServerError()
+    {
+        using var auditFailureFactory = new AuditWriteFailureApiWebApplicationFactory();
+        using var serverErrorFactory = CreateServerErrorFactory(auditFailureFactory);
+        using var client = serverErrorFactory.CreateClient();
+        using var request = AuthCookieTestHelper.CreateLoginRequest("audit-user", "audit-password");
+        request.Headers.Add("X-Client-Trace-Id", $"audit-write-failure-500-{Guid.NewGuid():N}");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+    }
+
+    private static WebApplicationFactory<Program> CreateServerErrorFactory(
+        WebApplicationFactory<Program> factory)
+    {
+        return factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IAuthLoginAppService>();
+                services.AddScoped<IAuthLoginAppService, ThrowingAuthLoginAppService>();
+            }));
+    }
+
+    private static async Task<HttpRequestMessage> BuildStaleAiConfigUpdateRequestAsync(
+        HttpClient client,
+        string traceId)
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        using var createResponse = await client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"audit-row-version-{suffix}",
+                serviceType = 2,
+                purpose = 1,
+                priority = 0,
+                endpoint = "http://127.0.0.1:11434/api",
+                apiKey = "",
+                llmModel = "qwen3.5:35b"
+            }));
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var id = created.Data.GetProperty("id").GetInt32();
+        var staleRowVersion = created.Data.GetProperty("rowVersion").GetUInt32();
+        var updatePayload = new
+        {
+            name = $"audit-row-version-updated-{suffix}",
+            serviceType = 2,
+            purpose = 1,
+            priority = 1,
+            endpoint = "http://127.0.0.1:11434/api",
+            llmModel = "qwen3.5:35b",
+            rowVersion = staleRowVersion
+        };
+
+        using var firstUpdate = await client.PutAsync(
+            $"/api/ai-services/{id}",
+            ApiClientJson.ToJsonContent(updatePayload));
+        firstUpdate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var staleRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/ai-services/{id}")
+        {
+            Content = ApiClientJson.ToJsonContent(updatePayload)
+        };
+        staleRequest.Headers.Add("X-Client-Trace-Id", traceId);
+        return staleRequest;
+    }
+
+    private static async Task<JsonElement> FindAuditByTraceIdAsync(HttpClient client, string traceId)
+    {
+        using var response = await client.GetAsync("/api/audit-logs?page=1&pageSize=200");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        var matches = body.Data!.Items
+            .Where(item => item.GetProperty("clientTraceId").GetString() == traceId)
+            .ToArray();
+        matches.Should().ContainSingle();
+        return matches[0];
+    }
+
+    private sealed class ThrowingAuthLoginAppService : IAuthLoginAppService
+    {
+        public Task<AuthLoginResult> AuthenticateAsync(
+            string username,
+            string password,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromException<AuthLoginResult>(new Exception("模拟未处理业务异常"));
+        }
     }
 }

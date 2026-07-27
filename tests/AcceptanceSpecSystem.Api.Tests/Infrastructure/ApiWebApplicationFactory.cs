@@ -1,8 +1,11 @@
 ﻿using System.Data.Common;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Application.Models;
+using AcceptanceSpecSystem.Application.Services;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
-using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using Microsoft.AspNetCore.Authentication;
@@ -289,5 +292,60 @@ public sealed class InsecureHttpRealJwtApiWebApplicationFactory : ApiWebApplicat
                 ["BrowserAuth:AllowInsecureHttp"] = "true",
                 ["BrowserAuth:AllowedOrigins:0"] = AuthCookieTestHelper.AllowedOrigin
             }));
+    }
+}
+
+public sealed class AuditWriteFailureApiWebApplicationFactory : ApiWebApplicationFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAuditTrailAppService>();
+            services.AddScoped<IAuditTrailAppService, ThrowingAuditTrailAppService>();
+        });
+    }
+
+    private sealed class ThrowingAuditTrailAppService : IAuditTrailAppService
+    {
+        public Task WriteAsync(
+            AuditTrailWriteCommand command,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromException(new InvalidOperationException("模拟审计写入失败"));
+        }
+
+        public Task<PagedResult<AuditLogListItemDto>> GetPagedAsync(
+            int page,
+            int pageSize,
+            AuditLogSource? source,
+            AuditLogLevel? level,
+            string? username,
+            string? requestMethod,
+            string? keyword,
+            DateTime? from,
+            DateTime? to,
+            int? minStatusCode,
+            int? maxStatusCode,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<AuditLogDetailDto?> GetByIdAsync(
+            int id,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<int> DeleteByRangeAsync(
+            DateTime? from,
+            DateTime? to,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
     }
 }

@@ -37,16 +37,31 @@ public sealed class AuditOperationAttribute : Attribute
 /// <summary>
 /// 控制器级审计过滤器：仅记录带 <see cref="AuditOperationAttribute"/> 的动作
 /// </summary>
-public sealed class AuditOperationFilter : IAsyncActionFilter
+internal sealed record AuditOperationState(
+    AuditOperationAttribute Attribute,
+    string Controller,
+    string? Action,
+    IReadOnlyDictionary<string, string?> RouteValues,
+    string? Username,
+    long StartedTimestamp);
+
+public sealed class AuditOperationFilter :
+    IAsyncActionFilter,
+    IAsyncAlwaysRunResultFilter,
+    IAsyncExceptionFilter
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly object AuditStateKey = new();
+    private static readonly object AuditWrittenKey = new();
 
-    private readonly IAuditTrailAppService _auditTrail;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AuditOperationFilter> _logger;
 
-    public AuditOperationFilter(IAuditTrailAppService auditTrail, ILogger<AuditOperationFilter> logger)
+    public AuditOperationFilter(
+        IServiceScopeFactory scopeFactory,
+        ILogger<AuditOperationFilter> logger)
     {
-        _auditTrail = auditTrail;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -64,71 +79,99 @@ public sealed class AuditOperationFilter : IAsyncActionFilter
             return;
         }
 
-        var stopwatch = Stopwatch.StartNew();
-        ActionExecutedContext? executedContext = null;
-        try
-        {
-            executedContext = await next();
-        }
-        finally
-        {
-            stopwatch.Stop();
-            await TryWriteAuditAsync(context, executedContext, auditAttr, stopwatch.ElapsedMilliseconds);
-        }
+        var httpContext = context.HttpContext;
+        httpContext.Items[AuditStateKey] = new AuditOperationState(
+            auditAttr,
+            context.Controller.GetType().Name,
+            context.ActionDescriptor.DisplayName,
+            context.RouteData.Values.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value?.ToString()),
+            ResolveAuditUsername(httpContext, context.ActionArguments),
+            Stopwatch.GetTimestamp());
+
+        await next();
     }
 
-    private async Task TryWriteAuditAsync(
-        ActionExecutingContext context,
-        ActionExecutedContext? executedContext,
-        AuditOperationAttribute attr,
-        long durationMs)
+    public async Task OnResultExecutionAsync(
+        ResultExecutingContext context,
+        ResultExecutionDelegate next)
     {
+        var executed = await next();
+        await TryWriteOnceAsync(
+            context.HttpContext,
+            context.HttpContext.Response.StatusCode,
+            executed.Exception,
+            context.HttpContext.RequestAborted);
+    }
+
+    public async Task OnExceptionAsync(ExceptionContext context)
+    {
+        await TryWriteOnceAsync(
+            context.HttpContext,
+            StatusCodes.Status500InternalServerError,
+            context.Exception,
+            CancellationToken.None);
+    }
+
+    private async Task TryWriteOnceAsync(
+        HttpContext httpContext,
+        int statusCode,
+        Exception? exception,
+        CancellationToken cancellationToken)
+    {
+        if (!httpContext.Items.TryGetValue(AuditStateKey, out var stateValue) ||
+            stateValue is not AuditOperationState state ||
+            httpContext.Items.ContainsKey(AuditWrittenKey))
+        {
+            return;
+        }
+
+        httpContext.Items[AuditWrittenKey] = true;
+
         try
         {
-            var httpContext = context.HttpContext;
-            var statusCode = httpContext.Response.StatusCode;
-            var level = ResolveLevel(statusCode, executedContext?.Exception);
-
-            var routeValues = context.RouteData.Values
-                .ToDictionary(k => k.Key, v => v.Value?.ToString());
+            var level = ResolveLevel(statusCode, exception);
 
             var detailsPayload = new
             {
-                operation = attr.Operation,
-                resource = attr.Resource,
-                controller = context.Controller.GetType().Name,
-                action = context.ActionDescriptor.DisplayName,
-                routeValues,
-                error = executedContext?.Exception == null
+                operation = state.Attribute.Operation,
+                resource = state.Attribute.Resource,
+                controller = state.Controller,
+                action = state.Action,
+                routeValues = state.RouteValues,
+                error = exception == null
                     ? null
                     : SensitiveLogFormatter.SanitizeMessage(
-                        executedContext.Exception.Message,
-                        executedContext.Exception.GetType().Name)
+                        exception.Message,
+                        exception.GetType().Name)
             };
 
-            var username = ResolveAuditUsername(httpContext, context.ActionArguments);
-
-            await _auditTrail.WriteAsync(new AuditTrailWriteCommand(
+            var command = new AuditTrailWriteCommand(
                 AuditLogSource.BackendRequest,
                 level,
-                $"controller.{attr.Operation}",
-                username,
+                $"controller.{state.Attribute.Operation}",
+                state.Username,
                 httpContext.Request.Method,
                 httpContext.Request.Path.Value,
                 httpContext.Request.QueryString.HasValue ? httpContext.Request.QueryString.Value : null,
                 statusCode,
-                durationMs,
+                (long)Stopwatch.GetElapsedTime(state.StartedTimestamp).TotalMilliseconds,
                 httpContext.Connection.RemoteIpAddress?.ToString(),
                 httpContext.Request.Headers.UserAgent.ToString(),
                 ResolveTraceId(httpContext),
                 httpContext.Request.Headers["X-Client-Id"].FirstOrDefault(),
                 httpContext.Request.Headers["X-Frontend-Route"].FirstOrDefault(),
                 JsonSerializer.Serialize(detailsPayload, JsonOptions),
-                DateTime.UtcNow));
+                DateTime.UtcNow);
+
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var auditTrail = scope.ServiceProvider.GetRequiredService<IAuditTrailAppService>();
+            await auditTrail.WriteAsync(command, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "写入控制器审计日志失败: {Path}", context.HttpContext.Request.Path);
+            _logger.LogWarning(ex, "写入控制器审计日志失败: {Path}", httpContext.Request.Path);
         }
     }
 
