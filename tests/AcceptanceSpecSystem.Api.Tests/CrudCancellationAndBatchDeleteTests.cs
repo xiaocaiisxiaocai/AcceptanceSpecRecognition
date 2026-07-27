@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 using MySqlConnector;
+using Xunit.Abstractions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -34,10 +35,14 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
     };
 
     private readonly ApiWebApplicationFactory _factory;
+    private readonly ITestOutputHelper _output;
 
-    public CrudCancellationAndBatchDeleteTests(ApiWebApplicationFactory factory)
+    public CrudCancellationAndBatchDeleteTests(
+        ApiWebApplicationFactory factory,
+        ITestOutputHelper output)
     {
         _factory = factory;
+        _output = output;
     }
 
     [Theory]
@@ -560,6 +565,42 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
         result.SucceededIds.Should().Equal(customerId);
         (await db.DocumentTemplates.AnyAsync(item => item.Id == template.Id)).Should().BeFalse();
         (await db.DocumentTemplateRegions.AnyAsync(item => item.Id == regionId)).Should().BeFalse();
+    }
+
+    [MySqlSmokeFact]
+    public async Task MySql真实环境应允许500项主数据单事务批删()
+    {
+        await using var database = await MySqlEmbeddingCacheTestDatabase.CreateAsync();
+        _output.WriteLine($"MySQL测试库: {database.DatabaseName}");
+        await database.MigrateAsync();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddScoped(_ => database.CreateDbContext());
+        services.AddDataRepositories();
+        await using var serviceProvider = services.BuildServiceProvider();
+        await using var serviceScope = serviceProvider.CreateAsyncScope();
+        var db = serviceScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customers = Enumerable.Range(1, 500)
+            .Select(index => new Customer
+            {
+                Name = $"task12-mysql-500-{index:D3}-{Guid.NewGuid():N}",
+                CreatedAt = DateTime.UtcNow
+            })
+            .ToArray();
+        db.Customers.AddRange(customers);
+        await db.SaveChangesAsync();
+        var ids = customers.Select(customer => customer.Id).ToArray();
+
+        var result = await new CustomerAppService(
+                serviceScope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                null!,
+                NullLogger<CustomerAppService>.Instance)
+            .BatchDeleteAsync(ids);
+
+        result.SucceededIds.Should().Equal(ids);
+        result.Failures.Should().BeEmpty();
+        (await db.Customers.CountAsync(customer => ids.Contains(customer.Id))).Should().Be(0);
     }
 
     private static TController WithUser<TController>(TController controller)

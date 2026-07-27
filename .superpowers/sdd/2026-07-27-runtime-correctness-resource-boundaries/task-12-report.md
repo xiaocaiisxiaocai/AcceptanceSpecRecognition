@@ -163,7 +163,8 @@ dotnet test ...Api.Tests.csproj -c Debug --no-build --no-restore --filter "Fully
 
 ### Task 12 定向
 
-- `CrudCancellationAndBatchDeleteTests`：50/50。
+- `CrudCancellationAndBatchDeleteTests`（默认门禁关闭）：50 pass / 1 skip。
+- `MySql真实环境应允许500项主数据单事务批删`（门禁开启）：1/1。
 - `DatabaseConstraintClassifierTests + EmbeddingCacheRepositoryTests`：21/21。
 
 ### 受影响 API 回归
@@ -202,15 +203,18 @@ git diff --check
 
 ## 环境门禁与已知关注
 
-1. 真实 MySQL 合约测试：
+1. 真实 MySQL 500-ID 批删合约测试：
 
    ```text
-   dotnet test tests\AcceptanceSpecSystem.Data.Tests\AcceptanceSpecSystem.Data.Tests.csproj -c Debug --no-build --no-restore --filter "FullyQualifiedName~MySqlProductionContractTests" --nologo
+   dotnet test tests\AcceptanceSpecSystem.Api.Tests\AcceptanceSpecSystem.Api.Tests.csproj -c Debug --no-restore --filter "FullyQualifiedName~MySql真实环境应允许500项主数据单事务批删" --nologo
    ```
 
-   结果为 0 pass / 1 skip；当前环境未提供隔离 MySQL 测试连接配置。因此本报告只声明
-   MySQL 1451/1217/1062 provider-code 分类自动测试通过，不声明真实 MySQL 500-ID
-   执行计划、参数包大小或 FK race 已在本机验证。
+   本地 `mysqld` 的门禁结果为 1 pass / 0 fail / 0 skip。测试只创建唯一命名的
+   `acceptance_spec_test_*` 隔离 schema，迁移后插入并通过真实应用服务一次批删
+   500 个 Customer，验证结果顺序、零逐项失败和数据库零残留；`await using`
+   退出时执行 `DROP DATABASE IF EXISTS`，隔离 schema 已清理。连接配置只临时注入
+   测试进程并在 `finally` 清除，报告、ledger 和提交均不记录凭据或连接串。
+   本证据不延伸声称真实 FK race 已验证。
 
 2. 一次组合测试复跑时，全机只剩约 340 MiB 可用内存，VSTest 进程以
    `System.OutOfMemoryException` 中止；这不是测试断言失败。只终止了可自动重建的
@@ -219,4 +223,4 @@ git diff --check
    上述门禁均通过。
 
 3. 本任务按 brief 只运行定向和受影响回归，没有声称执行 .NET 全量测试、真实
-   MySQL smoke、push、merge、部署或生产验证。
+   FK race、push、merge、部署或生产验证。
