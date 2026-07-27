@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.ExceptionServices;
 using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -13,7 +14,7 @@ public interface IFileCompareAppService
         FileCompareUploadDocument fileB,
         CancellationToken cancellationToken = default);
 
-    Task<FileComparePreviewResponse> PreviewAsync(
+    Task<FileComparePreviewOperation> PreviewAsync(
         SpecAccessContext scope,
         FileComparePreviewRequest request,
         CancellationToken cancellationToken = default);
@@ -73,16 +74,26 @@ public sealed class FileCompareAppService : IFileCompareAppService
         };
     }
 
-    public async Task<FileComparePreviewResponse> PreviewAsync(
+    public async Task<FileComparePreviewOperation> PreviewAsync(
         SpecAccessContext scope,
         FileComparePreviewRequest request,
         CancellationToken cancellationToken = default)
     {
         var (fileA, fileB) = await LoadPairAsync(scope, request, cancellationToken);
-        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
+        var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
             ResourceWorkload.DocumentParsing, cancellationToken);
-        var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
-        return ToPreviewResponse(result, request.IncludeUnchanged, cancellationToken);
+        try
+        {
+            var result = await _compareService.CompareAsync(fileA, fileB, cancellationToken);
+            return new FileComparePreviewOperation(
+                ToPreviewResponse(result, request.IncludeUnchanged, cancellationToken),
+                resourceLease);
+        }
+        catch
+        {
+            resourceLease.Dispose();
+            throw;
+        }
     }
 
     public async Task<FileCompareDownloadResult> DownloadAsync(
@@ -296,7 +307,21 @@ public sealed record FileCompareDownloadResult(
     string ContentType,
     string FileName);
 
-internal sealed class FileCompareResultWriteStream(
+public sealed class FileComparePreviewOperation(
+    FileComparePreviewResponse response,
+    ResourceBudgetLease resourceLease) : IDisposable
+{
+    private int _disposed;
+    public FileComparePreviewResponse Response { get; } = response;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            resourceLease.Dispose();
+    }
+}
+
+public sealed class FileCompareResultWriteStream(
     Stream inner,
     IResourceBudgetGovernor resourceBudgetGovernor) : Stream
 {
@@ -341,9 +366,10 @@ internal sealed class FileCompareResultWriteStream(
     public override void SetLength(long value) => throw new NotSupportedException();
 }
 
-internal sealed class LeaseOwnedReadStream(Stream inner, TemporaryFileLease lease) : Stream
+public sealed class LeaseOwnedReadStream(Stream inner, TemporaryFileLease lease) : Stream
 {
-    private int _disposed;
+    private readonly object _disposeGate = new();
+    private Task? _disposeTask;
     public override bool CanRead => inner.CanRead;
     public override bool CanSeek => inner.CanSeek;
     public override bool CanWrite => false;
@@ -356,21 +382,47 @@ internal sealed class LeaseOwnedReadStream(Stream inner, TemporaryFileLease leas
     public override void Flush() { }
     protected override void Dispose(bool disposing)
     {
-        if (disposing && Interlocked.Exchange(ref _disposed, 1) == 0)
-        {
-            inner.Dispose();
-            lease.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        }
+        if (disposing)
+            GetOrCreateDisposeTask(disposeInnerAsync: false).GetAwaiter().GetResult();
         base.Dispose(disposing);
     }
-    public override async ValueTask DisposeAsync()
+
+    public override ValueTask DisposeAsync() =>
+        new(GetOrCreateDisposeTask(disposeInnerAsync: true));
+
+    private Task GetOrCreateDisposeTask(bool disposeInnerAsync)
     {
-        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+        lock (_disposeGate)
+            return _disposeTask ??= DisposeCoreAsync(disposeInnerAsync);
+    }
+
+    private async Task DisposeCoreAsync(bool disposeInnerAsync)
+    {
+        List<Exception>? failures = null;
+        try
         {
-            await inner.DisposeAsync();
+            if (disposeInnerAsync)
+                await inner.DisposeAsync();
+            else
+                inner.Dispose();
+        }
+        catch (Exception exception)
+        {
+            (failures ??= []).Add(exception);
+        }
+        try
+        {
             await lease.DisposeAsync();
         }
+        catch (Exception exception)
+        {
+            (failures ??= []).Add(exception);
+        }
         GC.SuppressFinalize(this);
+        if (failures is [var single])
+            ExceptionDispatchInfo.Capture(single).Throw();
+        if (failures is { Count: > 1 })
+            throw new AggregateException(failures);
     }
     public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     public override void SetLength(long value) => throw new NotSupportedException();

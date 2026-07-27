@@ -108,6 +108,10 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
     {
         ThrowIfDisposed();
         ValidateRequestId(requestId);
+        var initializationName =
+            $".init-{requestId}-{Guid.NewGuid():N}";
+        using var initializationClaim = TryCreateCleanupClaim(initializationName)
+            ?? throw new IOException("无法取得临时资源初始化所有权");
         SafeFileHandle? directory = null;
         SafeFileHandle? marker = null;
         using var securityDescriptor = CreateRestrictedSecurityDescriptor();
@@ -115,7 +119,7 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
         {
             directory = OpenRelative(
                 _root,
-                requestId,
+                initializationName,
                 Delete | FileListDirectory | FileTraverse | FileAddFile |
                 FileReadAttributes | Synchronize,
                 FileShareRead | FileShareWrite | FileShareDelete,
@@ -129,7 +133,7 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
                 directory,
                 MarkerName,
                 FileReadData | FileWriteData | FileReadAttributes | FileWriteAttributes | Synchronize,
-                FileShareRead,
+                FileShareRead | FileShareWrite | FileShareDelete,
                 FileCreate,
                 FileNonDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
             EnsureRegularFileIsSafe(marker);
@@ -139,6 +143,18 @@ internal sealed class WindowsNativeTemporaryFileSystem : INativeTemporaryFileSys
             RandomAccess.FlushToDisk(marker);
             SetLastWrite(marker, createdAt);
             hook?.AfterMarkerCreated();
+            hook?.BeforeRequestDirectoryPublished(requestId);
+            marker.Dispose();
+            marker = null;
+            RenameRelative(directory, _root, requestId);
+            marker = OpenRelative(
+                directory,
+                MarkerName,
+                FileReadData | FileWriteData | FileReadAttributes | FileWriteAttributes | Synchronize,
+                FileShareRead,
+                FileOpen,
+                FileNonDirectoryFile | FileOpenReparsePoint | FileSynchronousIoNonAlert);
+            EnsureRegularFileIsSafe(marker);
 
             var ownedDirectory = directory;
             var ownedMarker = marker;

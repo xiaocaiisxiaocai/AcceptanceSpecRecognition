@@ -21,6 +21,7 @@ internal interface IFileCompareTemporaryStorageFaultHook
     void AfterRequestDirectoryCreated() { }
     void BeforeMarkerFlush() { }
     void AfterMarkerCreated() { }
+    void BeforeRequestDirectoryPublished(string requestId) { }
     void AfterCleanupDirectoryOpened(string requestId) { }
     void BeforeCleanupDirectory() { }
     void BeforeRequestDirectoryRename(string requestId) { }

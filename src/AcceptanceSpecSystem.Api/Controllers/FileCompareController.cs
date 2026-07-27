@@ -2,8 +2,10 @@ using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
 
@@ -14,18 +16,23 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 [Authorize]
 public class FileCompareController : BaseApiController
 {
+    private static readonly JsonSerializerOptions PreviewJsonOptions =
+        new(JsonSerializerDefaults.Web);
     private readonly IFileCompareAppService _appService;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IFileCompareTemporaryStorage _temporaryStorage;
+    private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
 
     public FileCompareController(
         IFileCompareAppService appService,
         IAuthDataScopeService authDataScopeService,
-        IFileCompareTemporaryStorage temporaryStorage)
+        IFileCompareTemporaryStorage temporaryStorage,
+        IResourceBudgetGovernor resourceBudgetGovernor)
     {
         _appService = appService;
         _authDataScopeService = authDataScopeService;
         _temporaryStorage = temporaryStorage;
+        _resourceBudgetGovernor = resourceBudgetGovernor;
     }
 
     [HttpPost("upload")]
@@ -77,22 +84,47 @@ public class FileCompareController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiResponse<FileComparePreviewResponse>), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<ActionResult<ApiResponse<FileComparePreviewResponse>>> Preview(
+    public async Task<IActionResult> Preview(
         [FromBody] FileComparePreviewRequest request,
         CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-            return Error<FileComparePreviewResponse>(401, "会话缺少用户上下文");
+            return ErrorResult(401, "会话缺少用户上下文");
 
+        TemporaryFileLease? output = null;
         try
         {
-            var result = await _appService.PreviewAsync(scope.ToAccessContext(), request, cancellationToken);
-            return Success(result);
+            using var operation = await _appService.PreviewAsync(
+                scope.ToAccessContext(), request, cancellationToken);
+            output = await _temporaryStorage.CreateOutputAsync(cancellationToken);
+            await using (var raw = output.OpenWrite())
+            await using (var bounded = new FileCompareResultWriteStream(
+                             raw,
+                             _resourceBudgetGovernor))
+            {
+                await JsonSerializer.SerializeAsync(
+                    bounded,
+                    ApiResponse<FileComparePreviewResponse>.Success(operation.Response),
+                    PreviewJsonOptions,
+                    cancellationToken);
+                await bounded.FlushAsync(cancellationToken);
+            }
+            var content = new LeaseOwnedReadStream(output.OpenRead(), output);
+            output = null;
+            return File(content, "application/json", enableRangeProcessing: false);
         }
         catch (ApplicationServiceException ex)
         {
-            return Error<FileComparePreviewResponse>(ex.Code, ex.Message);
+            if (output is not null)
+                await output.DisposeAsync();
+            return ErrorResult(ex.Code, ex.Message);
+        }
+        catch
+        {
+            if (output is not null)
+                await output.DisposeAsync();
+            throw;
         }
     }
 

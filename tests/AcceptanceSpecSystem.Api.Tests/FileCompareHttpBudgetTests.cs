@@ -58,6 +58,23 @@ public sealed class FileCompareHttpBudgetTests :
     }
 
     [Fact]
+    public async Task Preview_真实Json字节超过预算应返回完整Http和Json422()
+    {
+        var bytes = CreateWord("same");
+        var (a, b) = await UploadAsync(bytes, bytes);
+
+        var response = await _client.PostAsync(
+            "/api/file-compare/preview",
+            ApiClientJson.ToJsonContent(new { fileIdA = a, fileIdB = b }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/json");
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Code.Should().Be(422);
+        body.Message.Should().Contain("文件比较");
+    }
+
+    [Fact]
     public void OpenApi_应声明上传413及预览下载422()
     {
         GetStatuses(nameof(FileCompareController.Upload))
@@ -170,6 +187,176 @@ public sealed class FileCompareUploadLimitHttpTests :
             throw new NotSupportedException();
         public Task CleanupExpiredAsync(CancellationToken cancellationToken = default) =>
             Task.CompletedTask;
+    }
+}
+
+public sealed class FileComparePreviewSerializationLeaseTests :
+    IClassFixture<FileComparePreviewSerializationLeaseTests.SerializationFactory>
+{
+    private readonly SerializationFactory _factory;
+    private readonly HttpClient _client;
+
+    public FileComparePreviewSerializationLeaseTests(SerializationFactory factory)
+    {
+        _factory = factory;
+        _client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task Preview_解析Lease应持有到真实HttpJson序列化完成()
+    {
+        var bytes = CreateWord("same");
+        var (a, b) = await UploadAsync(bytes);
+        var preview = _client.PostAsync(
+            "/api/file-compare/preview",
+            ApiClientJson.ToJsonContent(new { fileIdA = a, fileIdB = b }));
+        var storage = _factory.Services.GetRequiredService<BlockingPreviewStorage>();
+        try
+        {
+            await storage.SerializationStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            using var scope = _factory.Services.CreateScope();
+            var governor = scope.ServiceProvider.GetRequiredService<IResourceBudgetGovernor>();
+            var competing = governor.AcquireAsync(ResourceWorkload.DocumentParsing).AsTask();
+            await Task.Delay(100);
+            competing.IsCompleted.Should().BeFalse(
+                "预览结果仍在写入受限 JSON 响应，解析资源不得提前让给下一请求");
+
+            storage.ContinueSerialization.TrySetResult();
+            using var response = await preview;
+            response.EnsureSuccessStatusCode();
+            using var acquired = await competing.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            storage.ContinueSerialization.TrySetResult();
+        }
+    }
+
+    private async Task<(int A, int B)> UploadAsync(byte[] bytes)
+    {
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(bytes), "fileA", "a.docx");
+        multipart.Add(new ByteArrayContent(bytes), "fileB", "b.docx");
+        using var response = await _client.PostAsync("/api/file-compare/upload", multipart);
+        response.EnsureSuccessStatusCode();
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        return (
+            json.Data.GetProperty("fileA").GetProperty("fileId").GetInt32(),
+            json.Data.GetProperty("fileB").GetProperty("fileId").GetInt32());
+    }
+
+    private static byte[] CreateWord(string text)
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(
+                   stream, WordprocessingDocumentType.Document, true))
+        {
+            var main = document.AddMainDocumentPart();
+            main.Document = new Document(new Body(new Paragraph(new Run(new Text(text)))));
+            main.Document.Save();
+        }
+        return stream.ToArray();
+    }
+
+    public sealed class SerializationFactory : ApiWebApplicationFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureAppConfiguration((_, configuration) =>
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["ResourceBudgets:MaxConcurrentDocumentParsers"] = "1"
+                }));
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IFileCompareTemporaryStorage>();
+                services.AddSingleton<FileCompareTemporaryStorage>();
+                services.AddSingleton<BlockingPreviewStorage>();
+                services.AddSingleton<IFileCompareTemporaryStorage>(
+                    provider => provider.GetRequiredService<BlockingPreviewStorage>());
+            });
+        }
+    }
+
+    public sealed class BlockingPreviewStorage(FileCompareTemporaryStorage inner)
+        : IFileCompareTemporaryStorage
+    {
+        public TaskCompletionSource SerializationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ContinueSerialization { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<TemporaryFileLease> StageUploadAsync(
+            Stream content,
+            long maxBytes,
+            CancellationToken cancellationToken = default) =>
+            inner.StageUploadAsync(content, maxBytes, cancellationToken);
+
+        public Task<TemporaryFileLease> CreateOutputAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<TemporaryFileLease>(
+                new BlockingOutputLease(SerializationStarted, ContinueSerialization));
+
+        public Task CleanupExpiredAsync(CancellationToken cancellationToken = default) =>
+            inner.CleanupExpiredAsync(cancellationToken);
+
+        private sealed class BlockingOutputLease(
+            TaskCompletionSource started,
+            TaskCompletionSource continueSerialization) : TemporaryFileLease
+        {
+            private readonly MemoryStream _content = new();
+            public override long Length => _content.Length;
+            public override string Sha256 => string.Empty;
+            public override Stream OpenRead() => new MemoryStream(_content.ToArray());
+            public override Stream OpenWrite() =>
+                new BlockingWriteStream(_content, started, continueSerialization.Task);
+            public override ValueTask DisposeAsync()
+            {
+                _content.Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        private sealed class BlockingWriteStream(
+            Stream inner,
+            TaskCompletionSource started,
+            Task continueSerialization) : Stream
+        {
+            private int _blocked;
+            public override bool CanRead => false;
+            public override bool CanSeek => false;
+            public override bool CanWrite => true;
+            public override long Length => inner.Length;
+            public override long Position
+            {
+                get => inner.Position;
+                set => throw new NotSupportedException();
+            }
+            public override void Flush() => inner.Flush();
+            public override Task FlushAsync(CancellationToken cancellationToken) =>
+                inner.FlushAsync(cancellationToken);
+            public override async ValueTask WriteAsync(
+                ReadOnlyMemory<byte> buffer,
+                CancellationToken cancellationToken = default)
+            {
+                if (Interlocked.Exchange(ref _blocked, 1) == 0)
+                {
+                    started.TrySetResult();
+                    await continueSerialization.WaitAsync(cancellationToken);
+                }
+                await inner.WriteAsync(buffer, cancellationToken);
+            }
+            public override void Write(byte[] buffer, int offset, int count) =>
+                inner.Write(buffer, offset, count);
+            public override int Read(byte[] buffer, int offset, int count) =>
+                throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) =>
+                throw new NotSupportedException();
+            public override void SetLength(long value) =>
+                throw new NotSupportedException();
+        }
     }
 }
 

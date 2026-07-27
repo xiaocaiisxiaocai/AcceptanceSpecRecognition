@@ -151,6 +151,83 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateOutput_标记持久化前目录只能以可接管Init名称存在()
+    {
+        var hook = new CreationNameProbeHook(_root);
+        var service = CreateService(hook);
+
+        await using var lease = await service.CreateOutputAsync();
+
+        hook.DirectoryNameAfterCreate.Should().MatchRegex(
+            @"^\.init-[0-9a-f]{32}-[0-9a-f]{32}$");
+        hook.DirectoryNameAfterMarker.Should().Be(hook.DirectoryNameAfterCreate);
+        Directory.EnumerateDirectories(_root)
+            .Select(Path.GetFileName)
+            .Count(name =>
+                name != null &&
+                name.Length == 32 &&
+                name.All(character => char.IsAsciiHexDigitLower(character)))
+            .Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupExpired_重启后应接管崩溃遗留Init目录(bool markerWasDurable)
+    {
+        Directory.CreateDirectory(_root);
+        var requestId = Guid.NewGuid().ToString("N");
+        var init = Path.Combine(
+            _root,
+            $".init-{requestId}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(init);
+        if (markerWasDurable)
+        {
+            File.WriteAllText(
+                Path.Combine(init, ".acceptance-file-compare"),
+                $"{requestId}:{Guid.NewGuid():N}");
+        }
+        var service = CreateService();
+
+        await service.CleanupExpiredAsync();
+
+        Directory.Exists(init).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CleanupExpired_崩溃遗留Init含未知条目时必须FailClosed保留()
+    {
+        Directory.CreateDirectory(_root);
+        var init = Path.Combine(
+            _root,
+            $".init-{Guid.NewGuid():N}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(init);
+        File.WriteAllText(Path.Combine(init, "unknown.txt"), "sentinel");
+        var service = CreateService();
+
+        var exception = await FluentActions.Awaiting(() => service.CleanupExpiredAsync())
+            .Should().ThrowAsync<FileCompareTemporaryCleanupException>();
+
+        exception.Which.FailureCount.Should().Be(1);
+        File.ReadAllText(Path.Combine(init, "unknown.txt")).Should().Be("sentinel");
+    }
+
+    [Fact]
+    public async Task CreateOutput_发布时同名被占用不得覆盖且应回滚Init()
+    {
+        var hook = new PublishCollisionHook(_root);
+        var service = CreateService(hook);
+
+        Func<Task> create = async () => await service.CreateOutputAsync();
+
+        await create.Should().ThrowAsync<System.ComponentModel.Win32Exception>()
+            .Where(exception => exception.NativeErrorCode == 183);
+        Directory.EnumerateDirectories(_root, ".init-*").Should().BeEmpty();
+        File.ReadAllText(Path.Combine(hook.CollisionDirectory!, "sentinel.txt"))
+            .Should().Be("replacement");
+    }
+
+    [Fact]
     public async Task CleanupExpired_单目录失败应继续并抛出不含路径的聚合异常()
     {
         var service = CreateService(new CleanupFirstFaultHook());
@@ -442,6 +519,39 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         Directory.EnumerateDirectories(_root).Should().BeEmpty();
     }
 
+    [Fact]
+    public void DownloadReadStream_同步释放内部流失败也必须释放Lease并稳定组合异常()
+    {
+        var lease = new DisposeFaultLease(new InvalidOperationException("lease-sync"));
+        var responseStream = new LeaseOwnedReadStream(
+            new DisposeFaultStream(new IOException("inner-sync")),
+            lease);
+
+        var exception = responseStream.Invoking(stream => stream.Dispose())
+            .Should().Throw<AggregateException>().Which;
+
+        lease.DisposeCount.Should().Be(1);
+        exception.InnerExceptions.Select(item => item.Message)
+            .Should().Equal("inner-sync", "lease-sync");
+    }
+
+    [Fact]
+    public async Task DownloadReadStream_异步释放内部流失败也必须释放Lease并稳定组合异常()
+    {
+        var lease = new DisposeFaultLease(new InvalidOperationException("lease-async"));
+        var responseStream = new LeaseOwnedReadStream(
+            new DisposeFaultStream(new IOException("inner-async")),
+            lease);
+
+        var exception = (await responseStream.Invoking(stream => stream.DisposeAsync().AsTask())
+                .Should().ThrowAsync<AggregateException>())
+            .Which;
+
+        lease.DisposeCount.Should().Be(1);
+        exception.InnerExceptions.Select(item => item.Message)
+            .Should().Equal("inner-async", "lease-async");
+    }
+
     private FileCompareTemporaryStorage CreateService(
         IFileCompareTemporaryStorageFaultHook? faultHook = null,
         int heartbeatSeconds = 60)
@@ -496,6 +606,33 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         }
     }
 
+    private sealed class DisposeFaultStream(Exception exception) : MemoryStream
+    {
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                throw exception;
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync() => ValueTask.FromException(exception);
+    }
+
+    private sealed class DisposeFaultLease(Exception exception) : TemporaryFileLease
+    {
+        public int DisposeCount { get; private set; }
+        public override long Length => 0;
+        public override string Sha256 => string.Empty;
+        public override Stream OpenRead() => throw new NotSupportedException();
+        public override Stream OpenWrite() => throw new NotSupportedException();
+
+        public override ValueTask DisposeAsync()
+        {
+            DisposeCount++;
+            return ValueTask.FromException(exception);
+        }
+    }
+
     private sealed class TestEnvironment : IWebHostEnvironment
     {
         public string ApplicationName { get; set; } = "tests";
@@ -532,6 +669,36 @@ public sealed class FileCompareTemporaryStorageTests : IDisposable
         {
             if (stage == CreationFailureStage.Flush)
                 throw new IOException("injected");
+        }
+    }
+
+    private sealed class CreationNameProbeHook(string root)
+        : IFileCompareTemporaryStorageFaultHook
+    {
+        public string? DirectoryNameAfterCreate { get; private set; }
+        public string? DirectoryNameAfterMarker { get; private set; }
+
+        public void AfterRequestDirectoryCreated() =>
+            DirectoryNameAfterCreate = Path.GetFileName(
+                Directory.EnumerateDirectories(root).Single());
+
+        public void AfterMarkerCreated() =>
+            DirectoryNameAfterMarker = Path.GetFileName(
+                Directory.EnumerateDirectories(root).Single());
+    }
+
+    private sealed class PublishCollisionHook(string root)
+        : IFileCompareTemporaryStorageFaultHook
+    {
+        public string? CollisionDirectory { get; private set; }
+
+        public void BeforeRequestDirectoryPublished(string requestId)
+        {
+            CollisionDirectory = Path.Combine(root, requestId);
+            Directory.CreateDirectory(CollisionDirectory);
+            File.WriteAllText(
+                Path.Combine(CollisionDirectory, "sentinel.txt"),
+                "replacement");
         }
     }
 
