@@ -278,7 +278,7 @@ public class SpecsController : BaseApiController
         {
             var deleted = await _acceptanceSpecAppService.DeleteAsync(scope.ToAccessContext(), id, cancellationToken);
             if (!deleted)
-                return NotFound(ApiResponse.Error(404, "验收规格不存在"));
+                return Error(404, "验收规格不存在");
 
             return Success("删除验收规格成功");
         }

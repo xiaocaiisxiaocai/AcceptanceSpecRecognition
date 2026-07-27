@@ -71,7 +71,9 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
             ? "请求参数验证失败"
             : string.Join("；", messages);
 
-        return new BadRequestObjectResult(ApiResponse.Error(StatusCodes.Status400BadRequest, message));
+        var traceId = context.HttpContext.Items[RequestTracingMiddleware.TraceIdItemKey] as string;
+        return new BadRequestObjectResult(
+            ApiResponse.Error(StatusCodes.Status400BadRequest, message, traceId));
     };
 });
 

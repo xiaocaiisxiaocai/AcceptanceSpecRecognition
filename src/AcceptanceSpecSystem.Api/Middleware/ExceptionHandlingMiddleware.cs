@@ -2,6 +2,7 @@
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Core.Diagnostics;
 
 namespace AcceptanceSpecSystem.Api.Middleware;
@@ -78,7 +79,10 @@ public class ExceptionHandlingMiddleware
         context.Response.ContentType = "application/json; charset=utf-8";
         context.Response.StatusCode = StatusCodes.Status408RequestTimeout;
 
-        var apiResponse = ApiResponse.Error(StatusCodes.Status408RequestTimeout, "请求已取消");
+        var apiResponse = ApiResponse.Error(
+            StatusCodes.Status408RequestTimeout,
+            "请求已取消",
+            ResolveTraceId(context));
         await context.Response.WriteAsync(JsonSerializer.Serialize(apiResponse, JsonOptions));
     }
 
@@ -99,19 +103,27 @@ public class ExceptionHandlingMiddleware
         var response = context.Response;
         response.ContentType = "application/json; charset=utf-8";
 
-        var (statusCode, code, message) = exception switch
+        var (code, message) = exception switch
         {
-            ArgumentException argEx => (HttpStatusCode.BadRequest, 400, SensitiveLogFormatter.SanitizeMessage(argEx.Message, "请求参数错误")),
-            KeyNotFoundException => (HttpStatusCode.NotFound, 404, "请求的资源不存在"),
-            UnauthorizedAccessException => (HttpStatusCode.Unauthorized, 401, "未授权访问"),
-            InvalidOperationException opEx => (HttpStatusCode.BadRequest, 400, SensitiveLogFormatter.SanitizeMessage(opEx.Message, "请求无效")),
-            _ => (HttpStatusCode.InternalServerError, 500, "服务器内部错误，请稍后重试")
+            ApplicationServiceException appEx => (appEx.Code, appEx.Message),
+            ArgumentException argEx => (400, SensitiveLogFormatter.SanitizeMessage(argEx.Message, "请求参数错误")),
+            KeyNotFoundException => (404, "请求的资源不存在"),
+            UnauthorizedAccessException => (401, "未授权访问"),
+            InvalidOperationException opEx => (400, SensitiveLogFormatter.SanitizeMessage(opEx.Message, "请求无效")),
+            _ => (500, "服务器内部错误，请稍后重试")
         };
 
-        response.StatusCode = (int)statusCode;
+        response.StatusCode = ApiHttpStatusMapper.Resolve(code);
 
-        var apiResponse = ApiResponse.Error(code, message);
+        var apiResponse = ApiResponse.Error(code, message, ResolveTraceId(context));
         await response.WriteAsync(JsonSerializer.Serialize(apiResponse, JsonOptions));
+    }
+
+    private static string? ResolveTraceId(HttpContext context)
+    {
+        return context.Items.TryGetValue(RequestTracingMiddleware.TraceIdItemKey, out var traceId)
+            ? traceId as string
+            : null;
     }
 
 }

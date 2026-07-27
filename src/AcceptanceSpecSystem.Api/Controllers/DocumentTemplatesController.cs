@@ -65,6 +65,6 @@ public sealed class DocumentTemplatesController : BaseApiController
         var deleted = await _appService.DeleteAsync(id, cancellationToken);
         return deleted
             ? Success("删除结构模板成功")
-            : NotFound(ApiResponse.Error(404, "结构模板不存在"));
+            : Error(404, "结构模板不存在");
     }
 }

@@ -151,10 +151,6 @@ public class AiServicesController : BaseApiController
         CancellationToken cancellationToken = default)
     {
         try { return Success(await _configuration.UpdateAsync(id, request, cancellationToken), "更新成功"); }
-        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
-        {
-            return Conflict(ApiResponse<AiServiceConfigDto>.Error(ex.Code, ex.Message));
-        }
         catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
@@ -180,10 +176,6 @@ public class AiServicesController : BaseApiController
                 cancellationToken);
             return Success(item, request.IsDisabled ? "已禁用" : "已启用");
         }
-        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
-        {
-            return Conflict(ApiResponse<AiServiceConfigDto>.Error(ex.Code, ex.Message));
-        }
         catch (ApplicationServiceException ex) { return Error<AiServiceConfigDto>(ex.Code, ex.Message); }
     }
 
@@ -200,10 +192,6 @@ public class AiServicesController : BaseApiController
         CancellationToken cancellationToken = default)
     {
         try { await _configuration.DeleteAsync(id, cancellationToken); return Success("删除成功"); }
-        catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
-        {
-            return Conflict(ApiResponse.Error(ex.Code, ex.Message));
-        }
         catch (ApplicationServiceException ex) { return Error(ex.Code, ex.Message); }
     }
 

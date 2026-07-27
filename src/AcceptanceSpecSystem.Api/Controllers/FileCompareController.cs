@@ -85,7 +85,7 @@ public class FileCompareController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
-            return BadRequest(ApiResponse.Error(401, "会话缺少用户上下文"));
+            return ErrorResult(401, "会话缺少用户上下文");
 
         try
         {
@@ -94,7 +94,7 @@ public class FileCompareController : BaseApiController
         }
         catch (ApplicationServiceException ex)
         {
-            return BadRequest(ApiResponse.Error(ex.Code, ex.Message));
+            return ErrorResult(ex.Code, ex.Message);
         }
     }
 

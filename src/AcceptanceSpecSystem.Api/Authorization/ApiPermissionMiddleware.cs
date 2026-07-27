@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -56,7 +57,11 @@ public sealed class ApiPermissionMiddleware
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             context.Response.ContentType = "application/json; charset=utf-8";
-            var payload = ApiResponse.Error(403, $"无权限访问，缺少权限：{requiredPermission}");
+            var traceId = context.Items[RequestTracingMiddleware.TraceIdItemKey] as string;
+            var payload = ApiResponse.Error(
+                403,
+                $"无权限访问，缺少权限：{requiredPermission}",
+                traceId);
             await context.Response.WriteAsync(JsonSerializer.Serialize(payload, JsonOptions));
             return;
         }

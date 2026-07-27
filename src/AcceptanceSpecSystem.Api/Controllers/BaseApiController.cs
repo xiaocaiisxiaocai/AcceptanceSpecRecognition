@@ -1,4 +1,5 @@
 ﻿using AcceptanceSpecSystem.Api.Models;
+using AcceptanceSpecSystem.Api.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AcceptanceSpecSystem.Api.Controllers;
@@ -32,7 +33,8 @@ public abstract class BaseApiController : ControllerBase
     /// </summary>
     protected ActionResult<ApiResponse<T>> Error<T>(int code, string message)
     {
-        return BadRequest(ApiResponse<T>.Error(code, message));
+        var status = ApiHttpStatusMapper.Resolve(code);
+        return StatusCode(status, ApiResponse<T>.Error(code, message, ResolveTraceId()));
     }
 
     /// <summary>
@@ -40,7 +42,17 @@ public abstract class BaseApiController : ControllerBase
     /// </summary>
     protected ActionResult<ApiResponse> Error(int code, string message)
     {
-        return BadRequest(ApiResponse.Error(code, message));
+        var status = ApiHttpStatusMapper.Resolve(code);
+        return StatusCode(status, ApiResponse.Error(code, message, ResolveTraceId()));
+    }
+
+    /// <summary>
+    /// 为文件等 IActionResult 分支返回统一错误响应
+    /// </summary>
+    protected ObjectResult ErrorResult(int code, string message)
+    {
+        var status = ApiHttpStatusMapper.Resolve(code);
+        return StatusCode(status, ApiResponse.Error(code, message, ResolveTraceId()));
     }
 
     /// <summary>
@@ -48,6 +60,18 @@ public abstract class BaseApiController : ControllerBase
     /// </summary>
     protected ActionResult<ApiResponse<T>> NotFoundResult<T>(string message = "请求的资源不存在")
     {
-        return NotFound(ApiResponse<T>.Error(404, message));
+        return StatusCode(
+            ApiHttpStatusMapper.Resolve(404),
+            ApiResponse<T>.Error(404, message, ResolveTraceId()));
+    }
+
+    /// <summary>
+    /// 获取请求跟踪标识
+    /// </summary>
+    protected string? ResolveTraceId()
+    {
+        return HttpContext.Items.TryGetValue(RequestTracingMiddleware.TraceIdItemKey, out var traceId)
+            ? traceId as string
+            : null;
     }
 }

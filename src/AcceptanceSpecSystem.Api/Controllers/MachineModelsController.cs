@@ -144,14 +144,12 @@ public class MachineModelsController : BaseApiController
         {
             var deleted = await _machineModelAppService.DeleteAsync(id, cancellationToken);
             if (!deleted)
-                return NotFound(ApiResponse.Error(404, "机型不存在"));
+                return Error(404, "机型不存在");
 
             return Success("删除机型成功");
         }
         catch (ApplicationServiceException ex)
         {
-            if (ex.Code == StatusCodes.Status409Conflict)
-                return Conflict(ApiResponse.Error(ex.Code, ex.Message));
             return Error(ex.Code, ex.Message);
         }
     }
@@ -176,7 +174,7 @@ public class MachineModelsController : BaseApiController
         }
         catch (ApplicationServiceException ex) when (ex.Code == StatusCodes.Status409Conflict)
         {
-            return Conflict(ApiResponse<BatchDeleteResponseDto>.Error(ex.Code, ex.Message));
+            return Error<BatchDeleteResponseDto>(ex.Code, ex.Message);
         }
         var response = new BatchDeleteResponseDto
         {

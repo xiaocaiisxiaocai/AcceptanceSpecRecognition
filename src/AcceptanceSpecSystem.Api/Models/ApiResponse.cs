@@ -22,6 +22,11 @@ public class ApiResponse<T>
     public T? Data { get; set; }
 
     /// <summary>
+    /// 请求跟踪标识
+    /// </summary>
+    public string? TraceId { get; set; }
+
+    /// <summary>
     /// 创建成功响应
     /// </summary>
     public static ApiResponse<T> Success(T? data, string message = "操作成功")
@@ -37,13 +42,14 @@ public class ApiResponse<T>
     /// <summary>
     /// 创建错误响应
     /// </summary>
-    public static ApiResponse<T> Error(int code, string message)
+    public static ApiResponse<T> Error(int code, string message, string? traceId)
     {
         return new ApiResponse<T>
         {
             Code = code,
             Message = message,
-            Data = default
+            Data = default,
+            TraceId = traceId
         };
     }
 }
@@ -69,13 +75,14 @@ public class ApiResponse : ApiResponse<object>
     /// <summary>
     /// 创建错误响应
     /// </summary>
-    public new static ApiResponse Error(int code, string message)
+    public new static ApiResponse Error(int code, string message, string? traceId)
     {
         return new ApiResponse
         {
             Code = code,
             Message = message,
-            Data = null
+            Data = null,
+            TraceId = traceId
         };
     }
 }

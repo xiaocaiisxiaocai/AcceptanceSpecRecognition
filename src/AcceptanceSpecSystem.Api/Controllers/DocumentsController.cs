@@ -246,7 +246,7 @@ public class DocumentsController : BaseApiController
         }
         catch (ApplicationServiceException ex) when (ex.Code == 404)
         {
-            return NotFound(ApiResponse.Error(404, ex.Message));
+            return Error(404, ex.Message);
         }
         catch (ApplicationServiceException ex)
         {

@@ -45,11 +45,11 @@ public class MatchingExecutionController : MatchingApiControllerBase
         }
         catch (MatchingApiException ex) when (ex.IsNotFound)
         {
-            return NotFound(ApiResponse.Error(404, ex.Message));
+            return ErrorResult(404, ex.Message);
         }
         catch (MatchingApiException ex)
         {
-            return BadRequest(ApiResponse.Error(ex.Code, ex.Message));
+            return ErrorResult(ex.Code, ex.Message);
         }
     }
 
