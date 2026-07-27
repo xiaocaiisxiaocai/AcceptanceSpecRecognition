@@ -250,8 +250,6 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
 
     public sealed class PassthroughSafeAiHttpClientFactory : ISafeAiHttpClientFactory
     {
-        public long Generation => 1;
-
         public List<(AcceptanceSpecSystem.Core.AI.Models.AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
 
         public HttpClient CreateClient(

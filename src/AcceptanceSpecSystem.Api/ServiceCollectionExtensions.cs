@@ -117,15 +117,6 @@ public static class ApiServiceCollectionExtensions
             .ValidateOnStart();
         services.Configure<SemanticKernelOptions>(
             configuration.GetSection(SemanticKernelOptions.SectionName));
-        services.AddOptions<AiEndpointSecurityOptions>()
-            .Bind(configuration.GetSection(AiEndpointSecurityOptions.SectionName))
-            .Validate(
-                options => options.PrivateNetworkAllowlist.All(rule =>
-                    !string.IsNullOrWhiteSpace(rule.Cidr) &&
-                    rule.Ports.Count > 0 &&
-                    rule.Ports.All(port => port is >= 1 and <= 65535)),
-                "AI 内网白名单必须同时配置有效 CIDR 和端口")
-            .ValidateOnStart();
 
         // ── 认证与授权 ──
         services.AddScoped<IAuthTokenService, AuthTokenService>();
@@ -191,11 +182,6 @@ public static class ApiServiceCollectionExtensions
             sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
         services.AddSingleton<IHostedService>(sp =>
             sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
-        services.AddSingleton<IAiDnsResolver, AiDnsResolver>();
-        services.AddSingleton<IAiEndpointAccessPolicy, AiEndpointAccessPolicy>();
-        services.AddSingleton<IAiSocketFactory, AiSocketFactory>();
-        services.AddSingleton<IAiSocketConnectOperation, AiSocketConnectOperation>();
-        services.AddSingleton<IAiSocketConnector, AiSocketConnector>();
         services.AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>();
         services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
         services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();

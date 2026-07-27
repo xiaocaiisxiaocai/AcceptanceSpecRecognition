@@ -71,8 +71,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
             config.Endpoint,
             config.LlmModel,
             config.ApiKey,
-            config.DisableThinking,
-            _safeHttpClientFactory.Generation);
+            config.DisableThinking);
         return GetOrCreateCached(key, () => CreateChatCompletionServiceInternal(config));
     }
 
@@ -90,8 +89,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
             config.Endpoint,
             config.EmbeddingModel,
             config.ApiKey,
-            config.DisableThinking,
-            _safeHttpClientFactory.Generation);
+            config.DisableThinking);
         return GetOrCreateCached(key, () => CreateEmbeddingGeneratorInternal(config));
     }
 
@@ -303,10 +301,9 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         string? endpoint,
         string? model,
         string? apiKey,
-        bool disableThinking,
-        long policyGeneration)
+        bool disableThinking)
     {
-        return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}_{policyGeneration}";
+        return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}";
     }
 
     private static string RequireEndpoint(AiServiceConfigModel config)
@@ -370,9 +367,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (string.IsNullOrWhiteSpace(config.Endpoint))
             return "https://api.openai.com/v1";
 
-        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(
-            config.Endpoint,
-            allowPrivateNetwork: config.ServiceType == AiServiceType.Ollama || config.ServiceType == AiServiceType.LMStudio).TrimEnd('/');
+        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint).TrimEnd('/');
         if (config.ServiceType == AiServiceType.Ollama)
         {
             value = NormalizeOllamaBaseUrl(value);
@@ -387,9 +382,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(
-            endpoint,
-            allowPrivateNetwork: true).TrimEnd('/');
+        var value = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
 
         if (value.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
         {

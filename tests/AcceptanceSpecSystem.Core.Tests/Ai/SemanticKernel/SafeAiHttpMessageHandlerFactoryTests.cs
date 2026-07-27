@@ -1,157 +1,126 @@
 using System.Net;
-using System.Net.Security;
 using System.Net.Sockets;
-using System.Security.Authentication;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
-using System.Text;
+using System.Reflection;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
-using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Core.Tests.AI.SemanticKernel;
 
 [Collection("AI安全传输全局代理隔离")]
 public class SafeAiHttpMessageHandlerFactoryTests
 {
-    [Fact]
-    public async Task 安全客户端工厂_同提供商同Origin同策略代次应复用连接池()
+    [Theory]
+    [InlineData("http://models.example:8080/v1")]
+    [InlineData("http://models.internal:8080/v1")]
+    [InlineData("http://8.8.8.8:8080/v1")]
+    [InlineData("http://[2001:4860:4860::8888]:8080/v1")]
+    public async Task 安全Handler_结构合法且请求同Origin时不应按公网私网或IP版本区别拒绝(
+        string endpoint)
     {
-        var connector = new ReusableSocketConnector(
-            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
-            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.7")]),
-            connector);
-        using var firstClient = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080/v1");
-        using var secondClient = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://MODELS.internal.:8080/other");
+        var transport = new RecordingHandler();
+        using var handler = new ExactOriginGuardHandler(new Uri(endpoint), transport);
+        using var invoker = new HttpMessageInvoker(handler);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{endpoint}/models");
 
-        using var first = await firstClient.GetAsync("http://models.internal:8080/v1/models");
-        using var second = await secondClient.GetAsync("http://models.internal:8080/v1/embeddings");
-
-        first.StatusCode.Should().Be(HttpStatusCode.OK);
-        second.StatusCode.Should().Be(HttpStatusCode.OK);
-        connector.Addresses.Should().ContainSingle("同一隔离键应共享连接池，而不是重复建连");
-    }
-
-    [Fact]
-    public async Task 安全Handler_策略变化后旧客户端新请求应在写入复用连接前拒绝()
-    {
-        var monitor = new MutableOptionsMonitor<AiEndpointSecurityOptions>(PrivateNetworkOptions());
-        using var policy = new AiEndpointAccessPolicy(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.7")]),
-            monitor);
-        var connector = new ReusableSocketConnector(
-            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
-            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
-        using var factory = new SafeAiHttpMessageHandlerFactory(policy, connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        using var first = await client.GetAsync("http://models.internal:8080/v1/models");
-        monitor.Set(PrivateNetworkOptions());
-        var second = () => client.GetAsync("http://models.internal:8080/v1/models");
-
-        await second.Should().ThrowAsync<AiEndpointAccessException>()
-            .Where(exception => exception.Category == AiEndpointAccessFailureCategory.PolicyChanged);
-        connector.Stream.Should().NotBeNull();
-        connector.Stream!.ObservedRequestCount.Should().Be(1, "旧代次请求不得写入已复用连接");
-    }
-
-    [Fact]
-    public async Task 安全Handler_DNS重绑定为危险地址时不应把第二次地址交给Connector()
-    {
-        var resolver = new SequenceDnsResolver(
-            [IPAddress.Parse("10.20.1.8")],
-            [IPAddress.Parse("169.254.169.254")]);
-        var connector = new ScriptedSocketConnector(
-            SuccessResponse(),
-            SuccessResponse());
-        using var factory = CreateFactory(resolver, connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        using var first = await client.GetAsync("http://models.internal:8080/v1/models");
-        var second = () => client.GetAsync("http://models.internal:8080/v1/models");
-
-        first.StatusCode.Should().Be(HttpStatusCode.OK);
-        await second.Should().ThrowAsync<HttpRequestException>();
-        connector.Addresses.Should().Equal(IPAddress.Parse("10.20.1.8"));
-        resolver.CallCount.Should().Be(2);
-    }
-
-    [Fact]
-    public async Task 安全Handler_校验返回后策略变化时连接前应再次拒绝且不调用Connector()
-    {
-        var connector = new ScriptedSocketConnector(SuccessResponse());
-        using var factory = new SafeAiHttpMessageHandlerFactory(
-            new ChangingAfterValidationPolicy(IPAddress.Parse("10.20.1.8")),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        var action = () => client.GetAsync("http://models.internal:8080/v1/models");
-
-        await action.Should().ThrowAsync<HttpRequestException>();
-        connector.Addresses.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task 安全Handler_应把策略返回的具体IP原样交给Connector并保持原Host()
-    {
-        var connector = new ScriptedSocketConnector(SuccessResponse());
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.9")]),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://模型.example:8080");
-
-        using var response = await client.GetAsync("http://xn--xgs754b.example:8080/v1/models");
+        using var response = await invoker.SendAsync(request, CancellationToken.None);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        connector.Addresses.Should().Equal(IPAddress.Parse("10.20.1.9"));
-        connector.Streams.Should().ContainSingle();
-        connector.Streams[0].WrittenText.Should().Contain("Host: xn--xgs754b.example:8080\r\n");
-        connector.Streams[0].WrittenText.Should().Contain("GET /v1/models HTTP/");
+        transport.Requests.Should().ContainSingle();
     }
 
     [Fact]
-    public void 安全Handler_应固定禁用代理和自动重定向并设置连接池边界()
+    public async Task 安全Handler_同源判定应按Scheme主机和有效端口精确比较()
     {
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Loopback]),
-            new ScriptedSocketConnector(SuccessResponse()));
+        var transport = new RecordingHandler();
+        using var handler = new ExactOriginGuardHandler(
+            new Uri("https://模型.example:443/v1"),
+            transport);
+        using var invoker = new HttpMessageInvoker(handler);
 
-        var handler = factory.CreateHandler(
-            AiServiceType.Ollama,
-            new Uri("http://127.0.0.1:11434"),
-            factory.Generation);
+        using var response = await invoker.SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://xn--xgs754b.example./models"),
+            CancellationToken.None);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData("http://models.example:8443/v1/models")]
+    [InlineData("https://other.example:443/v1/models")]
+    [InlineData("https://models.example:444/v1/models")]
+    public async Task 安全Handler_请求跨Origin时应在发送前拒绝(string requestUri)
+    {
+        var transport = new RecordingHandler();
+        using var handler = new ExactOriginGuardHandler(
+            new Uri("https://models.example:443/v1"),
+            transport);
+        using var invoker = new HttpMessageInvoker(handler);
+
+        var action = () => invoker.SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, requestUri),
+            CancellationToken.None);
+
+        var exception = await action.Should().ThrowAsync<AiEndpointAccessException>();
+        exception.Which.Category.Should().Be(AiEndpointAccessFailureCategory.RequestOriginMismatch);
+        transport.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task 安全Handler_显式覆盖Host时应在发送前拒绝()
+    {
+        var transport = new RecordingHandler();
+        using var handler = new ExactOriginGuardHandler(
+            new Uri("https://models.example/v1"),
+            transport);
+        using var invoker = new HttpMessageInvoker(handler);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "https://models.example/v1/models");
+        request.Headers.Host = "other.example";
+
+        var action = () => invoker.SendAsync(request, CancellationToken.None);
+
+        await action.Should().ThrowAsync<AiEndpointAccessException>()
+            .Where(exception =>
+                exception.Category == AiEndpointAccessFailureCategory.RequestOriginMismatch);
+        transport.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void 安全Handler_应固定禁用代理和自动重定向并使用系统TLS()
+    {
+        using var handler = SafeAiHttpMessageHandlerFactory.CreateHandler(
+            new Uri("https://models.example/v1"));
         var socketsHandler = FindSocketsHandler(handler);
 
         socketsHandler.AllowAutoRedirect.Should().BeFalse();
         socketsHandler.UseProxy.Should().BeFalse();
+        socketsHandler.ConnectCallback.Should().BeNull("不得自定义 DNS、IP 或 Socket 连接流程");
         socketsHandler.ConnectTimeout.Should().Be(TimeSpan.FromSeconds(10));
         socketsHandler.PooledConnectionLifetime.Should().Be(TimeSpan.FromMinutes(5));
         socketsHandler.PooledConnectionIdleTimeout.Should().Be(TimeSpan.FromMinutes(1));
         socketsHandler.SslOptions.RemoteCertificateValidationCallback.Should().BeNull();
-        handler.Dispose();
+    }
+
+    [Fact]
+    public void 安全客户端工厂_同提供商同Origin应复用连接池()
+    {
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var first = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "https://模型.example/v1");
+        using var second = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "https://xn--xgs754b.example.:443/other");
+
+        GetPoolCache(factory).Count.Should().Be(1);
     }
 
     [Fact]
     public void 安全客户端工厂_非法Timeout应在取得连接池Lease前拒绝()
     {
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.15")]),
-            new ScriptedSocketConnector(SuccessResponse()));
+        using var factory = new SafeAiHttpMessageHandlerFactory();
 
         var action = () => factory.CreateClient(
             AiServiceType.CustomOpenAICompatible,
@@ -159,32 +128,114 @@ public class SafeAiHttpMessageHandlerFactoryTests
             TimeSpan.Zero);
 
         action.Should().Throw<ArgumentOutOfRangeException>();
-        var cacheField = typeof(SafeAiHttpMessageHandlerFactory)
-            .GetField("_poolCache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        cacheField.Should().NotBeNull();
-        var cache = cacheField!.GetValue(factory).Should().BeAssignableTo<System.Collections.IDictionary>().Subject;
-        cache.Count.Should().Be(0, "非法 timeout 不得先取得无法归还的连接池 lease");
+        GetPoolCache(factory).Count.Should().Be(0);
     }
 
     [Fact]
-    public async Task 安全Handler_存在全局代理时真实请求仍应直连策略批准的地址()
+    public void 安全客户端工厂_连接池缓存应有界且淘汰不应中断活跃Lease()
     {
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var activeClient = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "http://models-0.example:8080");
+        var firstEntry = GetPoolCache(factory).Values.Cast<object>().Single();
+
+        for (var index = 1; index <= 64; index++)
+        {
+            using var client = factory.CreateClient(
+                AiServiceType.CustomOpenAICompatible,
+                $"http://models-{index}.example:8080");
+        }
+
+        GetPoolCache(factory).Count.Should().Be(64);
+        ReadBool(firstEntry, "_retired").Should().BeTrue();
+        ReadBool(firstEntry, "_disposed").Should().BeFalse(
+            "被淘汰连接池仍有活动 lease 时不得中断该调用方");
+    }
+
+    [Fact]
+    public void 安全客户端工厂_关闭时应等待活动Lease并且仅释放一次()
+    {
+        var factory = new SafeAiHttpMessageHandlerFactory();
+        var activeClient = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            "http://models.example:8080");
+        var entry = GetPoolCache(factory).Values.Cast<object>().Single();
+
+        factory.Dispose();
+        factory.Dispose();
+
+        ReadBool(entry, "_retired").Should().BeTrue();
+        ReadBool(entry, "_disposed").Should().BeFalse();
+        activeClient.Dispose();
+        activeClient.Dispose();
+        ReadBool(entry, "_disposed").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task 安全Handler_收到302时应返回首跳响应且不访问第二跳()
+    {
+        var firstPort = GetFreeTcpPort();
+        var secondPort = GetFreeTcpPort();
+        using var first = StartListener(firstPort);
+        using var second = StartListener(secondPort);
+        var secondVisited = false;
+        var firstTask = Task.Run(async () =>
+        {
+            var context = await first.GetContextAsync();
+            context.Response.StatusCode = (int)HttpStatusCode.Found;
+            context.Response.RedirectLocation = $"http://127.0.0.1:{secondPort}/second";
+            context.Response.Close();
+        });
+        var secondTask = Task.Run(async () =>
+        {
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+            try
+            {
+                _ = await second.GetContextAsync().WaitAsync(cancellation.Token);
+                secondVisited = true;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+        using var factory = new SafeAiHttpMessageHandlerFactory();
+        using var client = factory.CreateClient(
+            AiServiceType.CustomOpenAICompatible,
+            $"http://127.0.0.1:{firstPort}");
+
+        using var response = await client.GetAsync($"http://127.0.0.1:{firstPort}/first");
+        await firstTask;
+        await secondTask;
+
+        response.StatusCode.Should().Be(HttpStatusCode.Found);
+        secondVisited.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task 安全Handler_存在全局代理时请求仍应直连配置Origin()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = StartListener(port);
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            context.Response.StatusCode = (int)HttpStatusCode.OK;
+            context.Response.Close();
+        });
         var originalProxy = WebRequest.DefaultWebProxy;
         try
         {
             WebRequest.DefaultWebProxy = new WebProxy("http://127.0.0.1:9");
-            var connector = new ScriptedSocketConnector(SuccessResponse());
-            using var factory = CreateFactory(
-                new SequenceDnsResolver([IPAddress.Parse("10.20.1.15")]),
-                connector);
+            using var factory = new SafeAiHttpMessageHandlerFactory();
             using var client = factory.CreateClient(
                 AiServiceType.CustomOpenAICompatible,
-                "http://models.internal:8080");
+                $"http://127.0.0.1:{port}");
 
-            using var response = await client.GetAsync("http://models.internal:8080/v1/models");
+            using var response = await client.GetAsync($"http://127.0.0.1:{port}/models");
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
-            connector.Addresses.Should().Equal(IPAddress.Parse("10.20.1.15"));
+            await serverTask;
         }
         finally
         {
@@ -192,487 +243,56 @@ public class SafeAiHttpMessageHandlerFactoryTests
         }
     }
 
-    [Fact]
-    public async Task 安全Handler_收到302时应返回首跳响应且不连接第二跳()
+    private static HttpListener StartListener(int port)
     {
-        var connector = new ScriptedSocketConnector(RedirectResponse("http://169.254.169.254/latest"));
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.10")]),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        using var response = await client.GetAsync("http://models.internal:8080/v1/models");
-
-        response.StatusCode.Should().Be(HttpStatusCode.Found);
-        response.Headers.Location.Should().Be("http://169.254.169.254/latest");
-        connector.Addresses.Should().ContainSingle();
+        var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        return listener;
     }
 
-    [Fact]
-    public async Task 安全Handler_请求跨Origin时应在连接前拒绝()
-    {
-        var connector = new ScriptedSocketConnector(SuccessResponse());
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.11")]),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        var action = () => client.GetAsync("http://other.internal:8080/v1/models");
-
-        var exception = await action.Should().ThrowAsync<AiEndpointAccessException>();
-        exception.Which.Category.Should().Be(AiEndpointAccessFailureCategory.RequestOriginMismatch);
-        connector.Addresses.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task 安全Handler_显式覆盖Host时应在连接前拒绝()
-    {
-        var connector = new ScriptedSocketConnector(SuccessResponse());
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.12")]),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            "http://models.internal:8080/v1/models");
-        request.Headers.Host = "169.254.169.254";
-
-        var action = () => client.SendAsync(request);
-
-        await action.Should().ThrowAsync<AiEndpointAccessException>()
-            .Where(exception => exception.Category == AiEndpointAccessFailureCategory.RequestOriginMismatch);
-        connector.Addresses.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task 安全Handler_Connector取消应保留取消语义()
-    {
-        using var cancellation = new CancellationTokenSource();
-        var connector = new CancellingSocketConnector(cancellation);
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.13")]),
-            connector);
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        var action = () => client.GetAsync(
-            "http://models.internal:8080/v1/models",
-            cancellation.Token);
-
-        await action.Should().ThrowAsync<OperationCanceledException>();
-    }
-
-    [Fact]
-    public async Task 安全Handler_Connector失败应返回稳定类别且不泄露IP和远端详情()
-    {
-        using var factory = CreateFactory(
-            new SequenceDnsResolver([IPAddress.Parse("10.20.1.14")]),
-            new FailingSocketConnector("10.20.1.14 api-key=secret"));
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            "http://models.internal:8080");
-
-        var action = () => client.GetAsync("http://models.internal:8080/v1/models");
-
-        var exception = await action.Should().ThrowAsync<HttpRequestException>();
-        var accessFailure = EnumerateExceptions(exception.Which)
-            .OfType<AiEndpointAccessException>()
-            .Single();
-        accessFailure.Category.Should().Be(AiEndpointAccessFailureCategory.ConnectFailed);
-        accessFailure.Message.Should().NotContain("10.20.1.14").And.NotContain("secret");
-        exception.Which.ToString().Should().NotContain("10.20.1.14").And.NotContain("secret");
-    }
-
-    [Fact]
-    public async Task 安全Handler_TLS应保持原主机SNI且错误证书必须失败()
+    private static int GetFreeTcpPort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        using var rsa = RSA.Create(2048);
-        var certificateRequest = new CertificateRequest(
-            "CN=wrong.example",
-            rsa,
-            HashAlgorithmName.SHA256,
-            RSASignaturePadding.Pkcs1);
-        using var certificate = certificateRequest.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddMinutes(-1),
-            DateTimeOffset.UtcNow.AddMinutes(5));
-        string? observedSni = null;
-        var serverTask = Task.Run(async () =>
-        {
-            using var socket = await listener.AcceptSocketAsync();
-            await using var network = new NetworkStream(socket, ownsSocket: false);
-            await using var tls = new SslStream(network);
-            try
-            {
-                await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
-                {
-                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                    ServerCertificateSelectionCallback = (_, host) =>
-                    {
-                        observedSni = host;
-                        return certificate;
-                    }
-                });
-            }
-            catch (AuthenticationException)
-            {
-            }
-            catch (IOException)
-            {
-            }
-        });
-        var options = new AiEndpointSecurityOptions
-        {
-            PrivateNetworkAllowlist =
-            [
-                new AiEndpointPrivateNetworkRule { Cidr = "127.0.0.0/8", Ports = [port] }
-            ]
-        };
-        using var policy = new AiEndpointAccessPolicy(
-            new SequenceDnsResolver([IPAddress.Loopback]),
-            new StaticOptionsMonitor<AiEndpointSecurityOptions>(options));
-        using var factory = new SafeAiHttpMessageHandlerFactory(
-            policy,
-            new AiSocketConnector(
-                new AiSocketFactory(),
-                new AiSocketConnectOperation()));
-        using var client = factory.CreateClient(
-            AiServiceType.CustomOpenAICompatible,
-            $"https://localhost:{port}");
-
-        var action = () => client.GetAsync($"https://localhost:{port}/v1/models");
-
-        await action.Should().ThrowAsync<HttpRequestException>();
-        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
-        observedSni.Should().Be("localhost");
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
-
-    private static SafeAiHttpMessageHandlerFactory CreateFactory(
-        IAiDnsResolver resolver,
-        IAiSocketConnector connector)
-    {
-        var options = PrivateNetworkOptions();
-        var policy = new AiEndpointAccessPolicy(
-            resolver,
-            new StaticOptionsMonitor<AiEndpointSecurityOptions>(options));
-        return new SafeAiHttpMessageHandlerFactory(policy, connector);
-    }
-
-    private static AiEndpointSecurityOptions PrivateNetworkOptions() =>
-        new()
-        {
-            PrivateNetworkAllowlist =
-            [
-                new AiEndpointPrivateNetworkRule
-                {
-                    Cidr = "10.20.0.0/16",
-                    Ports = [8080]
-                }
-            ]
-        };
 
     private static SocketsHttpHandler FindSocketsHandler(HttpMessageHandler handler)
     {
-        HttpMessageHandler? current = handler;
+        var current = handler;
         while (current is DelegatingHandler delegating)
             current = delegating.InnerHandler;
+
         return current.Should().BeOfType<SocketsHttpHandler>().Subject;
     }
 
-    private static IEnumerable<Exception> EnumerateExceptions(Exception exception)
+    private static System.Collections.IDictionary GetPoolCache(
+        SafeAiHttpMessageHandlerFactory factory)
     {
-        for (var current = exception; current != null; current = current.InnerException!)
-            yield return current;
+        return typeof(SafeAiHttpMessageHandlerFactory)
+            .GetField("_poolCache", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(factory)
+            .Should().BeAssignableTo<System.Collections.IDictionary>().Subject;
     }
 
-    private static string SuccessResponse() =>
-        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
-
-    private static string RedirectResponse(string location) =>
-        $"HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-
-    private sealed class SequenceDnsResolver(params IPAddress[][] results) : IAiDnsResolver
+    private static bool ReadBool(object target, string fieldName)
     {
-        public int CallCount { get; private set; }
+        return (bool)target.GetType()
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(target)!;
+    }
 
-        public ValueTask<IReadOnlyList<IPAddress>> ResolveAsync(
-            string host,
+    private sealed class RecordingHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            var index = Math.Min(CallCount, results.Length - 1);
-            CallCount++;
-            return ValueTask.FromResult<IReadOnlyList<IPAddress>>(results[index]);
-        }
-    }
-
-    private sealed class ScriptedSocketConnector(params string[] responses) : IAiSocketConnector
-    {
-        public List<IPAddress> Addresses { get; } = [];
-
-        public List<ScriptedDuplexStream> Streams { get; } = [];
-
-        public ValueTask<Stream> ConnectAsync(
-            IPAddress address,
-            int port,
-            CancellationToken cancellationToken)
-        {
-            Addresses.Add(address);
-            var response = responses[Math.Min(Streams.Count, responses.Length - 1)];
-            var stream = new ScriptedDuplexStream(response);
-            Streams.Add(stream);
-            return ValueTask.FromResult<Stream>(stream);
-        }
-    }
-
-    private sealed class ReusableSocketConnector(params string[] responses) : IAiSocketConnector
-    {
-        public List<IPAddress> Addresses { get; } = [];
-
-        public RequestDrivenDuplexStream? Stream { get; private set; }
-
-        public ValueTask<Stream> ConnectAsync(
-            IPAddress address,
-            int port,
-            CancellationToken cancellationToken)
-        {
-            Addresses.Add(address);
-            Stream = new RequestDrivenDuplexStream(responses);
-            return ValueTask.FromResult<Stream>(Stream);
-        }
-    }
-
-    private sealed class CancellingSocketConnector(CancellationTokenSource cancellation) : IAiSocketConnector
-    {
-        public ValueTask<Stream> ConnectAsync(
-            IPAddress address,
-            int port,
-            CancellationToken cancellationToken)
-        {
-            cancellation.Cancel();
-            return ValueTask.FromCanceled<Stream>(cancellationToken);
-        }
-    }
-
-    private sealed class FailingSocketConnector(string message) : IAiSocketConnector
-    {
-        public ValueTask<Stream> ConnectAsync(
-            IPAddress address,
-            int port,
-            CancellationToken cancellationToken)
-        {
-            return ValueTask.FromException<Stream>(new InvalidOperationException(message));
-        }
-    }
-
-    private sealed class ScriptedDuplexStream(string response) : Stream
-    {
-        private readonly MemoryStream _reads = new(Encoding.ASCII.GetBytes(response));
-        private readonly MemoryStream _writes = new();
-
-        public string WrittenText => Encoding.ASCII.GetString(_writes.ToArray());
-
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override void Flush()
-        {
-        }
-
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public override int Read(byte[] buffer, int offset, int count) =>
-            _reads.Read(buffer, offset, count);
-
-        public override ValueTask<int> ReadAsync(
-            Memory<byte> buffer,
-            CancellationToken cancellationToken = default) =>
-            _reads.ReadAsync(buffer, cancellationToken);
-
-        public override void Write(byte[] buffer, int offset, int count) =>
-            _writes.Write(buffer, offset, count);
-
-        public override ValueTask WriteAsync(
-            ReadOnlyMemory<byte> buffer,
-            CancellationToken cancellationToken = default) =>
-            _writes.WriteAsync(buffer, cancellationToken);
-
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-    }
-
-    private sealed class RequestDrivenDuplexStream(params string[] responses) : Stream
-    {
-        private readonly object _gate = new();
-        private readonly Queue<byte[]> _readyResponses = new();
-        private readonly SemaphoreSlim _responseReady = new(0);
-        private readonly MemoryStream _written = new();
-        private int _responseIndex;
-        private byte[]? _currentResponse;
-        private int _currentOffset;
-        private int _observedHeaderEnds;
-
-        public int ObservedRequestCount => Volatile.Read(ref _observedHeaderEnds);
-
-        public override bool CanRead => true;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => throw new NotSupportedException();
-        public override long Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override void Flush()
-        {
-        }
-
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public override int Read(byte[] buffer, int offset, int count) =>
-            ReadAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
-
-        public override async ValueTask<int> ReadAsync(
-            Memory<byte> buffer,
-            CancellationToken cancellationToken = default)
-        {
-            while (_currentResponse == null || _currentOffset >= _currentResponse.Length)
-            {
-                await _responseReady.WaitAsync(cancellationToken);
-                lock (_gate)
-                {
-                    _currentResponse = _readyResponses.Dequeue();
-                    _currentOffset = 0;
-                }
-            }
-
-            var count = Math.Min(buffer.Length, _currentResponse.Length - _currentOffset);
-            _currentResponse.AsMemory(_currentOffset, count).CopyTo(buffer);
-            _currentOffset += count;
-            return count;
-        }
-
-        public override void Write(byte[] buffer, int offset, int count) =>
-            WriteAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
-
-        public override ValueTask WriteAsync(
-            ReadOnlyMemory<byte> buffer,
-            CancellationToken cancellationToken = default)
-        {
-            lock (_gate)
-            {
-                _written.Write(buffer.Span);
-                var text = Encoding.ASCII.GetString(_written.ToArray());
-                var headerEnds = CountOccurrences(text, "\r\n\r\n");
-                while (_observedHeaderEnds < headerEnds && _responseIndex < responses.Length)
-                {
-                    _observedHeaderEnds++;
-                    _readyResponses.Enqueue(Encoding.ASCII.GetBytes(responses[_responseIndex++]));
-                    _responseReady.Release();
-                }
-            }
-
-            return ValueTask.CompletedTask;
-        }
-
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-
-        private static int CountOccurrences(string value, string needle)
-        {
-            var count = 0;
-            var index = 0;
-            while ((index = value.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
-            {
-                count++;
-                index += needle.Length;
-            }
-
-            return count;
-        }
-    }
-
-    private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
-    {
-        public T CurrentValue => value;
-        public T Get(string? name) => value;
-        public IDisposable? OnChange(Action<T, string?> listener) => null;
-    }
-
-    private sealed class MutableOptionsMonitor<T>(T value) : IOptionsMonitor<T>
-    {
-        private readonly List<Action<T, string?>> _listeners = [];
-
-        public T CurrentValue { get; private set; } = value;
-
-        public T Get(string? name) => CurrentValue;
-
-        public IDisposable OnChange(Action<T, string?> listener)
-        {
-            _listeners.Add(listener);
-            return new CallbackRegistration(() => _listeners.Remove(listener));
-        }
-
-        public void Set(T next)
-        {
-            CurrentValue = next;
-            foreach (var listener in _listeners.ToArray())
-                listener(next, null);
-        }
-
-        private sealed class CallbackRegistration(Action dispose) : IDisposable
-        {
-            public void Dispose() => dispose();
-        }
-    }
-
-    private sealed class ChangingAfterValidationPolicy(IPAddress address) : IAiEndpointAccessPolicy
-    {
-        private long _generation = 1;
-
-        public long Generation => Volatile.Read(ref _generation);
-
-        public void EnsureCurrent(long expectedGeneration)
-        {
-            if (expectedGeneration != Generation)
-            {
-                throw new AiEndpointAccessException(
-                    AiEndpointAccessFailureCategory.PolicyChanged,
-                    "AI 端点访问策略已变化");
-            }
-        }
-
-        public ValueTask<AiEndpointResolution> ValidateAsync(
-            Uri endpoint,
-            AiServiceType serviceType,
-            CancellationToken cancellationToken) =>
-            ValidateAsync(endpoint, serviceType, Generation, cancellationToken);
-
-        public ValueTask<AiEndpointResolution> ValidateAsync(
-            Uri endpoint,
-            AiServiceType serviceType,
-            long expectedGeneration,
-            CancellationToken cancellationToken)
-        {
-            Interlocked.Exchange(ref _generation, expectedGeneration + 1);
-            return ValueTask.FromResult(
-                new AiEndpointResolution(expectedGeneration, [address]));
+            Requests.Add(request);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
     }
 }

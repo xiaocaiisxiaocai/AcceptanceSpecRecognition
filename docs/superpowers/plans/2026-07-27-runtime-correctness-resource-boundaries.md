@@ -900,63 +900,42 @@ git diff --cached --check
 git commit -m "fix: 流式处理并限制文件比较资源"
 ```
 
-### Task 11: AI 端点连接期 SSRF 策略
+### Task 11: AI 出站精确 Origin 与资源生命周期
 
 **Files:**
-- Create: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/IAiEndpointAccessPolicy.cs`
-- Create: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/AiEndpointAccessPolicy.cs`
-- Create: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/IAiDnsResolver.cs`
 - Create: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/SafeAiHttpMessageHandlerFactory.cs`
 - Modify: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/AiEndpointNormalizer.cs`
 - Modify: `src/AcceptanceSpecSystem.Core/AI/SemanticKernel/SemanticKernelServiceFactory.cs`
 - Modify: `src/AcceptanceSpecSystem.Api/Services/AiServiceReadinessProbeScheduler.cs`
-- Modify: `src/AcceptanceSpecSystem.Api/Program.cs`
 - Modify: `src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs`
-- Test: `tests/AcceptanceSpecSystem.Core.Tests/Ai/SemanticKernel/AiEndpointAccessPolicyTests.cs`
+- Test: `tests/AcceptanceSpecSystem.Core.Tests/Ai/SemanticKernel/SafeAiHttpMessageHandlerFactoryTests.cs`
 - Test: `tests/AcceptanceSpecSystem.Api.Tests/AiServiceReadinessProbeSchedulerTests.cs`
 
 **Interfaces:**
-- Produces: `ResolveAllowedAddressesAsync(Uri endpoint, AiServiceType serviceType, CancellationToken)`
-- Produces: `CreateClient(AiServiceConfigModel config) : HttpClient`
-- Consumes: `AiServiceType.Ollama`, `AiServiceType.LMStudio`
+- Produces: `CreateClient(AiServiceType serviceType, string endpoint, TimeSpan? timeout) : HttpClient`
+- Consumes: normalized absolute HTTP/HTTPS Endpoint
 
-- [ ] **Step 1: 编写地址、重定向和 DNS 变化失败测试**
+- [ ] **Step 1: 编写精确 Origin 和传输边界失败测试**
 
-覆盖：
-
-```csharp
-[Theory]
-[InlineData("127.0.0.1")]
-[InlineData("169.254.169.254")]
-[InlineData("::1")]
-[InlineData("::ffff:127.0.0.1")]
-public async Task PublicProvider_ShouldRejectBlockedAddress(string address)
-```
-
-伪 DNS 第一次返回公网、第二次返回 `127.0.0.1`，实际连接必须拒绝。公网 302 到环回地址不得发送第二跳。Ollama/LM Studio 到允许私网地址必须通过。
+公网 HTTP、私网 HTTP、IPv4/IPv6 字面量和域名只要 URI 合法且请求同 Origin 均通过。
+scheme、规范化 host 或有效端口变化、显式 Host 覆盖均在发送前拒绝。302 返回首跳响应；
+全局代理不得接管请求；系统 TLS 证书校验不得被覆盖。
 
 - [ ] **Step 2: 运行测试并确认 RED**
 
 ```powershell
-dotnet test tests/AcceptanceSpecSystem.Core.Tests/AcceptanceSpecSystem.Core.Tests.csproj --filter "FullyQualifiedName~AiEndpointAccessPolicyTests" -m:1
+dotnet test tests/AcceptanceSpecSystem.Core.Tests/AcceptanceSpecSystem.Core.Tests.csproj --filter "FullyQualifiedName~SafeAiHttpMessageHandlerFactoryTests" -m:1
 dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~AiServiceReadinessProbeSchedulerTests" -m:1
 ```
 
-Expected: 连接期策略和安全 handler 不存在。
+Expected: 旧 IP/网络位置策略错误拒绝公网 HTTP、IPv4 或 IPv6 合法同源请求。
 
-- [ ] **Step 3: 分离 URI 规范化与访问策略**
+- [ ] **Step 3: 保留纯结构 URI 规范化**
 
-`AiEndpointNormalizer` 只处理 URI 格式、scheme 和尾斜杠。`AiEndpointAccessPolicy` 统一拒绝环回、RFC1918、链路本地、CGNAT、未指定、IPv6 ULA/链路本地/IPv4 映射以及已知元数据主机。
+`AiEndpointNormalizer` 只接受绝对 HTTP/HTTPS，拒绝空 host、userinfo、query、fragment 和
+端口 0，保留 path 并确定性规范化。删除 CIDR/IP/DNS 地址分类、白名单配置和保存期解析。
 
-本地例外条件必须同时满足：
-
-```csharp
-serviceType is AiServiceType.Ollama or AiServiceType.LMStudio
-```
-
-以及地址属于配置允许的本机/私网范围。
-
-- [ ] **Step 4: 实现连接期地址约束**
+- [ ] **Step 4: 实现精确 Origin 受限客户端**
 
 `SocketsHttpHandler` 设置：
 
@@ -964,14 +943,16 @@ serviceType is AiServiceType.Ollama or AiServiceType.LMStudio
 var handler = new SocketsHttpHandler
 {
     AllowAutoRedirect = false,
-    ConnectCallback = connectCallback,
+    UseProxy = false,
     PooledConnectionLifetime = TimeSpan.FromMinutes(5)
 };
 ```
 
-`connectCallback` 在每次新连接时重新解析并调用策略，按允许地址建立 `Socket`，返回 `NetworkStream`。原始 URI 主机名保持不变，使 Host、SNI 和证书验证仍针对配置主机。
-
-OpenAI SDK 使用 `HttpClientPipelineTransport` 注入该 `HttpClient`；Azure/OpenAI Semantic Kernel 连接器使用接收 `HttpClient` 的重载。探测调度器使用同一安全客户端。缓存键必须包含提供商、Endpoint 和策略版本。
+不设置 `ConnectCallback`，使用系统 DNS、Socket、SNI 和证书校验。外层 handler 要求每个请求与
+配置 Endpoint 保持相同 scheme、规范化 host 和有效端口，并拒绝 Host 覆盖。OpenAI SDK 使用
+`HttpClientPipelineTransport` 注入该 `HttpClient`；Azure/OpenAI Semantic Kernel 连接器使用接收
+`HttpClient` 的重载；所有 quick/models/readiness/chat/embedding 路径共用它。客户端与服务实例均
+采用 64 项确定性 LRU/owner，淘汰或关闭不打断活跃调用。
 
 - [ ] **Step 5: 运行安全测试和现有 AI 工厂测试**
 
@@ -980,14 +961,14 @@ dotnet test tests/AcceptanceSpecSystem.Core.Tests/AcceptanceSpecSystem.Core.Test
 dotnet test tests/AcceptanceSpecSystem.Api.Tests/AcceptanceSpecSystem.Api.Tests.csproj --filter "FullyQualifiedName~AiServiceReadinessProbeSchedulerTests|FullyQualifiedName~ConfigApisTests" -m:1
 ```
 
-Expected: 恶意地址全部拒绝，本地 AI 合法用例通过。
+Expected: 合法同源请求通过；跨 Origin、Host 覆盖被拒绝；代理和重定向禁用；生命周期测试通过。
 
 - [ ] **Step 6: 提交 AI 出站安全修复**
 
 ```powershell
 git add src/AcceptanceSpecSystem.Core/AI/SemanticKernel src/AcceptanceSpecSystem.Api/Services/AiServiceReadinessProbeScheduler.cs src/AcceptanceSpecSystem.Api/Program.cs src/AcceptanceSpecSystem.Api/ServiceCollectionExtensions.cs tests/AcceptanceSpecSystem.Core.Tests/Ai/SemanticKernel tests/AcceptanceSpecSystem.Api.Tests/AiServiceReadinessProbeSchedulerTests.cs
 git diff --cached --check
-git commit -m "fix: 约束AI端点实际连接地址"
+git commit -m "fix: 简化AI端点并约束精确来源"
 ```
 
 ### Task 12: CRUD 取消传播与有界批量删除
@@ -1305,7 +1286,7 @@ Expected: 工作区干净；所有提交位于本地修复分支；不执行 `gi
 | 控制器操作审计反映最终响应 | Task 1 |
 | API 错误响应使用真实 HTTP 语义 | Task 2 |
 | 高成本 API 支持取消与预算拒绝 | Tasks 9–10 |
-| AI 端点策略覆盖实际网络连接 | Task 11 |
+| AI 出站请求保持精确 Origin | Task 11 |
 | 高成本操作使用统一资源预算 | Tasks 9–10 |
 | 构建依赖可重复解析 | Task 13 |
 | Embedding 缓存并发写入幂等 | Task 7 |

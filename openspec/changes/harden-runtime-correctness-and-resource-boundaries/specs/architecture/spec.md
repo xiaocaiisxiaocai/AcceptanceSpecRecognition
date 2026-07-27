@@ -1,26 +1,24 @@
 ## ADDED Requirements
 
-### Requirement: AI 端点策略覆盖实际网络连接
-系统 MUST 让配置校验、连通性探测和实际模型调用共用统一端点访问策略，并在实际连接阶段约束目标地址。
+### Requirement: AI 出站请求保持精确 Origin
+系统 MUST 让配置校验、连通性探测和实际模型调用共用统一受限客户端，并把每个请求约束在配置端点的精确规范化 Origin。
 
-#### Scenario: 公网服务重定向到私网
-- **GIVEN** OpenAI、Azure OpenAI 或公网兼容端点返回指向环回、私网、链路本地或云元数据地址的重定向
-- **WHEN** 客户端准备跟随重定向
-- **THEN** 系统拒绝该连接
-- **AND** 不向被拒绝目标发送认证信息或请求体
+#### Scenario: 合法 HTTP 或 HTTPS 端点
+- **GIVEN** Endpoint 是结构合法的绝对 HTTP 或 HTTPS URI
+- **AND** Endpoint 可以是内网、公网、域名、IPv4 或 IPv6
+- **WHEN** 系统保存配置或创建 AI 客户端
+- **THEN** 系统不因网络位置、地址族或提供商类型拒绝该 Endpoint
 
-#### Scenario: DNS 结果在保存后变化
-- **GIVEN** 配置保存时域名解析为允许地址
-- **AND** 实际调用前该域名解析为禁止地址
-- **WHEN** 系统建立模型连接
-- **THEN** 系统按连接期解析结果拒绝访问
+#### Scenario: 请求尝试离开配置 Origin
+- **WHEN** 请求的 scheme、规范化 host 或有效端口与配置 Endpoint 不同
+- **OR** 请求显式覆盖 Host
+- **THEN** 系统在发送前拒绝该请求
 
-#### Scenario: 本地 AI 受控访问私网
-- **GIVEN** 提供商类型为 Ollama 或 LM Studio
-- **AND** 目标位于该提供商明确允许的本机或私网范围
-- **WHEN** 系统探测或调用该服务
-- **THEN** 系统允许连接
-- **AND** 该例外不适用于公网 AI 提供商
+#### Scenario: 传输固定使用直连和正常 TLS
+- **WHEN** AI 客户端发送请求
+- **THEN** 系统禁用代理和自动重定向
+- **AND** HTTPS 使用系统 SNI 与证书验证
+- **AND** 系统不自定义 DNS 解析或 Socket 目标改写
 
 ### Requirement: 高成本操作使用统一资源预算
 系统 MUST 通过集中配置管理解析、比较和匹配等高成本操作的并发与工作量预算。

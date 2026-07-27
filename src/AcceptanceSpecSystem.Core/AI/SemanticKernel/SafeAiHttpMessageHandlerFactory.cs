@@ -1,12 +1,9 @@
-using System.Net;
 using AcceptanceSpecSystem.Core.AI.Models;
 
 namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 public interface ISafeAiHttpClientFactory
 {
-    long Generation { get; }
-
     HttpClient CreateClient(
         AiServiceType serviceType,
         string endpoint,
@@ -19,22 +16,10 @@ public sealed class SafeAiHttpMessageHandlerFactory :
 {
     private const int PoolCacheLimit = 64;
 
-    private readonly IAiEndpointAccessPolicy _policy;
-    private readonly IAiSocketConnector _connector;
     private readonly object _cacheGate = new();
     private readonly Dictionary<string, PoolEntry> _poolCache = new(StringComparer.Ordinal);
     private long _accessSequence;
     private bool _disposed;
-
-    public SafeAiHttpMessageHandlerFactory(
-        IAiEndpointAccessPolicy policy,
-        IAiSocketConnector connector)
-    {
-        _policy = policy;
-        _connector = connector;
-    }
-
-    public long Generation => _policy.Generation;
 
     public HttpClient CreateClient(
         AiServiceType serviceType,
@@ -52,15 +37,14 @@ public sealed class SafeAiHttpMessageHandlerFactory :
 
         var normalized = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint);
         var origin = GetOrigin(new Uri(normalized));
-        var generation = Generation;
         PoolEntry entry;
         lock (_cacheGate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            var key = BuildPoolKey(serviceType, origin, generation);
+            var key = BuildPoolKey(serviceType, origin);
             if (!_poolCache.TryGetValue(key, out entry!))
             {
-                entry = new PoolEntry(CreateHandler(serviceType, origin, generation));
+                entry = new PoolEntry(CreateHandler(origin));
                 _poolCache.Add(key, entry);
             }
 
@@ -74,12 +58,8 @@ public sealed class SafeAiHttpMessageHandlerFactory :
         };
     }
 
-    public HttpMessageHandler CreateHandler(
-        AiServiceType serviceType,
-        Uri endpoint,
-        long generation)
+    internal static HttpMessageHandler CreateHandler(Uri endpoint)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         var origin = GetOrigin(endpoint);
         var socketsHandler = new SocketsHttpHandler
         {
@@ -87,46 +67,10 @@ public sealed class SafeAiHttpMessageHandlerFactory :
             UseProxy = false,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
-            ConnectCallback = async (context, cancellationToken) =>
-            {
-                if (!IsSameHostAndPort(context.DnsEndPoint, origin))
-                    throw OriginMismatch();
-
-                var resolution = await _policy.ValidateAsync(
-                    origin,
-                    serviceType,
-                    generation,
-                    cancellationToken).ConfigureAwait(false);
-                foreach (var address in resolution.Addresses)
-                {
-                    _policy.EnsureCurrent(resolution.Generation);
-                    try
-                    {
-                        return await _connector.ConnectAsync(
-                            address,
-                            origin.Port,
-                            cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-
-                throw new AiEndpointAccessException(
-                    AiEndpointAccessFailureCategory.ConnectFailed,
-                    "AI 端点连接失败");
-            }
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1)
         };
 
-        return new OriginGuardHandler(origin, _policy, generation)
-        {
-            InnerHandler = socketsHandler
-        };
+        return new ExactOriginGuardHandler(origin, socketsHandler);
     }
 
     public void Dispose()
@@ -156,17 +100,14 @@ public sealed class SafeAiHttpMessageHandlerFactory :
         }
     }
 
-    private static string BuildPoolKey(
-        AiServiceType serviceType,
-        Uri origin,
-        long generation)
+    private static string BuildPoolKey(AiServiceType serviceType, Uri origin)
     {
         return string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"{(int)serviceType}|{origin.Scheme.ToLowerInvariant()}|{origin.IdnHost.TrimEnd('.').ToLowerInvariant()}|{origin.Port}|{generation}");
+            $"{(int)serviceType}|{origin.Scheme.ToLowerInvariant()}|{NormalizeHost(origin)}|{origin.Port}");
     }
 
-    private static Uri GetOrigin(Uri endpoint)
+    internal static Uri GetOrigin(Uri endpoint)
     {
         return new UriBuilder(endpoint)
         {
@@ -176,48 +117,16 @@ public sealed class SafeAiHttpMessageHandlerFactory :
         }.Uri;
     }
 
-    private static bool IsSameHostAndPort(DnsEndPoint target, Uri origin)
+    internal static bool IsSameOrigin(Uri requestUri, Uri origin)
     {
-        return target.Port == origin.Port &&
-               string.Equals(
-                   target.Host.TrimEnd('.'),
-                   origin.IdnHost.TrimEnd('.'),
-                   StringComparison.OrdinalIgnoreCase);
+        return requestUri.IsAbsoluteUri &&
+               string.Equals(requestUri.Scheme, origin.Scheme, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(NormalizeHost(requestUri), NormalizeHost(origin), StringComparison.Ordinal) &&
+               requestUri.Port == origin.Port;
     }
 
-    private static AiEndpointAccessException OriginMismatch() =>
-        new(
-            AiEndpointAccessFailureCategory.RequestOriginMismatch,
-            "AI 请求地址与配置端点不一致");
-
-    private sealed class OriginGuardHandler(
-        Uri origin,
-        IAiEndpointAccessPolicy policy,
-        long generation) : DelegatingHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            policy.EnsureCurrent(generation);
-
-            var requestUri = request.RequestUri;
-            if (requestUri == null ||
-                !requestUri.IsAbsoluteUri ||
-                !string.IsNullOrEmpty(request.Headers.Host) ||
-                !string.Equals(requestUri.Scheme, origin.Scheme, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(
-                    requestUri.IdnHost.TrimEnd('.'),
-                    origin.IdnHost.TrimEnd('.'),
-                    StringComparison.OrdinalIgnoreCase) ||
-                requestUri.Port != origin.Port)
-            {
-                throw OriginMismatch();
-            }
-
-            return base.SendAsync(request, cancellationToken);
-        }
-    }
+    private static string NormalizeHost(Uri uri) =>
+        uri.IdnHost.TrimEnd('.').ToLowerInvariant();
 
     private sealed class PoolEntry(HttpMessageHandler handler)
     {
@@ -289,5 +198,32 @@ public sealed class SafeAiHttpMessageHandlerFactory :
             if (disposing)
                 Interlocked.Exchange(ref _release, null)?.Invoke();
         }
+    }
+}
+
+internal sealed class ExactOriginGuardHandler : DelegatingHandler
+{
+    private readonly Uri _origin;
+
+    public ExactOriginGuardHandler(Uri origin, HttpMessageHandler innerHandler)
+    {
+        _origin = SafeAiHttpMessageHandlerFactory.GetOrigin(origin);
+        InnerHandler = innerHandler;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.RequestUri is not { } requestUri ||
+            !string.IsNullOrEmpty(request.Headers.Host) ||
+            !SafeAiHttpMessageHandlerFactory.IsSameOrigin(requestUri, _origin))
+        {
+            throw new AiEndpointAccessException(
+                AiEndpointAccessFailureCategory.RequestOriginMismatch,
+                "AI 请求地址与配置端点不一致");
+        }
+
+        return base.SendAsync(request, cancellationToken);
     }
 }

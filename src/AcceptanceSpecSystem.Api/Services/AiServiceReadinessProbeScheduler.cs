@@ -222,9 +222,7 @@ public sealed class AiServiceReadinessProbeScheduler :
         CoreAiServicePurpose purpose,
         CancellationToken cancellationToken)
     {
-        var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(
-            config.Endpoint,
-            allowPrivateNetwork: true).TrimEnd('/');
+        var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint).TrimEnd('/');
         if (endpoint.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             endpoint = endpoint[..^4];
 

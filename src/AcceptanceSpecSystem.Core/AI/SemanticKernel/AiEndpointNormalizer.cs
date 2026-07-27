@@ -1,28 +1,23 @@
 namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 
 /// <summary>
-/// AI 服务 Endpoint URI 规范化工具。这里只校验 URI 结构，不解析 DNS，
-/// 地址访问策略由连接期的 <see cref="IAiEndpointAccessPolicy"/> 负责。
+/// AI 服务 Endpoint URI 规范化工具。这里只校验 URI 结构，不解析 DNS 或区分地址类别。
 /// </summary>
 public static class AiEndpointNormalizer
 {
     public static string? NormalizeOptionalEndpoint(
         string? endpoint,
-        string fieldName = "Endpoint",
-        bool allowPrivateNetwork = false)
+        string fieldName = "Endpoint")
     {
         return string.IsNullOrWhiteSpace(endpoint)
             ? null
-            : NormalizeRequiredEndpoint(endpoint, fieldName, allowPrivateNetwork);
+            : NormalizeRequiredEndpoint(endpoint, fieldName);
     }
 
     public static string NormalizeRequiredEndpoint(
         string? endpoint,
-        string fieldName = "Endpoint",
-        bool allowPrivateNetwork = false)
+        string fieldName = "Endpoint")
     {
-        _ = allowPrivateNetwork; // 保留调用兼容；地址准入不再由 URI 规范化器决定。
-
         if (string.IsNullOrWhiteSpace(endpoint))
             throw new InvalidOperationException($"{fieldName} 未配置");
 

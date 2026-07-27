@@ -718,7 +718,7 @@ public class AiServicesController : BaseApiController
         AiServiceProbeConfig config,
         CancellationToken cancellationToken)
     {
-        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!, config.ServiceType);
+        var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!);
         var url = $"{endpoint}/models";
         using var client = CreateHttpClient(config, endpoint);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -781,11 +781,9 @@ public class AiServicesController : BaseApiController
             TimeSpan.FromSeconds(15));
     }
 
-    private static string NormalizeOpenAiBaseUrl(string endpoint, AiServiceType serviceType)
+    private static string NormalizeOpenAiBaseUrl(string endpoint)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
-            endpoint,
-            allowPrivateNetwork: serviceType == AiServiceType.LMStudio).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
         if (baseUrl.EndsWith("/v1/v1", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^3];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -795,9 +793,7 @@ public class AiServicesController : BaseApiController
 
     private static string NormalizeOllamaBaseUrl(string endpoint)
     {
-        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(
-            endpoint,
-            allowPrivateNetwork: true).TrimEnd('/');
+        var baseUrl = AiEndpointNormalizer.NormalizeRequiredEndpoint(endpoint).TrimEnd('/');
         if (baseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
             baseUrl = baseUrl[..^4];
         if (baseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
@@ -901,25 +897,6 @@ public class AiServicesController : BaseApiController
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
-    private static string? TryNormalizeEndpoint(
-        string? value,
-        AiServiceType serviceType,
-        out string? normalizedEndpoint)
-    {
-        try
-        {
-            normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(
-                value,
-                allowPrivateNetwork: serviceType == AiServiceType.Ollama || serviceType == AiServiceType.LMStudio);
-            return null;
-        }
-        catch (InvalidOperationException ex)
-        {
-            normalizedEndpoint = null;
-            return ex.Message;
-        }
     }
 
     private static string? ValidatePurpose(AiServicePurpose purpose)

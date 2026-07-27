@@ -146,31 +146,6 @@ public class OllamaNativeChatCompletionServiceTests
     }
 
     [Fact]
-    public void SemanticKernelServiceFactory_安全策略代次变化后不应复用旧服务实例()
-    {
-        var safeClientFactory = new FakeSafeAiHttpClientFactory(new HttpClient());
-        using var factory = new SemanticKernelServiceFactory(
-            NullLoggerFactory.Instance,
-            safeClientFactory,
-            Options.Create(new SemanticKernelOptions()));
-        var config = new AiServiceConfigModel
-        {
-            Id = 42,
-            ServiceType = AiServiceType.CustomOpenAICompatible,
-            Endpoint = "https://models.example.com/v1",
-            ApiKey = "test-placeholder",
-            LlmModel = "chat-model"
-        };
-
-        var first = factory.CreateChatCompletionService(config);
-        safeClientFactory.Generation = 2;
-        var second = factory.CreateChatCompletionService(config);
-
-        second.Should().NotBeSameAs(first);
-        safeClientFactory.Calls.Should().HaveCount(2);
-    }
-
-    [Fact]
     public void SemanticKernelServiceFactory_超过64项时应确定性淘汰OpenAI和Azure聊天及Embedding客户端()
     {
         var safeClientFactory = new TrackingSafeAiHttpClientFactory();
@@ -205,37 +180,6 @@ public class OllamaNativeChatCompletionServiceTests
         safeClientFactory.Clients.Skip(4).Should().OnlyContain(client => client.DisposeCount == 0);
 
         factory.Dispose();
-        factory.Dispose();
-        safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
-    }
-
-    [Fact]
-    public void SemanticKernelServiceFactory_策略代次持续变化时应有界释放旧客户端()
-    {
-        var safeClientFactory = new TrackingSafeAiHttpClientFactory();
-        var factory = new SemanticKernelServiceFactory(
-            NullLoggerFactory.Instance,
-            safeClientFactory,
-            Options.Create(new SemanticKernelOptions()));
-        var config = new AiServiceConfigModel
-        {
-            Id = 81,
-            ServiceType = AiServiceType.OpenAI,
-            Endpoint = "https://models.example.com/v1",
-            ApiKey = "test-placeholder",
-            LlmModel = "chat-model"
-        };
-
-        for (var generation = 1; generation <= 65; generation++)
-        {
-            safeClientFactory.Generation = generation;
-            _ = factory.CreateChatCompletionService(config);
-        }
-
-        safeClientFactory.Clients.Should().HaveCount(65);
-        safeClientFactory.Clients[0].DisposeCount.Should().Be(1);
-        safeClientFactory.Clients.Count(client => client.DisposeCount == 0).Should().Be(64);
-
         factory.Dispose();
         safeClientFactory.Clients.Should().OnlyContain(client => client.DisposeCount == 1);
     }
@@ -520,8 +464,6 @@ public class OllamaNativeChatCompletionServiceTests
 
     private sealed class FakeSafeAiHttpClientFactory(HttpClient httpClient) : ISafeAiHttpClientFactory
     {
-        public long Generation { get; set; } = 1;
-
         public List<(AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
 
         public HttpClient CreateClient(
@@ -547,8 +489,6 @@ public class OllamaNativeChatCompletionServiceTests
     private sealed class TrackingSafeAiHttpClientFactory(
         Func<HttpMessageHandler>? handlerFactory = null) : ISafeAiHttpClientFactory
     {
-        public long Generation { get; set; } = 1;
-
         public List<TrackingHttpClient> Clients { get; } = [];
 
         public HttpClient CreateClient(

@@ -236,8 +236,6 @@ public sealed class AiServiceReadinessProbeSchedulerTests
     private sealed class StubSafeAiHttpClientFactory(string modelsJson = "{\"models\":[]}")
         : ISafeAiHttpClientFactory
     {
-        public long Generation => 1;
-
         public List<(AcceptanceSpecSystem.Core.AI.Models.AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
 
         public HttpClient CreateClient(

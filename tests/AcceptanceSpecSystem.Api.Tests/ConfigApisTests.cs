@@ -310,7 +310,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task AI服务配置_公网HTTP端点应在保存前拒绝()
+    public async Task AI服务配置_公网HTTP端点结构合法时应允许保存()
     {
         var createResp = await _client.PostAsync(
             "/api/ai-services",
@@ -326,9 +326,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
                 disableThinking = false
             }));
 
-        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        var result = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        result.Message.Should().Contain("地址策略拒绝");
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

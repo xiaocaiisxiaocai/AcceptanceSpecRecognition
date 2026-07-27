@@ -343,12 +343,6 @@ public sealed class RealAiIntegrationContext : IAsyncDisposable
 
         var serviceProvider = new ServiceCollection()
             .AddOptions()
-            .Configure<AiEndpointSecurityOptions>(_ => { })
-            .AddSingleton<IAiDnsResolver, AiDnsResolver>()
-            .AddSingleton<IAiEndpointAccessPolicy, AiEndpointAccessPolicy>()
-            .AddSingleton<IAiSocketFactory, AiSocketFactory>()
-            .AddSingleton<IAiSocketConnectOperation, AiSocketConnectOperation>()
-            .AddSingleton<IAiSocketConnector, AiSocketConnector>()
             .AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>()
             .BuildServiceProvider();
 

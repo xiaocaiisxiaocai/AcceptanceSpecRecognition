@@ -13,7 +13,7 @@ namespace AcceptanceSpecSystem.Api.Tests;
 public class ReviewRegressionTests
 {
     [Fact]
-    public void AI端点策略组件_应注册为无请求状态的Singleton()
+    public void AI安全客户端工厂_应注册为无请求状态的Singleton()
     {
         var services = new ServiceCollection();
         var configuration = new ConfigurationBuilder()
@@ -22,21 +22,11 @@ public class ReviewRegressionTests
 
         services.AddApiLayerServices(configuration);
 
-        foreach (var serviceType in new[]
-                 {
-                     typeof(IAiDnsResolver),
-                     typeof(IAiEndpointAccessPolicy),
-                     typeof(IAiSocketFactory),
-                     typeof(IAiSocketConnectOperation),
-                     typeof(IAiSocketConnector),
-                     typeof(ISafeAiHttpClientFactory)
-                 })
-        {
-            services.Last(descriptor => descriptor.ServiceType == serviceType)
-                .Lifetime.Should().Be(
-                    ServiceLifetime.Singleton,
-                    $"{serviceType.Name} 不得携带请求级可变状态");
-        }
+        services.Last(descriptor =>
+                descriptor.ServiceType == typeof(ISafeAiHttpClientFactory))
+            .Lifetime.Should().Be(
+                ServiceLifetime.Singleton,
+                "有界连接池必须跨请求复用");
     }
 
     [Fact]
@@ -72,7 +62,7 @@ public class ReviewRegressionTests
             .GetParameters()
             .Select(parameter => parameter.ParameterType)
             .Should()
-            .Contain(typeof(ISafeAiHttpClientFactory), "AI 服务探测和模型列表必须经过连接期端点策略");
+            .Contain(typeof(ISafeAiHttpClientFactory), "AI 服务探测和模型列表必须经过精确 Origin 约束");
     }
 
     [Fact]
