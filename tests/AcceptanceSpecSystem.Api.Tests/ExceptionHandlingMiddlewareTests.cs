@@ -160,6 +160,25 @@ public class ExceptionHandlingMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_上传或请求实体过大仍应保持HTTP和业务码413()
+    {
+        var middleware = new ExceptionHandlingMiddleware(
+            _ => throw new ApplicationServiceException(413, "上传文件过大"),
+            NullLogger<ExceptionHandlingMiddleware>.Instance);
+        var context = new DefaultHttpContext();
+        await using var responseBody = new MemoryStream();
+        context.Response.Body = responseBody;
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status413PayloadTooLarge);
+        responseBody.Position = 0;
+        var document = await JsonDocument.ParseAsync(responseBody);
+        document.RootElement.GetProperty("code").GetInt32().Should().Be(413);
+        document.RootElement.GetProperty("message").GetString().Should().Be("上传文件过大");
+    }
+
+    [Fact]
     public async Task InvokeAsync_文件引用竞态应返回稳定409且不泄漏内部文件编号()
     {
         var middleware = new ExceptionHandlingMiddleware(

@@ -138,6 +138,31 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
     }
 
     /// <inheritdoc />
+    public async Task<IReadOnlyList<AcceptanceSpecDuplicateCandidate>> GetDuplicateCandidatesAsync(
+        AcceptanceSpecQueryOptions options,
+        int take,
+        CancellationToken cancellationToken = default)
+    {
+        if (take <= 0)
+            return [];
+
+        return await CreateFilteredQuery(options, includeNavigation: false)
+            .Where(spec => spec.Project.Trim() != string.Empty && spec.Specification.Trim() != string.Empty)
+            .OrderBy(spec => spec.Id)
+            .Take(take)
+            .Select(spec => new AcceptanceSpecDuplicateCandidate
+            {
+                Id = spec.Id,
+                Project = spec.Project,
+                Specification = spec.Specification,
+                Acceptance = spec.Acceptance,
+                Remark = spec.Remark,
+                ImportedAt = spec.ImportedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<IReadOnlyList<AcceptanceSpecGroupSummaryItem>> GetGroupSummaryWithFilterAsync(
         AcceptanceSpecQueryOptions options,
         CancellationToken cancellationToken = default)
@@ -270,6 +295,12 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
 
     private static IQueryable<AcceptanceSpec> ApplyScope(IQueryable<AcceptanceSpec> query, AcceptanceSpecQueryOptions options)
     {
+        if (options.CompanyId.HasValue)
+        {
+            var companyId = options.CompanyId.Value;
+            query = query.Where(spec => spec.WordFile.CompanyId == companyId);
+        }
+
         if (options.IsAll)
             return query;
 

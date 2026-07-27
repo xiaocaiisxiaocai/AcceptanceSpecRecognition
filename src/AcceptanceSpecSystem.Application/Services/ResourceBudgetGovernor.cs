@@ -21,6 +21,8 @@ public sealed class ResourceBudgetOptions
     public long MaxDocumentBytes { get; set; } = 50L * 1024 * 1024;
     public int MaxWriteOperations { get; set; } = 200_000;
     public int MaxMatchingItems { get; set; } = 50_000;
+    public int MaxDuplicateCandidates { get; set; } = 2_000;
+    public long MaxDuplicatePairComparisons { get; set; } = 1_000_000;
 }
 
 public sealed class ResourceBudgetExceededException : ApplicationServiceException
@@ -38,6 +40,17 @@ public sealed class ResourceBudgetExceededException : ApplicationServiceExceptio
     public long Limit { get; }
 }
 
+public sealed class DuplicateAnalysisBudgetExceededException : ApplicationServiceException
+{
+    public DuplicateAnalysisBudgetExceededException(string budgetName)
+        : base(422, "重复分析数据量超出安全上限，请缩小筛选范围后重试")
+    {
+        BudgetName = budgetName;
+    }
+
+    public string BudgetName { get; }
+}
+
 public interface IResourceBudgetGovernor
 {
     ValueTask<ResourceBudgetLease> AcquireAsync(
@@ -47,6 +60,8 @@ public interface IResourceBudgetGovernor
     void ValidateDocumentSize(long bytes);
     void ValidateWriteOperations(int operationCount);
     void ValidateMatchingItems(int itemCount);
+    void ValidateDuplicateCandidates(int candidateCount);
+    void ValidateDuplicateComparisons(long comparisonCount);
 }
 
 public sealed class ResourceBudgetLease : IDisposable
@@ -143,6 +158,22 @@ public sealed class ResourceBudgetGovernor : IResourceBudgetGovernor, IDisposabl
         Validate("matching_items", itemCount, _options.MaxMatchingItems);
     }
 
+    public void ValidateDuplicateCandidates(int candidateCount)
+    {
+        ValidateDuplicate(
+            "duplicate_candidates",
+            candidateCount,
+            _options.MaxDuplicateCandidates);
+    }
+
+    public void ValidateDuplicateComparisons(long comparisonCount)
+    {
+        ValidateDuplicate(
+            "duplicate_comparisons",
+            comparisonCount,
+            _options.MaxDuplicatePairComparisons);
+    }
+
     public void Dispose()
     {
         foreach (var gate in _gates.Values)
@@ -162,6 +193,15 @@ public sealed class ResourceBudgetGovernor : IResourceBudgetGovernor, IDisposabl
 
         _rejected.Add(1, new TagList { { "budget", budgetName } });
         throw new ResourceBudgetExceededException(budgetName, actual, limit);
+    }
+
+    private void ValidateDuplicate(string budgetName, long actual, long limit)
+    {
+        if (limit <= 0 || actual <= limit)
+            return;
+
+        _rejected.Add(1, new TagList { { "budget", budgetName } });
+        throw new DuplicateAnalysisBudgetExceededException(budgetName);
     }
 
     private static SemaphoreSlim CreateGate(int concurrency)

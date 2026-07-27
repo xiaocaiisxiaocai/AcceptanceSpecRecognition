@@ -71,6 +71,28 @@ public sealed class ResourceBudgetGovernorTests
     }
 
     [Fact]
+    public void 重复分析预算应使用专用422且不改变既有资源预算400()
+    {
+        using var governor = new ResourceBudgetGovernor(Microsoft.Extensions.Options.Options.Create(new ResourceBudgetOptions
+        {
+            MaxDocumentBytes = 10,
+            MaxDuplicateCandidates = 2,
+            MaxDuplicatePairComparisons = 3
+        }));
+
+        Action document = () => governor.ValidateDocumentSize(11);
+        Action candidates = () => governor.ValidateDuplicateCandidates(3);
+        Action comparisons = () => governor.ValidateDuplicateComparisons(4);
+
+        document.Should().Throw<ResourceBudgetExceededException>()
+            .Where(exception => exception.Code == 400);
+        candidates.Should().Throw<DuplicateAnalysisBudgetExceededException>()
+            .Where(exception => exception.Code == 422 && exception.BudgetName == "duplicate_candidates");
+        comparisons.Should().Throw<DuplicateAnalysisBudgetExceededException>()
+            .Where(exception => exception.Code == 422 && exception.BudgetName == "duplicate_comparisons");
+    }
+
+    [Fact]
     public async Task Metrics_ShouldReportCancelledWaitAndRejectedBudget()
     {
         var measurements = new ConcurrentBag<(string Name, double Value)>();

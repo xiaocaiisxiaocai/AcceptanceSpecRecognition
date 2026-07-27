@@ -94,6 +94,7 @@ public class SpecsController : BaseApiController
     /// </summary>
     [HttpGet("duplicate-groups")]
     [ProducesResponseType(typeof(ApiResponse<SpecDuplicateDetectionResultDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<SpecDuplicateDetectionResultDto>), StatusCodes.Status422UnprocessableEntity)]
     public async Task<ActionResult<ApiResponse<SpecDuplicateDetectionResultDto>>> GetDuplicateGroups(
         [FromQuery] string? keyword = null,
         [FromQuery] int? customerId = null,

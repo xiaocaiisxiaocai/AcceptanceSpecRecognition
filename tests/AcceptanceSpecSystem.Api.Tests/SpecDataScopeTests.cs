@@ -326,6 +326,7 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         };
         var wordFile = new WordFile
         {
+            CompanyId = 1,
             FileName = $"duplicate-{suffix}.docx",
             FileContent = Array.Empty<byte>(),
             FileHash = Guid.NewGuid().ToString("N"),

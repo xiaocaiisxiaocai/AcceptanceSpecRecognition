@@ -2,6 +2,7 @@
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -11,10 +12,17 @@ namespace AcceptanceSpecSystem.Application.Services;
 public sealed class AcceptanceSpecQueryService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
+    private readonly ResourceBudgetOptions _resourceBudgetOptions;
 
-    public AcceptanceSpecQueryService(IUnitOfWork unitOfWork)
+    public AcceptanceSpecQueryService(
+        IUnitOfWork unitOfWork,
+        IResourceBudgetGovernor resourceBudgetGovernor,
+        IOptions<ResourceBudgetOptions> resourceBudgetOptions)
     {
         _unitOfWork = unitOfWork;
+        _resourceBudgetGovernor = resourceBudgetGovernor;
+        _resourceBudgetOptions = resourceBudgetOptions.Value;
     }
 
     public async Task<Dictionary<int, int>> GetProcessCountByCustomerAsync(
@@ -190,7 +198,10 @@ public sealed class AcceptanceSpecQueryService
         int? maxGroups = null,
         CancellationToken cancellationToken = default)
     {
-        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetFilteredWithIncludesAsync(
+        cancellationToken.ThrowIfCancellationRequested();
+        var candidateLimit = _resourceBudgetOptions.MaxDuplicateCandidates;
+        var take = candidateLimit == int.MaxValue ? int.MaxValue : candidateLimit + 1;
+        var allSpecs = await _unitOfWork.AcceptanceSpecs.GetDuplicateCandidatesAsync(
             BuildQueryOptions(
                 scope,
                 keyword,
@@ -198,10 +209,19 @@ public sealed class AcceptanceSpecQueryService
                 processId,
                 machineModelId,
                 processIdIsNull,
-                machineModelIdIsNull),
+                machineModelIdIsNull,
+                enforceCompany: true),
+            take,
             cancellationToken);
 
-        return SpecDuplicateDetectionService.Detect(allSpecs, minSimilarity, maxGroups);
+        _resourceBudgetGovernor.ValidateDuplicateCandidates(allSpecs.Count);
+        cancellationToken.ThrowIfCancellationRequested();
+        return SpecDuplicateDetectionService.Detect(
+            allSpecs,
+            _resourceBudgetGovernor,
+            cancellationToken,
+            minSimilarity,
+            maxGroups);
     }
 
     public static AcceptanceSpecSummary MapDto(AcceptanceSpec spec)
@@ -268,11 +288,13 @@ public sealed class AcceptanceSpecQueryService
         DateTime? importedFrom = null,
         DateTime? importedTo = null,
         int page = 1,
-        int pageSize = 20)
+        int pageSize = 20,
+        bool enforceCompany = false)
     {
         return new AcceptanceSpecQueryOptions
         {
             UserId = scope.UserId,
+            CompanyId = enforceCompany ? scope.CompanyId : null,
             IsAll = scope.IsAll,
             IncludeSelf = scope.IncludeSelf,
             OrgUnitIds = scope.OrgUnitIds.ToArray(),

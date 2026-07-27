@@ -1,6 +1,6 @@
 ﻿using System.Text;
 using AcceptanceSpecSystem.Application.Models;
-using AcceptanceSpecSystem.Data.Entities;
+using AcceptanceSpecSystem.Data.Repositories;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -12,29 +12,46 @@ internal static class SpecDuplicateDetectionService
     private const double DefaultMinSimilarity = 0.88;
 
     public static SpecDuplicateDetectionResultModel Detect(
-        IEnumerable<AcceptanceSpec> specs,
+        IEnumerable<AcceptanceSpecDuplicateCandidate> specs,
+        IResourceBudgetGovernor resourceBudgetGovernor,
+        CancellationToken cancellationToken,
         double? minSimilarity = null,
         int? maxGroups = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var similarityThreshold = Math.Clamp(minSimilarity ?? DefaultMinSimilarity, 0.7, 0.99);
         var groupLimit = Math.Clamp(maxGroups ?? 20, 1, 100);
 
-        var candidates = specs
-            .Where(spec => !string.IsNullOrWhiteSpace(spec.Project) && !string.IsNullOrWhiteSpace(spec.Specification))
-            .OrderBy(spec => spec.Project)
-            .ThenBy(spec => spec.Id)
-            .ToList();
+        var candidates = new List<AcceptanceSpecDuplicateCandidate>();
+        foreach (var spec in specs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.IsNullOrWhiteSpace(spec.Project) && !string.IsNullOrWhiteSpace(spec.Specification))
+                candidates.Add(spec);
+        }
 
-        var exactGroups = BuildExactGroups(candidates);
+        candidates.Sort(static (left, right) =>
+        {
+            var projectOrder = string.Compare(left.Project, right.Project, StringComparison.Ordinal);
+            return projectOrder != 0 ? projectOrder : left.Id.CompareTo(right.Id);
+        });
+        resourceBudgetGovernor.ValidateDuplicateCandidates(candidates.Count);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var exactGroups = BuildExactGroups(candidates, cancellationToken);
         var exactMemberIds = exactGroups
             .SelectMany(group => group.Items)
             .Select(item => item.Id)
             .ToHashSet();
+        cancellationToken.ThrowIfCancellationRequested();
 
         var similarGroups = BuildSimilarGroups(
             candidates.Where(spec => !exactMemberIds.Contains(spec.Id)).ToList(),
-            similarityThreshold);
+            similarityThreshold,
+            resourceBudgetGovernor,
+            cancellationToken);
 
+        cancellationToken.ThrowIfCancellationRequested();
         return new SpecDuplicateDetectionResultModel
         {
             ScannedCount = candidates.Count,
@@ -45,30 +62,51 @@ internal static class SpecDuplicateDetectionService
         };
     }
 
-    private static List<SpecDuplicateGroupModel> BuildExactGroups(IEnumerable<AcceptanceSpec> specs)
+    private static List<SpecDuplicateGroupModel> BuildExactGroups(
+        IReadOnlyList<AcceptanceSpecDuplicateCandidate> specs,
+        CancellationToken cancellationToken)
     {
-        return specs
-            .GroupBy(spec => BuildExactKey(spec.Project, spec.Specification), StringComparer.Ordinal)
-            .Where(group => !string.IsNullOrWhiteSpace(group.Key) && group.Count() > 1)
-            .Select(group =>
+        var buckets = new Dictionary<string, List<AcceptanceSpecDuplicateCandidate>>(StringComparer.Ordinal);
+        foreach (var spec in specs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var key = BuildExactKey(spec.Project, spec.Specification);
+            if (string.IsNullOrWhiteSpace(key))
+                continue;
+            if (!buckets.TryGetValue(key, out var bucket))
             {
-                var items = group
+                bucket = [];
+                buckets.Add(key, bucket);
+            }
+            bucket.Add(spec);
+        }
+
+        var result = new List<SpecDuplicateGroupModel>();
+        foreach (var group in buckets.Values)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (group.Count <= 1)
+                continue;
+            var items = group
                     .OrderBy(item => item.Id)
                     .Select(MapItem)
                     .ToList();
-                var first = items[0];
+            var first = items[0];
 
-                return new SpecDuplicateGroupModel
-                {
-                    GroupType = "exact",
-                    Project = first.Project,
-                    SpecificationPreview = BuildPreview(first.Specification),
-                    Reason = "项目与规格在忽略空白和标点后完全一致",
-                    SimilarityScore = 1,
-                    ItemCount = items.Count,
-                    Items = items
-                };
-            })
+            result.Add(new SpecDuplicateGroupModel
+            {
+                GroupType = "exact",
+                Project = first.Project,
+                SpecificationPreview = BuildPreview(first.Specification),
+                Reason = "项目与规格在忽略空白和标点后完全一致",
+                SimilarityScore = 1,
+                ItemCount = items.Count,
+                Items = items
+            });
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return result
             .OrderByDescending(group => group.ItemCount)
             .ThenBy(group => group.Project)
             .ThenBy(group => group.Items[0].Id)
@@ -76,49 +114,80 @@ internal static class SpecDuplicateDetectionService
     }
 
     private static List<SpecDuplicateGroupModel> BuildSimilarGroups(
-        IReadOnlyList<AcceptanceSpec> specs,
-        double similarityThreshold)
+        IReadOnlyList<AcceptanceSpecDuplicateCandidate> specs,
+        double similarityThreshold,
+        IResourceBudgetGovernor resourceBudgetGovernor,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (specs.Count < 2)
             return [];
 
         var unionFind = new UnionFind(specs.Select(spec => spec.Id));
         var pairScores = new List<DuplicatePairScore>();
+        var candidatePairs = BuildCandidatePairs(specs, cancellationToken);
+        long comparisonCount = 0;
 
-        for (var leftIndex = 0; leftIndex < specs.Count; leftIndex++)
+        foreach (var candidatePair in candidatePairs)
         {
-            for (var rightIndex = leftIndex + 1; rightIndex < specs.Count; rightIndex++)
-            {
-                var pair = TryBuildPair(specs[leftIndex], specs[rightIndex], similarityThreshold);
-                if (pair == null)
-                    continue;
+            cancellationToken.ThrowIfCancellationRequested();
+            comparisonCount++;
+            resourceBudgetGovernor.ValidateDuplicateComparisons(comparisonCount);
+            cancellationToken.ThrowIfCancellationRequested();
+            var pair = TryBuildPair(
+                specs[candidatePair.LeftIndex],
+                specs[candidatePair.RightIndex],
+                similarityThreshold);
+            if (pair == null)
+                continue;
 
-                unionFind.Union(pair.LeftId, pair.RightId);
-                pairScores.Add(pair);
-            }
+            unionFind.Union(pair.LeftId, pair.RightId);
+            pairScores.Add(pair);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (pairScores.Count == 0)
             return [];
 
-        var itemLookup = specs.ToDictionary(spec => spec.Id);
-        var pairRootLookup = pairScores
-            .GroupBy(pair => unionFind.Find(pair.LeftId))
-            .ToDictionary(group => group.Key, group => group.ToList());
+        var pairRootLookup = new Dictionary<int, List<DuplicatePairScore>>();
+        foreach (var pair in pairScores)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var root = unionFind.Find(pair.LeftId);
+            if (!pairRootLookup.TryGetValue(root, out var rootPairs))
+            {
+                rootPairs = [];
+                pairRootLookup.Add(root, rootPairs);
+            }
+            rootPairs.Add(pair);
+        }
+
+        var memberGroups = new Dictionary<int, List<AcceptanceSpecDuplicateCandidate>>();
+        foreach (var spec in specs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var root = unionFind.Find(spec.Id);
+            if (!memberGroups.TryGetValue(root, out var members))
+            {
+                members = [];
+                memberGroups.Add(root, members);
+            }
+            members.Add(spec);
+        }
 
         var result = new List<SpecDuplicateGroupModel>();
 
-        foreach (var rootGroup in specs.GroupBy(spec => unionFind.Find(spec.Id)))
+        foreach (var (root, rootMembers) in memberGroups)
         {
-            var members = rootGroup
-                .Select(spec => itemLookup[spec.Id])
+            cancellationToken.ThrowIfCancellationRequested();
+            var members = rootMembers
                 .OrderBy(spec => spec.Id)
                 .ToList();
 
             if (members.Count < 2)
                 continue;
 
-            if (!pairRootLookup.TryGetValue(rootGroup.Key, out var groupPairs) || groupPairs.Count == 0)
+            if (!pairRootLookup.TryGetValue(root, out var groupPairs) || groupPairs.Count == 0)
                 continue;
 
             var bestPair = groupPairs
@@ -148,9 +217,64 @@ internal static class SpecDuplicateDetectionService
             .ToList();
     }
 
+    private static IReadOnlyList<CandidatePair> BuildCandidatePairs(
+        IReadOnlyList<AcceptanceSpecDuplicateCandidate> specs,
+        CancellationToken cancellationToken)
+    {
+        // 安全召回依据：
+        // 1. 非包含关系要达到项目 Dice 阈值，交集必非空，因此双方必共享现有 similarity token；
+        // 2. 任一非空包含关系必共享至少一个归一化字符（包括单字符和纯标点）。
+        // 两类倒排桶取并集后只排除旧算法必不可能命中的 pair，不改变既有召回。
+        var buckets = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        for (var index = 0; index < specs.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var normalized = NormalizeComparableText(specs[index].Project);
+            var strict = NormalizeStrictKey(normalized);
+            var keys = BuildSimilarityTokens(normalized, strict)
+                .Select(token => $"token:{token}")
+                .Concat(normalized.Select(character => $"char:{character}"))
+                .Distinct(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                if (!buckets.TryGetValue(key, out var bucket))
+                {
+                    bucket = [];
+                    buckets.Add(key, bucket);
+                }
+                bucket.Add(index);
+            }
+        }
+
+        var pairs = new HashSet<CandidatePair>();
+        foreach (var bucket in buckets.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            for (var left = 0; left < bucket.Count; left++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                for (var right = left + 1; right < bucket.Count; right++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var leftIndex = bucket[left];
+                    var rightIndex = bucket[right];
+                    pairs.Add(leftIndex < rightIndex
+                        ? new CandidatePair(leftIndex, rightIndex)
+                        : new CandidatePair(rightIndex, leftIndex));
+                }
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return pairs
+            .OrderBy(pair => specs[pair.LeftIndex].Id)
+            .ThenBy(pair => specs[pair.RightIndex].Id)
+            .ToList();
+    }
+
     private static DuplicatePairScore? TryBuildPair(
-        AcceptanceSpec left,
-        AcceptanceSpec right,
+        AcceptanceSpecDuplicateCandidate left,
+        AcceptanceSpecDuplicateCandidate right,
         double similarityThreshold)
     {
         var projectScore = ComputeTextSimilarity(left.Project, right.Project, 0.88);
@@ -189,7 +313,7 @@ internal static class SpecDuplicateDetectionService
             string.Join("，", reasons));
     }
 
-    private static SpecDuplicateItemModel MapItem(AcceptanceSpec spec)
+    private static SpecDuplicateItemModel MapItem(AcceptanceSpecDuplicateCandidate spec)
     {
         return new SpecDuplicateItemModel
         {
@@ -405,4 +529,6 @@ internal static class SpecDuplicateDetectionService
         double SpecificationScore,
         double CombinedScore,
         string Reason);
+
+    private readonly record struct CandidatePair(int LeftIndex, int RightIndex);
 }

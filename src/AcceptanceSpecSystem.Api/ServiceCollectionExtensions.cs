@@ -53,6 +53,8 @@ public static class ApiServiceCollectionExtensions
             .Validate(options => options.MaxDocumentBytes > 0, "文档字节预算必须大于 0")
             .Validate(options => options.MaxWriteOperations > 0, "写回操作预算必须大于 0")
             .Validate(options => options.MaxMatchingItems > 0, "匹配项预算必须大于 0")
+            .Validate(options => options.MaxDuplicateCandidates > 0, "重复分析候选预算必须大于 0")
+            .Validate(options => options.MaxDuplicatePairComparisons > 0, "重复分析比较预算必须大于 0")
             .ValidateOnStart();
         services.AddOptions<BatchReplyCleanupOptions>()
             .Bind(configuration.GetSection(BatchReplyCleanupOptions.SectionName))

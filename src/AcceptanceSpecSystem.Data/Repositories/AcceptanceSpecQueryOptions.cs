@@ -11,6 +11,8 @@ public sealed class AcceptanceSpecQueryOptions
 
     public int UserId { get; init; }
 
+    public int? CompanyId { get; init; }
+
     public bool IsAll { get; init; }
 
     public bool IncludeSelf { get; init; }
@@ -44,6 +46,16 @@ public sealed class AcceptanceSpecQueryOptions
         get => _pageSize;
         init => _pageSize = Math.Clamp(value, 1, MaxPageSize);
     }
+}
+
+public sealed class AcceptanceSpecDuplicateCandidate
+{
+    public int Id { get; init; }
+    public string Project { get; init; } = string.Empty;
+    public string Specification { get; init; } = string.Empty;
+    public string? Acceptance { get; init; }
+    public string? Remark { get; init; }
+    public DateTime ImportedAt { get; init; }
 }
 
 public sealed class AcceptanceSpecGroupSummaryItem

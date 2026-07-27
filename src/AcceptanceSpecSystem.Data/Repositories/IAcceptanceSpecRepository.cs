@@ -73,6 +73,14 @@ public interface IAcceptanceSpecRepository : IRepository<AcceptanceSpec>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 获取重复分析所需的有界轻量候选；调用方传入上限加一以识别整体超限。
+    /// </summary>
+    Task<IReadOnlyList<AcceptanceSpecDuplicateCandidate>> GetDuplicateCandidatesAsync(
+        AcceptanceSpecQueryOptions options,
+        int take,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 按筛选条件获取分组汇总，并在数据库侧完成范围过滤和分组。
     /// </summary>
     /// <param name="options">查询条件</param>

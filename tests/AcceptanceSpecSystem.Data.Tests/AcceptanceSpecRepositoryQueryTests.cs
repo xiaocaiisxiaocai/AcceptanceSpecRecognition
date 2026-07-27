@@ -7,6 +7,90 @@ namespace AcceptanceSpecSystem.Data.Tests;
 public class AcceptanceSpecRepositoryQueryTests : TestBase
 {
     [Fact]
+    public async Task 重复分析候选查询应在数据库侧稳定截取上限加一并排除空白项()
+    {
+        var repo = new AcceptanceSpecRepository(Context);
+        var customer = new Customer { Name = "重复分析候选客户", CreatedAt = DateTime.UtcNow };
+        var wordFile = new WordFile
+        {
+            CompanyId = 7,
+            FileName = "duplicate-candidates.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = [],
+            UploadedAt = DateTime.UtcNow
+        };
+        Context.Customers.Add(customer);
+        Context.WordFiles.Add(wordFile);
+        await Context.SaveChangesAsync();
+
+        Context.AcceptanceSpecs.AddRange(Enumerable.Range(1, 2_005).Select(index => new AcceptanceSpec
+        {
+            CustomerId = customer.Id,
+            Project = index <= 2_003 ? $"项目-{index:D4}" : " ",
+            Specification = index == 2_005 ? "\t" : $"规格-{index:D4}",
+            WordFileId = wordFile.Id,
+            ImportedAt = DateTime.UtcNow.AddSeconds(index)
+        }));
+        await Context.SaveChangesAsync();
+
+        var result = await repo.GetDuplicateCandidatesAsync(
+            new AcceptanceSpecQueryOptions
+            {
+                CompanyId = 7,
+                IsAll = true,
+                CustomerId = customer.Id
+            },
+            2_001);
+
+        result.Should().HaveCount(2_001);
+        result.Select(item => item.Id).Should().BeInAscendingOrder();
+        result.Should().OnlyContain(item =>
+            !string.IsNullOrWhiteSpace(item.Project) &&
+            !string.IsNullOrWhiteSpace(item.Specification));
+    }
+
+    [Fact]
+    public async Task 重复分析候选查询在无数据范围时应先返回空而不是触发数量预算()
+    {
+        var repo = new AcceptanceSpecRepository(Context);
+        var customer = new Customer { Name = "无范围重复分析客户", CreatedAt = DateTime.UtcNow };
+        var wordFile = new WordFile
+        {
+            CompanyId = 8,
+            FileName = "no-scope.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = [],
+            UploadedAt = DateTime.UtcNow
+        };
+        Context.Customers.Add(customer);
+        Context.WordFiles.Add(wordFile);
+        await Context.SaveChangesAsync();
+
+        Context.AcceptanceSpecs.AddRange(Enumerable.Range(1, 2_002).Select(index => new AcceptanceSpec
+        {
+            CustomerId = customer.Id,
+            Project = $"无范围项目-{index:D4}",
+            Specification = $"无范围规格-{index:D4}",
+            WordFileId = wordFile.Id,
+            ImportedAt = DateTime.UtcNow
+        }));
+        await Context.SaveChangesAsync();
+
+        var result = await repo.GetDuplicateCandidatesAsync(
+            new AcceptanceSpecQueryOptions
+            {
+                CompanyId = 8,
+                UserId = 99,
+                IsAll = false,
+                IncludeSelf = false,
+                OrgUnitIds = []
+            },
+            2_001);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetPagedWithFilterAsync_ShouldUseIdAsStableDescendingTieBreaker()
     {
         var repo = new AcceptanceSpecRepository(Context);
