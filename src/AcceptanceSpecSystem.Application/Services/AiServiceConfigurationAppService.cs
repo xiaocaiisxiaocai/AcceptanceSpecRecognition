@@ -5,6 +5,7 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
+using CoreAiServiceType = AcceptanceSpecSystem.Core.AI.Models.AiServiceType;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -30,13 +31,16 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly AiServiceReadinessRegistry _readinessRegistry;
+    private readonly IAiEndpointAccessPolicy _endpointAccessPolicy;
 
     public AiServiceConfigurationAppService(
         IUnitOfWork unitOfWork,
-        AiServiceReadinessRegistry readinessRegistry)
+        AiServiceReadinessRegistry readinessRegistry,
+        IAiEndpointAccessPolicy endpointAccessPolicy)
     {
         _unitOfWork = unitOfWork;
         _readinessRegistry = readinessRegistry;
+        _endpointAccessPolicy = endpointAccessPolicy;
     }
 
     public async Task<PagedResult<AiServiceConfigDto>> GetPagedAsync(int page, int pageSize, string? keyword, AiServiceType? serviceType, CancellationToken cancellationToken = default)
@@ -82,7 +86,14 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
 
     public async Task<AiServiceConfigDto> CreateAsync(CreateAiServiceRequest request, CancellationToken cancellationToken = default)
     {
-        var values = Validate(request.Name, request.ServiceType, request.Purpose, request.Endpoint, request.LlmModel, request.EmbeddingModel);
+        var values = await ValidateAsync(
+            request.Name,
+            request.ServiceType,
+            request.Purpose,
+            request.Endpoint,
+            request.LlmModel,
+            request.EmbeddingModel,
+            cancellationToken);
         if (await _unitOfWork.AiServiceConfigs.Query().AnyAsync(config => config.Name == values.Name, cancellationToken))
             throw Error("名称已存在");
         var entity = new AiServiceConfig
@@ -107,7 +118,14 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         var entity = await _unitOfWork.AiServiceConfigs.Query()
             .SingleOrDefaultAsync(config => config.Id == id, cancellationToken) ?? throw Error("配置不存在");
         if (entity.IsLegacyDualPurposeConfiguration()) throw Error(LegacyMessage);
-        var values = Validate(request.Name, request.ServiceType, request.Purpose, request.Endpoint, request.LlmModel, request.EmbeddingModel);
+        var values = await ValidateAsync(
+            request.Name,
+            request.ServiceType,
+            request.Purpose,
+            request.Endpoint,
+            request.LlmModel,
+            request.EmbeddingModel,
+            cancellationToken);
         if (!string.Equals(entity.Name, values.Name, StringComparison.OrdinalIgnoreCase) &&
             await _unitOfWork.AiServiceConfigs.Query().AnyAsync(config => config.Name == values.Name && config.Id != id, cancellationToken))
             throw Error("名称已存在");
@@ -165,7 +183,14 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         _readinessRegistry.Invalidate(entity.Id);
     }
 
-    private static (string Name, string? Endpoint) Validate(string? name, AiServiceType type, AiServicePurpose purpose, string? endpoint, string? llm, string? embedding)
+    private async Task<(string Name, string? Endpoint)> ValidateAsync(
+        string? name,
+        AiServiceType type,
+        AiServicePurpose purpose,
+        string? endpoint,
+        string? llm,
+        string? embedding,
+        CancellationToken cancellationToken)
     {
         var normalizedName = name?.Trim();
         if (string.IsNullOrWhiteSpace(normalizedName)) throw Error("名称不能为空");
@@ -178,10 +203,26 @@ public sealed class AiServiceConfigurationAppService : IAiServiceConfigurationAp
         {
             var normalizedEndpoint = AiEndpointNormalizer.NormalizeOptionalEndpoint(
                 endpoint, allowPrivateNetwork: type is AiServiceType.Ollama or AiServiceType.LMStudio);
+            if (normalizedEndpoint != null)
+            {
+                await _endpointAccessPolicy.ValidateAsync(
+                    new Uri(normalizedEndpoint),
+                    ToCoreServiceType(type),
+                    cancellationToken);
+            }
             return (normalizedName, normalizedEndpoint);
         }
         catch (InvalidOperationException ex) { throw Error(ex.Message); }
     }
+
+    private static CoreAiServiceType ToCoreServiceType(AiServiceType type) => type switch
+    {
+        AiServiceType.OpenAI => CoreAiServiceType.OpenAI,
+        AiServiceType.AzureOpenAI => CoreAiServiceType.AzureOpenAI,
+        AiServiceType.Ollama => CoreAiServiceType.Ollama,
+        AiServiceType.LMStudio => CoreAiServiceType.LMStudio,
+        _ => CoreAiServiceType.CustomOpenAICompatible
+    };
 
     private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static ApplicationServiceException Error(string message) => new(400, message);

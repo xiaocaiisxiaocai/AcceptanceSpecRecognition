@@ -36,7 +36,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(chat),
-            new StubHttpClientFactory(),
+            new StubSafeAiHttpClientFactory(),
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -88,7 +88,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(new BlockingChatCompletionService()),
-            new StubHttpClientFactory(),
+            new StubSafeAiHttpClientFactory(),
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -137,10 +137,12 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         var registry = new AiServiceReadinessRegistry(TimeProvider.System, options);
         var chat = new BlockingChatCompletionService();
         var lifetime = new TestHostApplicationLifetime();
+        var safeClientFactory = new StubSafeAiHttpClientFactory(
+            "{\"models\":[{\"name\":\"qwen2.5:14b\"}]}");
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(chat),
-            new StubHttpClientFactory("{\"models\":[{\"name\":\"qwen2.5:14b\"}]}"),
+            safeClientFactory,
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -152,6 +154,10 @@ public sealed class AiServiceReadinessProbeSchedulerTests
 
         await WaitForStateAsync(registry, 101, AiServiceReadinessState.Available);
         chat.Started.Task.IsCompleted.Should().BeFalse("轻量探测不应触发大模型冷启动生成");
+        safeClientFactory.Calls.Should().ContainSingle();
+        safeClientFactory.Calls[0].ServiceType.Should().Be(
+            AcceptanceSpecSystem.Core.AI.Models.AiServiceType.Ollama);
+        safeClientFactory.Calls[0].Endpoint.Should().Be("http://192.168.1.20:11434");
     }
 
     [Fact]
@@ -168,7 +174,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         await using var scheduler = new AiServiceReadinessProbeScheduler(
             registry,
             new BlockingSemanticKernelServiceFactory(new BlockingChatCompletionService()),
-            new StubHttpClientFactory("{\"models\":[{\"name\":\"another-model\"}]}"),
+            new StubSafeAiHttpClientFactory("{\"models\":[{\"name\":\"another-model\"}]}"),
             lifetime,
             options,
             NullLogger<AiServiceReadinessProbeScheduler>.Instance);
@@ -227,9 +233,21 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         registry.GetSnapshot(serviceId, CoreAiServicePurpose.Llm).State.Should().Be(expected);
     }
 
-    private sealed class StubHttpClientFactory(string modelsJson = "{\"models\":[]}") : IHttpClientFactory
+    private sealed class StubSafeAiHttpClientFactory(string modelsJson = "{\"models\":[]}")
+        : ISafeAiHttpClientFactory
     {
-        public HttpClient CreateClient(string name) => new(new StubHandler(modelsJson));
+        public long Generation => 1;
+
+        public List<(AcceptanceSpecSystem.Core.AI.Models.AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
+
+        public HttpClient CreateClient(
+            AcceptanceSpecSystem.Core.AI.Models.AiServiceType serviceType,
+            string endpoint,
+            TimeSpan? timeout = null)
+        {
+            Calls.Add((serviceType, endpoint));
+            return new HttpClient(new StubHandler(modelsJson));
+        }
 
         private sealed class StubHandler(string modelsJson) : HttpMessageHandler
         {

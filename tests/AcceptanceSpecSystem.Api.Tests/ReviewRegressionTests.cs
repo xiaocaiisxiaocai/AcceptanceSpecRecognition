@@ -1,13 +1,43 @@
 using System.Reflection;
 using AcceptanceSpecSystem.Api.Controllers;
+using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
 public class ReviewRegressionTests
 {
+    [Fact]
+    public void AI端点策略组件_应注册为无请求状态的Singleton()
+    {
+        var services = new ServiceCollection();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>())
+            .Build();
+
+        services.AddApiLayerServices(configuration);
+
+        foreach (var serviceType in new[]
+                 {
+                     typeof(IAiDnsResolver),
+                     typeof(IAiEndpointAccessPolicy),
+                     typeof(IAiSocketFactory),
+                     typeof(IAiSocketConnector),
+                     typeof(ISafeAiHttpClientFactory)
+                 })
+        {
+            services.Last(descriptor => descriptor.ServiceType == serviceType)
+                .Lifetime.Should().Be(
+                    ServiceLifetime.Singleton,
+                    $"{serviceType.Name} 不得携带请求级可变状态");
+        }
+    }
+
     [Fact]
     public void SpecsController_DuplicateGroups_ShouldNotLoadAllSpecsIntoMemory()
     {
@@ -31,7 +61,7 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void AiServicesController_ShouldDependOnHttpClientFactory()
+    public void AI服务控制器_应依赖安全客户端工厂()
     {
         var constructors = typeof(AcceptanceSpecSystem.Api.Controllers.AiServicesController)
             .GetConstructors(BindingFlags.Public | BindingFlags.Instance);
@@ -41,7 +71,7 @@ public class ReviewRegressionTests
             .GetParameters()
             .Select(parameter => parameter.ParameterType)
             .Should()
-            .Contain(typeof(IHttpClientFactory), "AI 服务探测应通过 IHttpClientFactory 创建 HttpClient");
+            .Contain(typeof(ISafeAiHttpClientFactory), "AI 服务探测和模型列表必须经过连接期端点策略");
     }
 
     [Fact]
@@ -673,11 +703,25 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void AiEndpointNormalizer_ShouldResolveDnsBeforeAllowingPublicEndpoints()
+    public void AI真实出站组件_应通过构造函数统一依赖安全客户端工厂()
     {
-        var content = ReadFileText("src/AcceptanceSpecSystem.Core/AI/SemanticKernel/AiEndpointNormalizer.cs");
+        var componentTypes = new[]
+        {
+            typeof(AiServicesController),
+            typeof(AiServiceReadinessProbeScheduler),
+            typeof(SemanticKernelServiceFactory)
+        };
 
-        content.Should().Contain("Dns.GetHostAddresses", "域名 Endpoint 也要解析最终地址，避免域名指向内网地址绕过");
+        foreach (var componentType in componentTypes)
+        {
+            componentType.GetConstructors()
+                .SelectMany(constructor => constructor.GetParameters())
+                .Select(parameter => parameter.ParameterType)
+                .Should()
+                .Contain(
+                    typeof(ISafeAiHttpClientFactory),
+                    $"{componentType.Name} 的真实出站路径必须统一经过安全客户端工厂");
+        }
     }
 
     [Fact]
@@ -791,14 +835,12 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void Program_ShouldConfigureOllamaNativeHttpClientLongTimeout()
+    public void Ollama原生聊天_应由SemanticKernel工厂注入安全客户端()
     {
-        var content = File.ReadAllText(Path.Combine(
-            GetRepositoryRoot(),
-            "src/AcceptanceSpecSystem.Api/Program.cs".Replace('/', Path.DirectorySeparatorChar)));
+        var constructor = typeof(SemanticKernelServiceFactory).GetConstructors().Single();
 
-        content.Should().Contain("AddHttpClient(AiServiceHttpClientDefaults.OllamaNativeChatClientName", "Ollama 原生聊天不能使用 HttpClient 默认 100 秒超时");
-        content.Should().Contain("client.Timeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout", "慢模型推理应沿用长网络超时配置");
+        constructor.GetParameters().Select(parameter => parameter.ParameterType)
+            .Should().Contain(typeof(ISafeAiHttpClientFactory));
     }
 
     [Fact]

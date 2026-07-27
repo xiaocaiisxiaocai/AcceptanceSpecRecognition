@@ -342,7 +342,13 @@ public sealed class RealAiIntegrationContext : IAsyncDisposable
         var embeddingConfig = ToCoreModel(embeddingEntity);
 
         var serviceProvider = new ServiceCollection()
-            .AddHttpClient()
+            .AddOptions()
+            .Configure<AiEndpointSecurityOptions>(_ => { })
+            .AddSingleton<IAiDnsResolver, AiDnsResolver>()
+            .AddSingleton<IAiEndpointAccessPolicy, AiEndpointAccessPolicy>()
+            .AddSingleton<IAiSocketFactory, AiSocketFactory>()
+            .AddSingleton<IAiSocketConnector, AiSocketConnector>()
+            .AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>()
             .BuildServiceProvider();
 
         var loggerFactory = LoggerFactory.Create(builder =>
@@ -352,7 +358,7 @@ public sealed class RealAiIntegrationContext : IAsyncDisposable
 
         var factory = new SemanticKernelServiceFactory(
             loggerFactory,
-            serviceProvider.GetRequiredService<IHttpClientFactory>(),
+            serviceProvider.GetRequiredService<ISafeAiHttpClientFactory>(),
             Microsoft.Extensions.Options.Options.Create(new SemanticKernelOptions
             {
                 AzureOpenAIApiVersion = runtimeSettings.AzureOpenAiApiVersion

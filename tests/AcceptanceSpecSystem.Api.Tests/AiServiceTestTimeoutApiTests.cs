@@ -132,6 +132,10 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         result.Data.GetProperty("message").GetString().Should().Contain("快速测试");
         result.Data.GetProperty("targetModel").GetString().Should().Be("gpt-test");
         result.Data.GetProperty("serviceElapsedMs").GetInt64().Should().BeLessThan(2000);
+        _factory.Services.GetRequiredService<AiServiceTimeoutApiWebApplicationFactory.PassthroughSafeAiHttpClientFactory>()
+            .Calls.Should().Contain(call =>
+                call.ServiceType == AcceptanceSpecSystem.Core.AI.Models.AiServiceType.LMStudio &&
+                call.Endpoint == $"http://127.0.0.1:{port}/v1");
 
         await serverTask;
     }
@@ -173,6 +177,10 @@ public class AiServiceTestTimeoutApiTests : IClassFixture<AiServiceTimeoutApiWeb
         result.Data.GetProperty("message").GetString().Should().Contain("快速测试");
         result.Data.GetProperty("targetModel").GetString().Should().Be("text-embedding-test");
         result.Data.GetProperty("serviceElapsedMs").GetInt64().Should().BeLessThan(2000);
+        _factory.Services.GetRequiredService<AiServiceTimeoutApiWebApplicationFactory.PassthroughSafeAiHttpClientFactory>()
+            .Calls.Should().Contain(call =>
+                call.ServiceType == AcceptanceSpecSystem.Core.AI.Models.AiServiceType.LMStudio &&
+                call.Endpoint == $"http://127.0.0.1:{port}/v1");
 
         await serverTask;
     }
@@ -233,7 +241,30 @@ public sealed class AiServiceTimeoutApiWebApplicationFactory : ApiWebApplication
         {
             services.RemoveAll(typeof(ISemanticKernelServiceFactory));
             services.AddSingleton<ISemanticKernelServiceFactory, HangingSemanticKernelServiceFactory>();
+            services.RemoveAll(typeof(ISafeAiHttpClientFactory));
+            services.AddSingleton<PassthroughSafeAiHttpClientFactory>();
+            services.AddSingleton<ISafeAiHttpClientFactory>(sp =>
+                sp.GetRequiredService<PassthroughSafeAiHttpClientFactory>());
         });
+    }
+
+    public sealed class PassthroughSafeAiHttpClientFactory : ISafeAiHttpClientFactory
+    {
+        public long Generation => 1;
+
+        public List<(AcceptanceSpecSystem.Core.AI.Models.AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
+
+        public HttpClient CreateClient(
+            AcceptanceSpecSystem.Core.AI.Models.AiServiceType serviceType,
+            string endpoint,
+            TimeSpan? timeout = null)
+        {
+            Calls.Add((serviceType, endpoint));
+            return new HttpClient
+            {
+                Timeout = timeout ?? TimeSpan.FromSeconds(100)
+            };
+        }
     }
 
     private sealed class HangingSemanticKernelServiceFactory : ISemanticKernelServiceFactory

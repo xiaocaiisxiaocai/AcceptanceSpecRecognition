@@ -1,4 +1,5 @@
 ﻿using System.ClientModel;
+using System.ClientModel.Primitives;
 using AcceptanceSpecSystem.Core.AI.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Caching.Memory;
@@ -38,18 +39,18 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
     private readonly MemoryCache _cache;
     private readonly object _cacheSync = new();
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISafeAiHttpClientFactory _safeHttpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly string _azureOpenAiApiVersion;
     private bool _disposed;
 
     public SemanticKernelServiceFactory(
         ILoggerFactory loggerFactory,
-        IHttpClientFactory httpClientFactory,
+        ISafeAiHttpClientFactory safeHttpClientFactory,
         IOptions<SemanticKernelOptions> options)
     {
         _loggerFactory = loggerFactory;
-        _httpClientFactory = httpClientFactory;
+        _safeHttpClientFactory = safeHttpClientFactory;
         _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(options.Value.AzureOpenAIApiVersion)
             ? new SemanticKernelOptions().AzureOpenAIApiVersion
             : options.Value.AzureOpenAIApiVersion.Trim();
@@ -66,7 +67,15 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (string.IsNullOrWhiteSpace(config.LlmModel))
             throw new InvalidOperationException("LLM 模型未配置");
 
-        var key = BuildCacheKey("chat", config.Id, config.ServiceType, config.Endpoint, config.LlmModel, config.ApiKey, config.DisableThinking);
+        var key = BuildCacheKey(
+            "chat",
+            config.Id,
+            config.ServiceType,
+            config.Endpoint,
+            config.LlmModel,
+            config.ApiKey,
+            config.DisableThinking,
+            _safeHttpClientFactory.Generation);
         return GetOrCreateCached(key, () => CreateChatCompletionServiceInternal(config));
     }
 
@@ -77,7 +86,15 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (string.IsNullOrWhiteSpace(config.EmbeddingModel))
             throw new InvalidOperationException("Embedding 模型未配置");
 
-        var key = BuildCacheKey("emb", config.Id, config.ServiceType, config.Endpoint, config.EmbeddingModel, config.ApiKey, config.DisableThinking);
+        var key = BuildCacheKey(
+            "emb",
+            config.Id,
+            config.ServiceType,
+            config.Endpoint,
+            config.EmbeddingModel,
+            config.ApiKey,
+            config.DisableThinking,
+            _safeHttpClientFactory.Generation);
         return GetOrCreateCached(key, () => CreateEmbeddingGeneratorInternal(config));
     }
 
@@ -114,7 +131,11 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
 
         if (config.ServiceType == AiServiceType.Ollama)
         {
-            var client = CreateOllamaHttpClient();
+            var endpoint = NormalizeOllamaBaseUrl(RequireEndpoint(config));
+            var client = _safeHttpClientFactory.CreateClient(
+                config.ServiceType,
+                endpoint,
+                AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
             var logger = _loggerFactory.CreateLogger<OllamaNativeChatCompletionService>();
             return new OllamaNativeChatCompletionService(config, client, logger);
         }
@@ -124,11 +145,16 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (config.ServiceType == AiServiceType.AzureOpenAI)
         {
             var endpoint = RequireEndpoint(config);
+            var httpClient = _safeHttpClientFactory.CreateClient(
+                config.ServiceType,
+                endpoint,
+                AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
             builder.AddAzureOpenAIChatCompletion(
                 deploymentName: llmModel,
                 endpoint: endpoint,
                 apiKey: config.ApiKey ?? string.Empty,
-                apiVersion: _azureOpenAiApiVersion);
+                apiVersion: _azureOpenAiApiVersion,
+                httpClient: httpClient);
         }
         else
         {
@@ -150,12 +176,17 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         if (config.ServiceType == AiServiceType.AzureOpenAI)
         {
             var endpoint = RequireEndpoint(config);
+            var httpClient = _safeHttpClientFactory.CreateClient(
+                config.ServiceType,
+                endpoint,
+                AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
 #pragma warning disable SKEXP0010
             builder.AddAzureOpenAIEmbeddingGenerator(
                 deploymentName: embeddingModel,
                 endpoint: endpoint,
                 apiKey: config.ApiKey ?? string.Empty,
-                apiVersion: _azureOpenAiApiVersion);
+                apiVersion: _azureOpenAiApiVersion,
+                httpClient: httpClient);
 #pragma warning restore SKEXP0010
         }
         else
@@ -182,9 +213,10 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         string? endpoint,
         string? model,
         string? apiKey,
-        bool disableThinking)
+        bool disableThinking,
+        long policyGeneration)
     {
-        return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}";
+        return $"{prefix}_{configId}_{(int)serviceType}_{endpoint ?? ""}_{model ?? ""}_{apiKey?.GetHashCode() ?? 0}_{disableThinking}_{policyGeneration}";
     }
 
     private static string RequireEndpoint(AiServiceConfigModel config)
@@ -216,22 +248,22 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
     /// 构建 OpenAIClient（用于 OpenAI 兼容服务：硅基流动、Ollama、LM Studio 等）
     /// 通过 OpenAIClientOptions 统一管理 Endpoint 和超时，无需手动创建 HttpClient
     /// </summary>
-    private static OpenAIClient BuildOpenAIClient(AiServiceConfigModel config)
+    private OpenAIClient BuildOpenAIClient(AiServiceConfigModel config)
     {
         var endpoint = BuildOpenAiEndpoint(config);
+        var httpClient = _safeHttpClientFactory.CreateClient(
+            config.ServiceType,
+            endpoint,
+            AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(endpoint),
             // OpenAI 兼容 SDK 需要保留网络超时配置，这里放宽到长时间推理可接受的级别。
-            NetworkTimeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout
+            NetworkTimeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout,
+            Transport = new HttpClientPipelineTransport(httpClient)
         };
         var credential = new ApiKeyCredential(config.ApiKey ?? "sk-placeholder");
         return new OpenAIClient(credential, options);
-    }
-
-    private HttpClient CreateOllamaHttpClient()
-    {
-        return _httpClientFactory.CreateClient(AiServiceHttpClientDefaults.OllamaNativeChatClientName);
     }
 
     private static string BuildOpenAiEndpoint(AiServiceConfigModel config)

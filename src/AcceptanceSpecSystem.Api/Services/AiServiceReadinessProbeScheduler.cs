@@ -26,7 +26,7 @@ public sealed class AiServiceReadinessProbeScheduler :
 {
     private readonly AiServiceReadinessRegistry _registry;
     private readonly ISemanticKernelServiceFactory _factory;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISafeAiHttpClientFactory _safeHttpClientFactory;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private readonly ILogger<AiServiceReadinessProbeScheduler> _logger;
     private readonly TimeSpan _probeTimeout;
@@ -42,14 +42,14 @@ public sealed class AiServiceReadinessProbeScheduler :
     public AiServiceReadinessProbeScheduler(
         AiServiceReadinessRegistry registry,
         ISemanticKernelServiceFactory factory,
-        IHttpClientFactory httpClientFactory,
+        ISafeAiHttpClientFactory safeHttpClientFactory,
         IHostApplicationLifetime applicationLifetime,
         IOptions<AiServiceReadinessOptions> options,
         ILogger<AiServiceReadinessProbeScheduler> logger)
     {
         _registry = registry;
         _factory = factory;
-        _httpClientFactory = httpClientFactory;
+        _safeHttpClientFactory = safeHttpClientFactory;
         _applicationLifetime = applicationLifetime;
         _logger = logger;
         _workerCount = Math.Clamp(options.Value.MaxConcurrentProbes, 1, 16);
@@ -234,7 +234,10 @@ public sealed class AiServiceReadinessProbeScheduler :
         if (string.IsNullOrWhiteSpace(configuredModel))
             throw new InvalidOperationException("AI 模型未配置");
 
-        using var client = _httpClientFactory.CreateClient();
+        using var client = _safeHttpClientFactory.CreateClient(
+            CoreAiServiceType.Ollama,
+            endpoint,
+            AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
         using var response = await client.GetAsync($"{endpoint}/api/tags", cancellationToken);
         response.EnsureSuccessStatusCode();
         await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);

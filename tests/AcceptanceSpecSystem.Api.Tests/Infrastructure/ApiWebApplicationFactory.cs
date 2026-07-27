@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Application.Models;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
+using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using AcceptanceSpecSystem.Data.Context;
@@ -18,6 +19,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace AcceptanceSpecSystem.Api.Tests.Infrastructure;
 
@@ -95,6 +97,29 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services.AddScoped<ILlmDocumentStructureAdjudicationService, TestLlmDocumentStructureAdjudicationService>();
             services.AddScoped<ILlmColumnSemanticRecallService, TestLlmColumnSemanticRecallService>();
             services.AddScoped<IEmbeddingService, TestEmbeddingService>();
+
+            // 本地 HTTPListener 测试使用随机端口；通过显式 loopback CIDR + 端口集合
+            // 构造与生产相同的安全 transport，不把测试环境变成绕过 SSRF 的普通 HttpClient。
+            services.RemoveAll<ISafeAiHttpClientFactory>();
+            services.AddSingleton<ISafeAiHttpClientFactory>(_ =>
+            {
+                var policy = new AiEndpointAccessPolicy(
+                    new AiDnsResolver(),
+                    new StaticOptionsMonitor<AiEndpointSecurityOptions>(new AiEndpointSecurityOptions
+                    {
+                        PrivateNetworkAllowlist =
+                        [
+                            new AiEndpointPrivateNetworkRule
+                            {
+                                Cidr = "127.0.0.0/8",
+                                Ports = Enumerable.Range(1, 65535).ToList()
+                            }
+                        ]
+                    }));
+                return new SafeAiHttpMessageHandlerFactory(
+                    policy,
+                    new AiSocketConnector(new AiSocketFactory()));
+            });
 
             // 使用测试鉴权（默认 admin），避免真实 JWT 依赖影响集成测试
             if (UseTestAuthentication)
@@ -266,6 +291,13 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
             });
 
         db.SaveChanges();
+    }
+
+    private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
+    {
+        public T CurrentValue => value;
+        public T Get(string? name) => value;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 }
 

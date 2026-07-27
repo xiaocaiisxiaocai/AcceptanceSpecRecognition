@@ -267,7 +267,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
                 serviceType = 0,
                 purpose = 1,
                 priority = 0,
-                endpoint = "https://api.openai.com/v1",
+                endpoint = "https://8.8.8.8/v1",
                 apiKey = rawApiKey,
                 llmModel = "gpt-4o-mini",
                 disableThinking = false
@@ -288,7 +288,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task AiServiceConfig_Create_WithEndpointMissingDoubleSlash_ShouldNormalizeEndpoint()
+    public async Task AI服务配置_缺少双斜杠的Endpoint应拒绝而不是静默修复()
     {
         var createResp = await _client.PostAsync(
             "/api/ai-services",
@@ -304,14 +304,35 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
                 disableThinking = false
             }));
 
-        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        created.Code.Should().Be(0);
-        created.Data.GetProperty("endpoint").GetString().Should().Be("http://127.0.0.1:11434/api");
+        created.Message.Should().Contain("有效的 http/https 绝对地址");
     }
 
     [Fact]
-    public async Task AiServiceConfig_TestConnection_WithLegacyMalformedOllamaEndpoint_ShouldSucceed()
+    public async Task AI服务配置_公网HTTP端点应在保存前拒绝()
+    {
+        var createResp = await _client.PostAsync(
+            "/api/ai-services",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = $"public-http-{Guid.NewGuid():N}",
+                serviceType = 4,
+                purpose = 1,
+                priority = 0,
+                endpoint = "http://8.8.8.8/v1",
+                apiKey = "test-placeholder",
+                llmModel = "chat-model",
+                disableThinking = false
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var result = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Message.Should().Contain("地址策略拒绝");
+    }
+
+    [Fact]
+    public async Task AI服务连接测试_Ollama模型列表应通过安全传输返回()
     {
         var port = GetFreeTcpPort();
         using var listener = new HttpListener();
@@ -340,7 +361,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             context.Response.Close();
         });
 
-        var configId = await CreateLegacyOllamaConfigAsync($"http:127.0.0.1:{port}/api");
+        var configId = await CreateLegacyOllamaConfigAsync($"http://127.0.0.1:{port}/api");
 
         var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
 
@@ -384,7 +405,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             context.Response.Close();
         });
 
-        var configId = await CreateLegacyOllamaConfigAsync($"http:127.0.0.1:{port}/api", "qwen3.5:35b");
+        var configId = await CreateLegacyOllamaConfigAsync($"http://127.0.0.1:{port}/api", "qwen3.5:35b");
 
         var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
 
@@ -400,7 +421,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task AiServiceConfig_GetModels_WithLegacyMalformedOllamaEndpoint_ShouldReturnModels()
+    public async Task AI服务模型接口_Ollama模型列表应通过安全传输返回()
     {
         var port = GetFreeTcpPort();
         using var listener = new HttpListener();
@@ -429,7 +450,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             context.Response.Close();
         });
 
-        var configId = await CreateLegacyOllamaConfigAsync($"http:127.0.0.1:{port}/api");
+        var configId = await CreateLegacyOllamaConfigAsync($"http://127.0.0.1:{port}/api");
 
         var response = await _client.GetAsync($"/api/ai-services/{configId}/models");
 
@@ -488,7 +509,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
         });
 
         var configId = await CreateLegacyCombinedPurposeConfigAsync(
-            endpoint: $"http:127.0.0.1:{port}/api",
+            endpoint: $"http://127.0.0.1:{port}/api",
             serviceType: AiServiceType.Ollama,
             llmModel: "qwen3.5:35b",
             embeddingModel: null);

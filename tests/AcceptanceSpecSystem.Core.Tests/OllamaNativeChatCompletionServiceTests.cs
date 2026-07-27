@@ -19,7 +19,7 @@ public class OllamaNativeChatCompletionServiceTests
     {
         using var factory = new SemanticKernelServiceFactory(
             NullLoggerFactory.Instance,
-            new FakeHttpClientFactory(new HttpClient()),
+            new FakeSafeAiHttpClientFactory(new HttpClient()),
             Options.Create(new SemanticKernelOptions()));
 
         var method = typeof(SemanticKernelServiceFactory)
@@ -58,7 +58,7 @@ public class OllamaNativeChatCompletionServiceTests
     {
         var factory = new SemanticKernelServiceFactory(
             NullLoggerFactory.Instance,
-            new FakeHttpClientFactory(new HttpClient()),
+            new FakeSafeAiHttpClientFactory(new HttpClient()),
             Options.Create(new SemanticKernelOptions()));
         var config = new AiServiceConfigModel
         {
@@ -80,13 +80,13 @@ public class OllamaNativeChatCompletionServiceTests
     }
 
     [Fact]
-    public void SemanticKernelServiceFactory_ShouldUseHttpClientFactory_ForOllama()
+    public void SemanticKernelServiceFactory_Ollama聊天应使用安全客户端工厂()
     {
         var expectedClient = new HttpClient();
-        var httpClientFactory = new FakeHttpClientFactory(expectedClient);
+        var safeClientFactory = new FakeSafeAiHttpClientFactory(expectedClient);
         using var factory = new SemanticKernelServiceFactory(
             NullLoggerFactory.Instance,
-            httpClientFactory,
+            safeClientFactory,
             Options.Create(new SemanticKernelOptions()));
         var config = new AiServiceConfigModel
         {
@@ -98,10 +98,76 @@ public class OllamaNativeChatCompletionServiceTests
 
         var chatService = factory.CreateChatCompletionService(config);
 
-        httpClientFactory.CreateClientCallCount.Should().Be(1);
+        safeClientFactory.Calls.Should().ContainSingle();
+        safeClientFactory.Calls[0].ServiceType.Should().Be(AiServiceType.Ollama);
+        safeClientFactory.Calls[0].Endpoint.Should().Be("http://127.0.0.1:11434");
         var httpClientField = chatService.GetType().GetField("_httpClient", BindingFlags.Instance | BindingFlags.NonPublic);
         httpClientField.Should().NotBeNull();
         httpClientField!.GetValue(chatService).Should().BeSameAs(expectedClient);
+    }
+
+    [Theory]
+    [InlineData(AiServiceType.OpenAI, "https://api.openai.com/v1", true)]
+    [InlineData(AiServiceType.AzureOpenAI, "https://azure.example.com", true)]
+    [InlineData(AiServiceType.LMStudio, "http://127.0.0.1:1234/v1", true)]
+    [InlineData(AiServiceType.CustomOpenAICompatible, "https://models.example.com/v1", true)]
+    [InlineData(AiServiceType.OpenAI, "https://api.openai.com/v1", false)]
+    [InlineData(AiServiceType.AzureOpenAI, "https://azure.example.com", false)]
+    [InlineData(AiServiceType.LMStudio, "http://127.0.0.1:1234/v1", false)]
+    [InlineData(AiServiceType.CustomOpenAICompatible, "https://models.example.com/v1", false)]
+    public void SemanticKernelServiceFactory_各提供商聊天和Embedding应统一使用安全客户端(
+        AiServiceType serviceType,
+        string endpoint,
+        bool chat)
+    {
+        var safeClientFactory = new FakeSafeAiHttpClientFactory(new HttpClient());
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var config = new AiServiceConfigModel
+        {
+            Id = 41,
+            ServiceType = serviceType,
+            Endpoint = endpoint,
+            ApiKey = "test-placeholder",
+            LlmModel = "chat-model",
+            EmbeddingModel = "embedding-model"
+        };
+
+        if (chat)
+            _ = factory.CreateChatCompletionService(config);
+        else
+            _ = factory.CreateEmbeddingGenerator(config);
+
+        safeClientFactory.Calls.Should().ContainSingle();
+        safeClientFactory.Calls[0].ServiceType.Should().Be(serviceType);
+        safeClientFactory.Calls[0].Endpoint.Should().Be(endpoint);
+    }
+
+    [Fact]
+    public void SemanticKernelServiceFactory_安全策略代次变化后不应复用旧服务实例()
+    {
+        var safeClientFactory = new FakeSafeAiHttpClientFactory(new HttpClient());
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            safeClientFactory,
+            Options.Create(new SemanticKernelOptions()));
+        var config = new AiServiceConfigModel
+        {
+            Id = 42,
+            ServiceType = AiServiceType.CustomOpenAICompatible,
+            Endpoint = "https://models.example.com/v1",
+            ApiKey = "test-placeholder",
+            LlmModel = "chat-model"
+        };
+
+        var first = factory.CreateChatCompletionService(config);
+        safeClientFactory.Generation = 2;
+        var second = factory.CreateChatCompletionService(config);
+
+        second.Should().NotBeSameAs(first);
+        safeClientFactory.Calls.Should().HaveCount(2);
     }
 
     [Fact]
@@ -199,21 +265,19 @@ public class OllamaNativeChatCompletionServiceTests
         return port;
     }
 
-    private sealed class FakeHttpClientFactory : IHttpClientFactory
+    private sealed class FakeSafeAiHttpClientFactory(HttpClient httpClient) : ISafeAiHttpClientFactory
     {
-        private readonly HttpClient _httpClient;
+        public long Generation { get; set; } = 1;
 
-        public FakeHttpClientFactory(HttpClient httpClient)
+        public List<(AiServiceType ServiceType, string Endpoint)> Calls { get; } = [];
+
+        public HttpClient CreateClient(
+            AiServiceType serviceType,
+            string endpoint,
+            TimeSpan? timeout = null)
         {
-            _httpClient = httpClient;
-        }
-
-        public int CreateClientCallCount { get; private set; }
-
-        public HttpClient CreateClient(string name)
-        {
-            CreateClientCallCount++;
-            return _httpClient;
+            Calls.Add((serviceType, endpoint));
+            return httpClient;
         }
     }
 

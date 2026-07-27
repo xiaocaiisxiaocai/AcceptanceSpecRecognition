@@ -31,7 +31,7 @@ public class AiServicesController : BaseApiController
     private readonly IAiServiceSelectionAppService _selection;
     private readonly AiServiceReadinessRegistry _readinessRegistry;
     private readonly ISemanticKernelServiceFactory _semanticKernelFactory;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ISafeAiHttpClientFactory _safeHttpClientFactory;
     private readonly ILogger<AiServicesController> _logger;
     private readonly int _llmTestTimeoutSeconds;
     private readonly TimeSpan _llmTestTimeout;
@@ -44,7 +44,7 @@ public class AiServicesController : BaseApiController
         IAiServiceSelectionAppService selection,
         AiServiceReadinessRegistry readinessRegistry,
         ISemanticKernelServiceFactory semanticKernelFactory,
-        IHttpClientFactory httpClientFactory,
+        ISafeAiHttpClientFactory safeHttpClientFactory,
         IOptions<AiServiceTestOptions> aiServiceTestOptions,
         IOptions<SemanticKernelOptions> semanticKernelOptions,
         ILogger<AiServicesController> logger)
@@ -53,7 +53,7 @@ public class AiServicesController : BaseApiController
         _selection = selection;
         _readinessRegistry = readinessRegistry;
         _semanticKernelFactory = semanticKernelFactory;
-        _httpClientFactory = httpClientFactory;
+        _safeHttpClientFactory = safeHttpClientFactory;
         _logger = logger;
         _llmTestTimeoutSeconds = Math.Clamp(aiServiceTestOptions.Value.LlmTimeoutSeconds, 1, 300);
         _llmTestTimeout = TimeSpan.FromSeconds(_llmTestTimeoutSeconds);
@@ -720,7 +720,7 @@ public class AiServicesController : BaseApiController
     {
         var endpoint = NormalizeOpenAiBaseUrl(config.Endpoint!, config.ServiceType);
         var url = $"{endpoint}/models";
-        using var client = CreateHttpClient();
+        using var client = CreateHttpClient(config, endpoint);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (!string.IsNullOrWhiteSpace(config.ApiKey))
         {
@@ -744,7 +744,7 @@ public class AiServicesController : BaseApiController
 
         var endpoint = AiEndpointNormalizer.NormalizeRequiredEndpoint(config.Endpoint, "Endpoint").TrimEnd('/');
         var url = $"{endpoint}/openai/deployments?api-version={Uri.EscapeDataString(_azureOpenAiApiVersion)}";
-        using var client = CreateHttpClient();
+        using var client = CreateHttpClient(config, endpoint);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("api-key", config.ApiKey);
 
@@ -762,7 +762,7 @@ public class AiServicesController : BaseApiController
     {
         var endpoint = NormalizeOllamaBaseUrl(config.Endpoint!);
         var url = $"{endpoint}/api/tags";
-        using var client = CreateHttpClient();
+        using var client = CreateHttpClient(config, endpoint);
         var response = await client.GetAsync(url, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -771,11 +771,14 @@ public class AiServicesController : BaseApiController
         return ParseModelsFromOllamaResponse(body);
     }
 
-    private HttpClient CreateHttpClient()
+    private HttpClient CreateHttpClient(
+        AiServiceProbeConfig config,
+        string endpoint)
     {
-        var client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(15);
-        return client;
+        return _safeHttpClientFactory.CreateClient(
+            ToCoreModel(config).ServiceType,
+            endpoint,
+            TimeSpan.FromSeconds(15));
     }
 
     private static string NormalizeOpenAiBaseUrl(string endpoint, AiServiceType serviceType)

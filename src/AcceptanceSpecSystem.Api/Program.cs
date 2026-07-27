@@ -113,13 +113,8 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// HttpClient（用于AI连接测试等外部调用）
+// 通用 HttpClient；AI 出站连接统一由 ISafeAiHttpClientFactory 创建。
 builder.Services.AddHttpClient();
-builder.Services.AddHttpClient(AiServiceHttpClientDefaults.OllamaNativeChatClientName, client =>
-{
-    // Ollama 慢模型推理可能超过 .NET 默认 100 秒，超时由外层业务 CancellationToken 控制。
-    client.Timeout = AiServiceHttpClientDefaults.LongRunningNetworkTimeout;
-});
 
 // 注册DataProtection（用于ApiKey加密存储）
 var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"]?.Trim();
