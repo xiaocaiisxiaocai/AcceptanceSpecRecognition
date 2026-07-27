@@ -504,6 +504,7 @@ const resumeTaskStatusPolling = (retainedTaskId: string) => {
 };
 
 const activation = useSmartFillActivation({
+  getCurrentTaskId: () => taskId.value,
   abortScope: () => {
     scopeOptionsController?.abort();
     scopeOptionsController = undefined;
@@ -529,6 +530,12 @@ const activation = useSmartFillActivation({
   }
 });
 reconcileRetainedTask = activation.reconcileOnActivation;
+
+watch(taskId, (currentTaskId, previousTaskId) => {
+  if (currentTaskId === previousTaskId) return;
+  activation.cancelReconciliation();
+  stopTaskStatusPolling();
+});
 
 const retryPreview = async () => {
   if (!(await refreshRuntimeAiSelection())) return;

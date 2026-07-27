@@ -320,6 +320,14 @@ public sealed class MatchingTaskSnapshotService
             return null;
         }
 
+        if (string.IsNullOrWhiteSpace(taskResult.TaskId) ||
+            !string.Equals(taskResult.TaskId, entity.TaskId, StringComparison.Ordinal) ||
+            taskResult.SourceFileId <= 0 ||
+            taskResult.SourceFileId != entity.SourceFileId)
+        {
+            return null;
+        }
+
         var isRunning = taskResult.FileMutationPending;
         return new MatchingTaskStatusDto
         {

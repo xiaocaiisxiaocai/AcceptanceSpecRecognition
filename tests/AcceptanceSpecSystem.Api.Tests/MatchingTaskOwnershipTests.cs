@@ -145,6 +145,64 @@ public class MatchingTaskOwnershipTests : IClassFixture<ApiWebApplicationFactory
     }
 
     [Fact]
+    public async Task Status_WhenOwnedTaskPayloadIsEmptyObject_ShouldReturnNotFound()
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await SeedRawStatusTaskAsync(taskId, _ => "{}");
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
+    public async Task Status_WhenPayloadTaskIdDoesNotMatchEntity_ShouldReturnNotFound()
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await SeedRawStatusTaskAsync(
+            taskId,
+            sourceFileId => JsonSerializer.Serialize(new
+            {
+                payloadVersion = 4,
+                taskId = Guid.NewGuid().ToString("N"),
+                sourceFileId,
+                createdAt = DateTime.UtcNow
+            }));
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
+    public async Task Status_WhenPayloadSourceFileIdDoesNotMatchEntity_ShouldReturnNotFound()
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        await SeedRawStatusTaskAsync(
+            taskId,
+            sourceFileId => JsonSerializer.Serialize(new
+            {
+                payloadVersion = 4,
+                taskId,
+                sourceFileId = sourceFileId + 1,
+                createdAt = DateTime.UtcNow
+            }));
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync($"/api/matching/tasks/{taskId}/status");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await response.ReadAsAsync<ApiResponse>();
+        body.Message.Should().Be("任务不存在或已过期");
+    }
+
+    [Fact]
     public async Task Status_WhenLegacyTaskLacksOwnership_ShouldRemainReadOnlyAndReturnNotFound()
     {
         var taskId = Guid.NewGuid().ToString("N");
@@ -427,6 +485,36 @@ public class MatchingTaskOwnershipTests : IClassFixture<ApiWebApplicationFactory
                 filledFilePath = @"C:\sensitive\source.xlsx"
             }),
             CreatedAt = snapshotTime
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private async Task SeedRawStatusTaskAsync(
+        string taskId,
+        Func<int, string> buildPayload)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var sourceFile = new WordFile
+        {
+            FileName = "raw-status-source.xlsx",
+            FileType = UploadedFileType.ExcelXlsx,
+            FileContent = "raw-status-source"u8.ToArray(),
+            FileHash = $"raw-status-{taskId}",
+            CompanyId = 1,
+            CreatedByUserId = 1,
+            UploadedAt = DateTime.UtcNow
+        };
+        db.WordFiles.Add(sourceFile);
+        await db.SaveChangesAsync();
+        db.MatchingFillTasks.Add(new MatchingFillTask
+        {
+            TaskId = taskId,
+            SourceFileId = sourceFile.Id,
+            CreatedByUserId = 1,
+            CompanyId = 1,
+            PayloadJson = buildPayload(sourceFile.Id),
+            CreatedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
     }

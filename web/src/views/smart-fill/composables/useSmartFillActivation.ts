@@ -2,6 +2,7 @@ import { ElMessage } from "element-plus";
 import { getMatchingTaskStatus } from "@/api/matching";
 
 export interface SmartFillActivationActions {
+  getCurrentTaskId: () => string | null;
   abortScope: () => void;
   invalidatePreview: () => void;
   stopProgress: () => void;
@@ -15,8 +16,16 @@ export interface SmartFillActivationActions {
 export function useSmartFillActivation(actions: SmartFillActivationActions) {
   let reconciliationVersion = 0;
 
-  const pauseForDeactivation = () => {
+  const cancelReconciliation = () => {
     reconciliationVersion++;
+  };
+
+  const isCurrentReconciliation = (requestVersion: number, taskId: string) =>
+    requestVersion === reconciliationVersion &&
+    actions.getCurrentTaskId() === taskId;
+
+  const pauseForDeactivation = () => {
+    cancelReconciliation();
     actions.abortScope();
     actions.invalidatePreview();
     actions.stopProgress();
@@ -25,13 +34,13 @@ export function useSmartFillActivation(actions: SmartFillActivationActions) {
   };
 
   const reconcileOnActivation = async (taskId: string | null) => {
-    if (!taskId) return;
+    if (!taskId || actions.getCurrentTaskId() !== taskId) return;
 
     const requestVersion = ++reconciliationVersion;
     try {
       const response = await getMatchingTaskStatus(taskId);
       if (
-        requestVersion !== reconciliationVersion ||
+        !isCurrentReconciliation(requestVersion, taskId) ||
         response.code !== 0 ||
         response.data.taskId !== taskId
       ) {
@@ -52,7 +61,7 @@ export function useSmartFillActivation(actions: SmartFillActivationActions) {
       actions.invalidateStaleResponse();
       ElMessage.error("任务执行失败，请重新执行填充");
     } catch {
-      if (requestVersion !== reconciliationVersion) return;
+      if (!isCurrentReconciliation(requestVersion, taskId)) return;
       actions.stopProgress();
       actions.invalidateStaleResponse();
       ElMessage.error("任务状态已失效，请重新执行填充");
@@ -60,6 +69,7 @@ export function useSmartFillActivation(actions: SmartFillActivationActions) {
   };
 
   return {
+    cancelReconciliation,
     pauseForDeactivation,
     reconcileOnActivation
   };

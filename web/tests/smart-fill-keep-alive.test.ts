@@ -76,6 +76,11 @@ test("智能填充 keep-alive 失活暂停资源且激活只对账保留任务",
   );
   assert.match(pageSource, /onDeactivated\(\(\) =>/);
   assert.match(pageSource, /activation\.pauseForDeactivation\(\)/);
+  assert.match(pageSource, /getCurrentTaskId:\s*\(\) => taskId\.value/);
+  assert.match(
+    pageSource,
+    /watch\(taskId,[\s\S]{0,240}activation\.cancelReconciliation\(\);[\s\S]{0,120}stopTaskStatusPolling\(\);/
+  );
   assert.match(pageSource, /cancelRecognition:\s*cancelActiveRecognition/);
   assert.match(uploadSource, /onDeactivated\(\(\) =>/);
   assert.match(uploadSource, /uploadZoneMounted\.value = false/);
