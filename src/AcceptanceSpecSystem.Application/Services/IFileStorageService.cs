@@ -50,4 +50,62 @@ public interface IFileStorageService
     /// 删除文件（若存在）
     /// </summary>
     Task DeleteIfExistsAsync(string? relativePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 仅删除由持久上传流程生成且通过命名空间校验的 WordFile 文件。
+    /// </summary>
+    Task DeleteUploadedWordFileIfExistsAsync(
+        string? relativePath,
+        AcceptanceSpecSystem.Data.Entities.UploadedFileType fileType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath))
+            return Task.CompletedTask;
+        if (!WordFileStoragePathPolicy.IsAllowed(relativePath, fileType))
+            throw new UnsafeWordFilePathException();
+        return Task.FromException(new NotSupportedException("当前文件存储实现未提供持久上传文件安全删除能力"));
+    }
+}
+
+public sealed class UnsafeWordFilePathException : InvalidOperationException
+{
+    public UnsafeWordFilePathException() : base("持久文件路径不在允许的上传命名空间内")
+    {
+    }
+}
+
+public static class WordFileStoragePathPolicy
+{
+    public static bool IsAllowed(
+        string? relativePath,
+        AcceptanceSpecSystem.Data.Entities.UploadedFileType fileType)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+            return false;
+
+        var normalized = relativePath.Replace('\\', '/');
+        if (normalized.Contains("//", StringComparison.Ordinal) ||
+            normalized.Split('/').Any(segment => segment is "." or ".."))
+            return false;
+
+        var parts = normalized.Split('/');
+        if (parts.Length != 4 || parts[0] != "uploads")
+            return false;
+
+        var expectedNamespace = fileType == AcceptanceSpecSystem.Data.Entities.UploadedFileType.ExcelXlsx
+            ? "excel-files"
+            : "word-files";
+        var expectedExtension = fileType == AcceptanceSpecSystem.Data.Entities.UploadedFileType.ExcelXlsx
+            ? ".xlsx"
+            : ".docx";
+        if (!string.Equals(parts[1], expectedNamespace, StringComparison.Ordinal) ||
+            !DateOnly.TryParseExact(parts[2], "yyyy-MM-dd", out _))
+            return false;
+
+        var extension = Path.GetExtension(parts[3]);
+        var stem = Path.GetFileNameWithoutExtension(parts[3]);
+        return string.Equals(extension, expectedExtension, StringComparison.OrdinalIgnoreCase) &&
+               stem.Length == 32 &&
+               stem.All(Uri.IsHexDigit);
+    }
 }

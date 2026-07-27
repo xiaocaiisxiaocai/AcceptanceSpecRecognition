@@ -61,6 +61,34 @@ public sealed class TestFileStorageService : IFileStorageService
         return Task.CompletedTask;
     }
 
+    public Task DeleteUploadedWordFileIfExistsAsync(
+        string? relativePath,
+        AcceptanceSpecSystem.Data.Entities.UploadedFileType fileType,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(relativePath))
+            return Task.CompletedTask;
+        if (!WordFileStoragePathPolicy.IsAllowed(relativePath, fileType))
+            throw new UnsafeWordFilePathException();
+
+        var fullPath = GetAbsolutePath(relativePath);
+        var current = Path.GetFullPath(_root);
+        foreach (var segment in Path.GetRelativePath(current, fullPath).Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if ((Directory.Exists(current) || File.Exists(current)) &&
+                (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new UnsafeWordFilePathException();
+        }
+
+        if (File.Exists(fullPath))
+            File.Delete(fullPath);
+        return Task.CompletedTask;
+    }
+
     private async Task<string> SaveAsync(string baseRelativeDir, string originalFileName, byte[] content, CancellationToken cancellationToken)
     {
         var ext = Path.GetExtension(originalFileName);

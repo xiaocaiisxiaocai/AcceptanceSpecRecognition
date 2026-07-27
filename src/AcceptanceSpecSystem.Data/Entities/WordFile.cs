@@ -55,6 +55,20 @@ public class WordFile
     /// </summary>
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
+    public WordFileDeletionStatus DeletionStatus { get; set; } = WordFileDeletionStatus.Active;
+
+    public DateTime? DeletionRequestedAt { get; set; }
+
+    public int DeletionRetryCount { get; set; }
+
+    public DateTime? NextDeletionAttemptAt { get; set; }
+
+    public string? LastDeletionError { get; set; }
+
+    public string? DeletionLeaseToken { get; set; }
+
+    public DateTime? DeletionLeaseExpiresAt { get; set; }
+
     /// <summary>
     /// 导航属性：从该文件导入的所有验收规格
     /// </summary>

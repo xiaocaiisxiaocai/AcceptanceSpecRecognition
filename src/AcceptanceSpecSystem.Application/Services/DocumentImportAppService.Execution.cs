@@ -236,7 +236,9 @@ public sealed partial class DocumentImportAppService
             var pendingMessage = $"检测到{result.PendingCount}条重复或疑似重复数据，请逐条确认后再导入";
             if (executionContext.OverwriteCount > 0 || idempotency != null)
             {
-                await _unitOfWork.BeginTransactionAsync(cancellationToken);
+                await _unitOfWork.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable,
+                    cancellationToken);
                 await AddImportExecutionSnapshotAsync(
                     idempotency,
                     scope,
@@ -258,7 +260,9 @@ public sealed partial class DocumentImportAppService
         {
             // 解析、Embedding 与 AI 重复判断均已在事务外完成。这里只用短事务提交
             // 最终规格变更和幂等快照，避免慢外部调用长期占用数据库事务。
-            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            await _unitOfWork.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable,
+                cancellationToken);
             if (executionContext.SpecsToInsert.Count > 0)
             {
                 await _unitOfWork.AcceptanceSpecs.AddRangeAsync(

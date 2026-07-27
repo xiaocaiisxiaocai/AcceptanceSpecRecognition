@@ -299,10 +299,18 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<WordFile>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e => e.DeletionStatus == WordFileDeletionStatus.Active);
             entity.Property(e => e.FileName).IsRequired().HasMaxLength(260);
             entity.Property(e => e.FileType).IsRequired();
             entity.Property(e => e.FileHash).IsRequired().HasMaxLength(64);
             entity.Property(e => e.FilePath).HasMaxLength(500);
+            entity.Property(e => e.DeletionStatus)
+                .HasDefaultValue(WordFileDeletionStatus.Active);
+            entity.Property(e => e.DeletionRetryCount).HasDefaultValue(0);
+            entity.Property(e => e.LastDeletionError).HasMaxLength(64);
+            entity.Property(e => e.DeletionLeaseToken).HasMaxLength(64);
+            entity.HasIndex(e => new { e.DeletionStatus, e.NextDeletionAttemptAt, e.Id })
+                .HasDatabaseName("IX_WordFiles_DeletionStatus_NextDeletionAttemptAt_Id");
             entity.HasIndex(e => e.FileHash);
             entity.HasIndex(e => e.CompanyId);
             entity.HasIndex(e => e.CreatedByUserId);
@@ -606,7 +614,7 @@ public class AppDbContext : DbContext
             entity.HasOne(e => e.SourceFile)
                   .WithMany()
                   .HasForeignKey(e => e.SourceFileId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         // ExecutionHistoryRecord 配置
@@ -632,6 +640,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.RequestKey).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.ExpiresAt);
+            entity.HasIndex(e => e.SourceFileId);
             entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
         });
     }

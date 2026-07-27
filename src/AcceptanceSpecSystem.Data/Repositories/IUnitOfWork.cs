@@ -113,6 +113,10 @@ public interface IUnitOfWork : IDisposable
 
     Task BeginTransactionAsync(CancellationToken cancellationToken) => BeginTransactionAsync();
 
+    Task BeginTransactionAsync(
+        System.Data.IsolationLevel isolationLevel,
+        CancellationToken cancellationToken) => BeginTransactionAsync(cancellationToken);
+
     /// <summary>
     /// 提交事务
     /// </summary>

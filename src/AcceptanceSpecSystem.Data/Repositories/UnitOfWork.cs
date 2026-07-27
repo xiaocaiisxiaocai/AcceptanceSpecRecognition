@@ -352,6 +352,13 @@ public class UnitOfWork : IUnitOfWork
         _transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
     }
 
+    public async Task BeginTransactionAsync(
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken)
+    {
+        _transaction = await _context.Database.BeginTransactionAsync(isolationLevel, cancellationToken);
+    }
+
     /// <summary>
     /// 提交事务（异步）。若当前无事务则不执行。
     /// </summary>

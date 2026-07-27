@@ -118,6 +118,48 @@ public class FileStorageService : IFileStorageService
         return Task.CompletedTask;
     }
 
+    public Task DeleteUploadedWordFileIfExistsAsync(
+        string? relativePath,
+        AcceptanceSpecSystem.Data.Entities.UploadedFileType fileType,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(relativePath))
+            return Task.CompletedTask;
+        if (!WordFileStoragePathPolicy.IsAllowed(relativePath, fileType))
+            throw new UnsafeWordFilePathException();
+
+        var fullPath = GetAbsolutePath(relativePath);
+        EnsureNoReparsePoint(fullPath);
+        if (FileExists(fullPath))
+            DeleteFile(fullPath);
+        return Task.CompletedTask;
+    }
+
+    private void EnsureNoReparsePoint(string fullPath)
+    {
+        var baseFullPath = Path.GetFullPath(_basePath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var current = baseFullPath;
+        EnsureNotReparsePoint(current);
+
+        var relative = Path.GetRelativePath(baseFullPath, fullPath);
+        foreach (var segment in relative.Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, segment);
+            if (Directory.Exists(current) || File.Exists(current))
+                EnsureNotReparsePoint(current);
+        }
+    }
+
+    private static void EnsureNotReparsePoint(string path)
+    {
+        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new UnsafeWordFilePathException();
+    }
+
     private async Task<string> SaveAsync(
         string baseRelativeDir,
         string originalFileName,

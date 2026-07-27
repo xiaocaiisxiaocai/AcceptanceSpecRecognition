@@ -62,7 +62,8 @@ public static class DatabaseInitializer
         "20260719151435_AddDocumentImportExecutions",
         "20260724024559_OptimizeAcceptanceSpecGroupPagingIndex",
         "20260726142603_AddRowVersionToAiServiceConfig",
-        "20260726163227_RestrictAcceptanceSpecReferenceDeletes"
+        "20260726163227_RestrictAcceptanceSpecReferenceDeletes",
+        "20260727090000_AddWordFilePendingDeletion"
     };
 
     /// <summary>

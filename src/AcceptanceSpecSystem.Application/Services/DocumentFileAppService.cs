@@ -1,7 +1,9 @@
 ﻿using System.Security.Cryptography;
 using AcceptanceSpecSystem.Application.Contracts;
+using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -33,8 +35,21 @@ public interface IDocumentFileAppService
 public sealed class DocumentFileAppService : IDocumentFileAppService
 {
     private readonly IUnitOfWork _unitOfWork;
+    private readonly AppDbContext? _dbContext;
     private readonly IDocumentFileAccessService _documentFileAccessService;
     private readonly ILogger<DocumentFileAppService> _logger;
+
+    public DocumentFileAppService(
+        IUnitOfWork unitOfWork,
+        AppDbContext dbContext,
+        IDocumentFileAccessService documentFileAccessService,
+        ILogger<DocumentFileAppService> logger)
+    {
+        _unitOfWork = unitOfWork;
+        _dbContext = dbContext;
+        _documentFileAccessService = documentFileAccessService;
+        _logger = logger;
+    }
 
     public DocumentFileAppService(
         IUnitOfWork unitOfWork,
@@ -189,28 +204,54 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
         int fileId,
         CancellationToken cancellationToken = default)
     {
-        var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
-            fileId,
-            scope,
-            includeScopedSpecs: true);
+        var dbContext = _dbContext
+            ?? throw new InvalidOperationException("删除持久文件需要数据库事务上下文");
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        IQueryable<WordFile> source = dbContext.WordFiles.IgnoreQueryFilters();
+        if (dbContext.Database.ProviderName?.Contains("MySql", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            source = dbContext.WordFiles
+                .FromSqlInterpolated($"SELECT * FROM `WordFiles` WHERE `Id` = {fileId} FOR UPDATE")
+                .IgnoreQueryFilters();
+        }
+
+        var wordFile = await _documentFileAccessService
+            .ApplyScopedQuery(source, scope, includeScopedSpecs: true)
+            .SingleOrDefaultAsync(file => file.Id == fileId, cancellationToken);
         if (wordFile == null)
         {
             throw new ApplicationServiceException(404, "文件不存在");
         }
 
-        var hasSpecs = await _unitOfWork.AcceptanceSpecs
-            .Query()
-            .AnyAsync(spec => spec.WordFileId == fileId, cancellationToken);
-        if (hasSpecs)
+        if (wordFile.DeletionStatus == WordFileDeletionStatus.PendingDeletion)
         {
-            throw new ApplicationServiceException(400, "该文件已有关联的验收规格，无法删除");
+            await transaction.CommitAsync(cancellationToken);
+            return;
         }
 
-        _unitOfWork.WordFiles.Remove(wordFile);
-        await _unitOfWork.SaveChangesAsync();
-        await _documentFileAccessService.DeleteIfExistsAsync(wordFile.FilePath, cancellationToken);
+        if (await WordFileDeletionCleanupAppService.HasReferencesAsync(
+                dbContext,
+                fileId,
+                cancellationToken))
+        {
+            throw new ApplicationServiceException(400, "该文件已被业务记录引用，无法删除");
+        }
 
-        _logger.LogInformation("删除文件成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
+        var now = DateTime.UtcNow;
+        wordFile.DeletionStatus = WordFileDeletionStatus.PendingDeletion;
+        wordFile.DeletionRequestedAt = now;
+        wordFile.NextDeletionAttemptAt = now;
+        wordFile.DeletionRetryCount = 0;
+        wordFile.LastDeletionError = null;
+        wordFile.DeletionLeaseToken = null;
+        wordFile.DeletionLeaseExpiresAt = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        _logger.LogInformation("文件已移入待删除队列: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
     }
 }
 

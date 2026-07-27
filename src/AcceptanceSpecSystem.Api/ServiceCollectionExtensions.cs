@@ -67,6 +67,12 @@ public static class ApiServiceCollectionExtensions
             .Validate(options => options.InspectionIntervalMinutes > 0, "InspectionIntervalMinutes 必须大于 0")
             .Validate(options => options.GracePeriodHours > 0, "GracePeriodHours 必须大于 0")
             .ValidateOnStart();
+        services.AddOptions<WordFileDeletionCleanupOptions>()
+            .Bind(configuration.GetSection(WordFileDeletionCleanupOptions.SectionName))
+            .Validate(options => options.InitialDelaySeconds >= 0, "InitialDelaySeconds 不能小于 0")
+            .Validate(options => options.CleanupIntervalMinutes > 0, "CleanupIntervalMinutes 必须大于 0")
+            .Validate(options => options.BatchSize is > 0 and <= 1000, "BatchSize 必须在 1 到 1000 之间")
+            .ValidateOnStart();
         services.Configure<DatabaseBackupOptions>(
             configuration.GetSection(DatabaseBackupOptions.SectionName));
         services.Configure<AiServiceTestOptions>(
@@ -205,6 +211,7 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<BatchReplyCleanupHostedService>();
         services.AddHostedService<MatchingFileMutationRecoveryHostedService>();
         services.AddHostedService<OrphanFileInspectionHostedService>();
+        services.AddHostedService<WordFileDeletionCleanupHostedService>();
 
         return services;
     }
