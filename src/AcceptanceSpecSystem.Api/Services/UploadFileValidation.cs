@@ -36,7 +36,18 @@ public static class UploadFileValidation
             throw new ApplicationServiceException(400, $"文件大小不能超过{MaxAllowedFileSizeMegabytes}MB");
         }
 
-        var extension = Path.GetExtension(file.FileName)?.ToLowerInvariant();
+        using var stream = file.OpenReadStream();
+        return ValidateOfficeDocument(file.FileName, stream, allowExcel, allowWord);
+    }
+
+    public static UploadedFileType ValidateOfficeDocument(
+        string fileName,
+        Stream content,
+        bool allowExcel,
+        bool allowWord)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var extension = Path.GetExtension(fileName)?.ToLowerInvariant();
         UploadedFileType? fileType = extension switch
         {
             ".docx" when allowWord => UploadedFileType.WordDocx,
@@ -56,8 +67,7 @@ public static class UploadFileValidation
 
         try
         {
-            using var stream = file.OpenReadStream();
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+            using var archive = new ZipArchive(content, ZipArchiveMode.Read, leaveOpen: true);
             EnsureOfficeZipStructureWithinLimits(archive);
             var entries = archive.Entries
                 .Select(entry => entry.FullName.Replace('\\', '/'))

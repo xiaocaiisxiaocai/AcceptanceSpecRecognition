@@ -33,6 +33,8 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        _tempRoot ??= Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem.Api.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempRoot);
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration((_, configBuilder) =>
         {
@@ -47,7 +49,8 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 ["BrowserAuth:RefreshCookieName"] = "__Host-acceptance-refresh",
                 ["BrowserAuth:CookieSecure"] = "true",
                 ["BrowserAuth:AllowInsecureHttp"] = "false",
-                ["BrowserAuth:AllowedOrigins:0"] = AuthCookieTestHelper.AllowedOrigin
+                ["BrowserAuth:AllowedOrigins:0"] = AuthCookieTestHelper.AllowedOrigin,
+                ["FileCompareTemporaryStorage:Root"] = Path.Combine(_tempRoot, "file-compare")
             });
         });
 
@@ -77,8 +80,6 @@ public class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
             // Replace file storage with an isolated temp directory
             services.RemoveAll(typeof(IFileStorageService));
-            _tempRoot = Path.Combine(Path.GetTempPath(), "AcceptanceSpecSystem.Api.Tests", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempRoot);
             services.AddSingleton<IFileStorageService>(new TestFileStorageService(_tempRoot));
 
             // Replace LLM services with test doubles to avoid external calls

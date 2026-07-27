@@ -23,6 +23,9 @@ public sealed class ResourceBudgetOptions
     public int MaxMatchingItems { get; set; } = 50_000;
     public int MaxDuplicateCandidates { get; set; } = 2_000;
     public long MaxDuplicatePairComparisons { get; set; } = 1_000_000;
+    public long MaxFileCompareCells { get; set; } = 1_000_000;
+    public long MaxFileCompareDiffItems { get; set; } = 100_000;
+    public long MaxFileCompareResultBytes { get; set; } = 100L * 1024 * 1024;
 }
 
 public sealed class ResourceBudgetExceededException : ApplicationServiceException
@@ -51,6 +54,17 @@ public sealed class DuplicateAnalysisBudgetExceededException : ApplicationServic
     public string BudgetName { get; }
 }
 
+public sealed class FileCompareBudgetExceededException : ApplicationServiceException
+{
+    public FileCompareBudgetExceededException(string budgetName)
+        : base(422, "文件比较数据量超出安全上限，请缩小文件范围后重试")
+    {
+        BudgetName = budgetName;
+    }
+
+    public string BudgetName { get; }
+}
+
 public interface IResourceBudgetGovernor
 {
     ValueTask<ResourceBudgetLease> AcquireAsync(
@@ -62,6 +76,9 @@ public interface IResourceBudgetGovernor
     void ValidateMatchingItems(int itemCount);
     void ValidateDuplicateCandidates(int candidateCount);
     void ValidateDuplicateComparisons(long comparisonCount);
+    void ValidateFileCompareCells(long cellCount) { }
+    void ValidateFileCompareDiffItems(long diffItemCount) { }
+    void ValidateFileCompareResultBytes(long bytes) { }
 }
 
 public sealed class ResourceBudgetLease : IDisposable
@@ -174,6 +191,15 @@ public sealed class ResourceBudgetGovernor : IResourceBudgetGovernor, IDisposabl
             _options.MaxDuplicatePairComparisons);
     }
 
+    public void ValidateFileCompareCells(long cellCount) =>
+        ValidateFileCompare("file_compare_cells", cellCount, _options.MaxFileCompareCells);
+
+    public void ValidateFileCompareDiffItems(long diffItemCount) =>
+        ValidateFileCompare("file_compare_diff_items", diffItemCount, _options.MaxFileCompareDiffItems);
+
+    public void ValidateFileCompareResultBytes(long bytes) =>
+        ValidateFileCompare("file_compare_result_bytes", bytes, _options.MaxFileCompareResultBytes);
+
     public void Dispose()
     {
         foreach (var gate in _gates.Values)
@@ -202,6 +228,15 @@ public sealed class ResourceBudgetGovernor : IResourceBudgetGovernor, IDisposabl
 
         _rejected.Add(1, new TagList { { "budget", budgetName } });
         throw new DuplicateAnalysisBudgetExceededException(budgetName);
+    }
+
+    private void ValidateFileCompare(string budgetName, long actual, long limit)
+    {
+        if (limit <= 0 || actual <= limit)
+            return;
+
+        _rejected.Add(1, new TagList { { "budget", budgetName } });
+        throw new FileCompareBudgetExceededException(budgetName);
     }
 
     private static SemaphoreSlim CreateGate(int concurrency)

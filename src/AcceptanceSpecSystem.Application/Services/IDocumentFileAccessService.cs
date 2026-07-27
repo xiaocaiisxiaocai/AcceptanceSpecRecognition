@@ -34,6 +34,13 @@ public interface IDocumentFileAccessService
         byte[] content,
         CancellationToken cancellationToken = default);
 
+    Task<string> SaveUploadedFileAsync(
+        UploadedFileType fileType,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<string>(new NotSupportedException("当前文档文件访问实现不支持流式上传"));
+
     Task PersistUpdatedFileContentAsync(
         WordFile wordFile,
         byte[] updatedContent,

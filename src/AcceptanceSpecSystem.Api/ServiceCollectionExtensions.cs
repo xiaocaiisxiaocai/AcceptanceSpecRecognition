@@ -55,6 +55,14 @@ public static class ApiServiceCollectionExtensions
             .Validate(options => options.MaxMatchingItems > 0, "匹配项预算必须大于 0")
             .Validate(options => options.MaxDuplicateCandidates > 0, "重复分析候选预算必须大于 0")
             .Validate(options => options.MaxDuplicatePairComparisons > 0, "重复分析比较预算必须大于 0")
+            .Validate(options => options.MaxFileCompareCells > 0, "文件比较节点预算必须大于 0")
+            .Validate(options => options.MaxFileCompareDiffItems > 0, "文件比较差异预算必须大于 0")
+            .Validate(options => options.MaxFileCompareResultBytes > 0, "文件比较结果字节预算必须大于 0")
+            .ValidateOnStart();
+        services.AddOptions<FileCompareTemporaryStorageOptions>()
+            .Bind(configuration.GetSection(FileCompareTemporaryStorageOptions.SectionName))
+            .Validate(options => options.RetentionHours > 0, "文件比较临时文件保留时间必须大于 0")
+            .Validate(options => options.CleanupIntervalMinutes > 0, "文件比较临时文件清理间隔必须大于 0")
             .ValidateOnStart();
         services.AddOptions<BatchReplyCleanupOptions>()
             .Bind(configuration.GetSection(BatchReplyCleanupOptions.SectionName))
@@ -111,13 +119,16 @@ public static class ApiServiceCollectionExtensions
         services.AddSingleton<IAuthPermissionSeedCatalog, AuthPermissionSeedCatalog>();
 
         // ── 文件存储与文档处理 ──
+        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IFileStorageService, FileStorageService>();
+        services.AddSingleton<IFileCompareTemporaryStorage, FileCompareTemporaryStorage>();
         services.AddScoped<DocumentFileAccessService>();
         services.AddScoped<IDocumentFileAccessService>(sp => sp.GetRequiredService<DocumentFileAccessService>());
         services.AddScoped<DocumentTableAccessService>();
         services.AddScoped<IDocumentImportTableReader>(sp => sp.GetRequiredService<DocumentTableAccessService>());
         services.AddScoped<IBatchReplyDocumentTablePort>(sp => sp.GetRequiredService<DocumentTableAccessService>());
         services.AddSingleton<DocumentServiceFactory>();
+        services.AddSingleton<IFileCompareDocumentParser, FileCompareDocumentParser>();
         services.AddScoped<ISmartConfigurationFileAccessService, SmartConfigurationFileAccessService>();
         services.AddScoped<MatchingResultWriteBackService>();
         services.AddScoped<IMatchingResultWriteBackPort>(sp => sp.GetRequiredService<MatchingResultWriteBackService>());
@@ -214,6 +225,7 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<MatchingFileMutationRecoveryHostedService>();
         services.AddHostedService<OrphanFileInspectionHostedService>();
         services.AddHostedService<WordFileDeletionCleanupHostedService>();
+        services.AddHostedService<FileCompareTemporaryCleanupHostedService>();
 
         return services;
     }

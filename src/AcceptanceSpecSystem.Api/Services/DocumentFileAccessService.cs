@@ -201,6 +201,17 @@ public sealed class DocumentFileAccessService : IDocumentFileAccessService
             : _fileStorage.SaveUploadedWordAsync(fileName, content, cancellationToken);
     }
 
+    public Task<string> SaveUploadedFileAsync(
+        UploadedFileType fileType,
+        string fileName,
+        Stream content,
+        CancellationToken cancellationToken = default)
+    {
+        return fileType == UploadedFileType.ExcelXlsx
+            ? _fileStorage.SaveUploadedExcelAsync(fileName, content, cancellationToken)
+            : _fileStorage.SaveUploadedWordAsync(fileName, content, cancellationToken);
+    }
+
     public async Task PersistUpdatedFileContentAsync(
         WordFile wordFile,
         byte[] updatedContent,

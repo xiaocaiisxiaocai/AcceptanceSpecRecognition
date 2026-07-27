@@ -563,7 +563,14 @@ public class ReviewRegressionTests
         var compareContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "src/AcceptanceSpecSystem.Api/Controllers/FileCompareController.cs".Replace('/', Path.DirectorySeparatorChar)));
-        compareContent.Should().Contain("await file.CopyToAsync(stream, cancellationToken);");
+        compareContent.Should().Contain("_temporaryStorage.StageUploadAsync(",
+            "文件比较上传应通过有界暂存端口读取请求流");
+        compareContent.Should().Contain(
+            "uploadStreamA, UploadFileValidation.MaxAllowedFileSizeBytes, cancellationToken",
+            "第一份文件暂存应透传请求取消令牌和实际字节上限");
+        compareContent.Should().Contain(
+            "uploadStreamB, UploadFileValidation.MaxAllowedFileSizeBytes, cancellationToken",
+            "第二份文件暂存应透传请求取消令牌和实际字节上限");
         compareContent.Should().Contain("_appService.UploadAsync(scope.ToAccessContext(), uploadA, uploadB, cancellationToken)");
 
         var compareAppServiceContent = File.ReadAllText(Path.Combine(

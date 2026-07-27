@@ -16,13 +16,16 @@ public class FileCompareController : BaseApiController
 {
     private readonly IFileCompareAppService _appService;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IFileCompareTemporaryStorage _temporaryStorage;
 
     public FileCompareController(
         IFileCompareAppService appService,
-        IAuthDataScopeService authDataScopeService)
+        IAuthDataScopeService authDataScopeService,
+        IFileCompareTemporaryStorage temporaryStorage)
     {
         _appService = appService;
         _authDataScopeService = authDataScopeService;
+        _temporaryStorage = temporaryStorage;
     }
 
     [HttpPost("upload")]
@@ -37,15 +40,29 @@ public class FileCompareController : BaseApiController
         var scope = await ResolveSpecScopeAsync();
         if (scope == null)
             return Error<FileCompareUploadResponse>(401, "会话缺少用户上下文");
-        if (fileA == null || fileA.Length == 0 || fileB == null || fileB.Length == 0)
+        if (fileA == null || fileB == null)
             return Error<FileCompareUploadResponse>(400, "请上传两份文件");
 
         try
         {
-            var fileTypeA = UploadFileValidation.ValidateOfficeDocument(fileA, allowExcel: true, allowWord: true);
-            var fileTypeB = UploadFileValidation.ValidateOfficeDocument(fileB, allowExcel: true, allowWord: true);
-            var uploadA = new FileCompareUploadDocument(fileA.FileName, fileTypeA, await ReadContentAsync(fileA, cancellationToken));
-            var uploadB = new FileCompareUploadDocument(fileB.FileName, fileTypeB, await ReadContentAsync(fileB, cancellationToken));
+            await using var uploadStreamA = fileA.OpenReadStream();
+            await using var stagedA = await _temporaryStorage.StageUploadAsync(
+                uploadStreamA, UploadFileValidation.MaxAllowedFileSizeBytes, cancellationToken);
+            using var validationA = stagedA.OpenRead();
+            var fileTypeA = UploadFileValidation.ValidateOfficeDocument(
+                fileA.FileName, validationA, allowExcel: true, allowWord: true);
+
+            await using var uploadStreamB = fileB.OpenReadStream();
+            await using var stagedB = await _temporaryStorage.StageUploadAsync(
+                uploadStreamB, UploadFileValidation.MaxAllowedFileSizeBytes, cancellationToken);
+            using var validationB = stagedB.OpenRead();
+            var fileTypeB = UploadFileValidation.ValidateOfficeDocument(
+                fileB.FileName, validationB, allowExcel: true, allowWord: true);
+
+            var uploadA = new FileCompareUploadDocument(
+                fileA.FileName, fileTypeA, stagedA.Length, stagedA.Sha256, stagedA);
+            var uploadB = new FileCompareUploadDocument(
+                fileB.FileName, fileTypeB, stagedB.Length, stagedB.Sha256, stagedB);
             var result = await _appService.UploadAsync(scope.ToAccessContext(), uploadA, uploadB, cancellationToken);
             return Success(result, "上传成功");
         }
@@ -103,10 +120,4 @@ public class FileCompareController : BaseApiController
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService);
     }
 
-    private static async Task<byte[]> ReadContentAsync(IFormFile file, CancellationToken cancellationToken)
-    {
-        using var stream = new MemoryStream();
-        await file.CopyToAsync(stream, cancellationToken);
-        return stream.ToArray();
-    }
 }

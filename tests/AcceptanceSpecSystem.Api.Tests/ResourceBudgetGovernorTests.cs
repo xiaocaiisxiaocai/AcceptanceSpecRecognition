@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
+using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using FluentAssertions;
@@ -90,6 +91,37 @@ public sealed class ResourceBudgetGovernorTests
             .Where(exception => exception.Code == 422 && exception.BudgetName == "duplicate_candidates");
         comparisons.Should().Throw<DuplicateAnalysisBudgetExceededException>()
             .Where(exception => exception.Code == 422 && exception.BudgetName == "duplicate_comparisons");
+    }
+
+    [Fact]
+    public void 文件比较预算允许精确上限且超一项返回专用422()
+    {
+        var options = new ResourceBudgetOptions();
+        typeof(ResourceBudgetOptions).GetProperty("MaxFileCompareCells")?.SetValue(options, 2L);
+        typeof(ResourceBudgetOptions).GetProperty("MaxFileCompareDiffItems")?.SetValue(options, 1L);
+        typeof(ResourceBudgetOptions).GetProperty("MaxFileCompareResultBytes")?.SetValue(options, 3L);
+        dynamic governor = new ResourceBudgetGovernor(Microsoft.Extensions.Options.Options.Create(options));
+        using ((IDisposable)governor)
+        {
+            governor.ValidateFileCompareCells(2L);
+            governor.ValidateFileCompareDiffItems(1L);
+            governor.ValidateFileCompareResultBytes(3L);
+
+            Action cells = () => governor.ValidateFileCompareCells(3L);
+            Action diffs = () => governor.ValidateFileCompareDiffItems(2L);
+            Action bytes = () => governor.ValidateFileCompareResultBytes(4L);
+
+            AssertFileCompareBudget(cells, "file_compare_cells");
+            AssertFileCompareBudget(diffs, "file_compare_diff_items");
+            AssertFileCompareBudget(bytes, "file_compare_result_bytes");
+        }
+    }
+
+    private static void AssertFileCompareBudget(Action action, string budgetName)
+    {
+        var exception = action.Should().Throw<ApplicationServiceException>().Which;
+        exception.Code.Should().Be(422);
+        exception.GetType().GetProperty("BudgetName")?.GetValue(exception).Should().Be(budgetName);
     }
 
     [Fact]
