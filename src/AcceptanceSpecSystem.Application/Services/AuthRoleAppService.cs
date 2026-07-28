@@ -240,8 +240,8 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
                 Resource = x.Resource.Trim().ToLowerInvariant(),
                 ScopeType = x.ScopeType,
                 OrgUnitIds = x.ScopeType is DataScopeType.Self or DataScopeType.All
-                    ? []
-                    : x.OrgUnitIds?.Distinct().ToList() ?? []
+                    ? new List<int>()
+                    : x.OrgUnitIds?.Distinct().ToList() ?? new List<int>()
             })
             .ToList();
 
