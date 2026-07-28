@@ -215,6 +215,7 @@ const smartBatchConfirmingTableIndex = ref<number | null>(null);
 const smartBatchConfirmProgress = ref({ completed: 0, total: 0 });
 const smartFieldConflictDialogVisible = ref(false);
 const pendingSmartFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
+const smartFieldConflictContext = ref<"initial" | "batch" | null>(null);
 
 watch(
   () => uploadedFile.value?.fileId,
@@ -225,6 +226,7 @@ watch(
     smartBatchConfirmProgress.value = { completed: 0, total: 0 };
     smartFieldConflictDialogVisible.value = false;
     pendingSmartFieldConflicts.value = [];
+    smartFieldConflictContext.value = null;
   }
 );
 
@@ -798,8 +800,25 @@ const runSmartStructureRecognition = async () => {
     configs[0]?.tableIndex ??
     result.tables[0]?.tableIndex;
   currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
+  showInitialSmartFieldConflicts(result.tables, configs);
   await nextTick();
   document.querySelector(".smart-fill")?.scrollIntoView({ block: "start" });
+};
+
+const showInitialSmartFieldConflicts = (
+  tables: SmartConfigRecognizedTable[],
+  configs: BatchTableConfigItem[]
+) => {
+  const conflicts = collectSmartStructureFieldConflicts(
+    tables,
+    configs.filter(config => config.selected).map(config => config.tableIndex)
+  );
+  if (conflicts.length === 0) return false;
+
+  pendingSmartFieldConflicts.value = conflicts;
+  smartFieldConflictContext.value = "initial";
+  smartFieldConflictDialogVisible.value = true;
+  return true;
 };
 
 const activeSmartStructureTab = ref<number | undefined>();
@@ -943,6 +962,7 @@ const confirmSelectedSmartStructuresAndContinue = async () => {
   );
   if (conflicts.length > 0) {
     pendingSmartFieldConflicts.value = conflicts;
+    smartFieldConflictContext.value = "batch";
     smartFieldConflictDialogVisible.value = true;
     return;
   }
@@ -953,6 +973,7 @@ const confirmSelectedSmartStructuresAndContinue = async () => {
 const handleSmartFieldConflictCancel = () => {
   smartFieldConflictDialogVisible.value = false;
   pendingSmartFieldConflicts.value = [];
+  smartFieldConflictContext.value = null;
 };
 
 const handleSmartFieldConflictConfirm = async (
@@ -962,6 +983,23 @@ const handleSmartFieldConflictConfirm = async (
   const nextTables = previousTables.map(table =>
     applySmartStructureFieldSelectionsToTable(table, selections)
   );
+  if (smartFieldConflictContext.value === "initial") {
+    if (!replaceRecognizedTables(nextTables, uploadedFile.value?.fileId)) {
+      smartFieldConflictDialogVisible.value = false;
+      pendingSmartFieldConflicts.value = [];
+      smartFieldConflictContext.value = null;
+      return;
+    }
+    batchTableConfigs.value = buildSmartFillConfigsFromRecognizedTables({
+      isExcelFile: isExcelFile.value,
+      tables: nextTables,
+      tableInfos: allTables.value
+    });
+    smartFieldConflictDialogVisible.value = false;
+    pendingSmartFieldConflicts.value = [];
+    smartFieldConflictContext.value = null;
+    return;
+  }
   const nextDrafts = { ...smartConfirmDrafts.value };
   nextTables.forEach(table => {
     const request = nextDrafts[table.tableIndex];
@@ -975,6 +1013,7 @@ const handleSmartFieldConflictConfirm = async (
 
   smartFieldConflictDialogVisible.value = false;
   pendingSmartFieldConflicts.value = [];
+  smartFieldConflictContext.value = null;
   smartConfirmDrafts.value = nextDrafts;
   replaceRecognizedTables(nextTables, uploadedFile.value?.fileId);
   await nextTick();

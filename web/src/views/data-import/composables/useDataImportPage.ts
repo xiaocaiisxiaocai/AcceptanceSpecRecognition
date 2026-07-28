@@ -40,6 +40,7 @@ import {
   type TableInfo,
   type TableData
 } from "@/api/document";
+import type { SmartConfigRecognizedTable } from "@/api/smart-config";
 import { hasPerms } from "@/utils/auth";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import {
@@ -70,7 +71,14 @@ import {
 
 const MAPPING_PREVIEW_ROWS = 50;
 
-export function useDataImportPage() {
+export function useDataImportPage(
+  options: {
+    resolveInitialFieldConflicts?: (
+      tables: SmartConfigRecognizedTable[],
+      selectedTableIndexes: number[]
+    ) => Promise<SmartConfigRecognizedTable[] | null>;
+  } = {}
+) {
   const previewLoadVersions = new Map<number, number>();
   const dataImportStore = useDataImportStoreHook();
   const {
@@ -819,6 +827,7 @@ export function useDataImportPage() {
     selectedSmartTableIndexes,
     enableLlmAssistance: enableStructureLlmAssistance,
     llmServiceId: structureLlmServiceId,
+    resolveFieldConflicts: options.resolveInitialFieldConflicts,
     ensurePreviewDataLoaded
   });
 

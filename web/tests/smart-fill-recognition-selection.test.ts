@@ -163,3 +163,19 @@ test("确认后的新可用表应自动参与智能填充", () => {
     /selectedState\.get\(config\.tableIndex\) \?\?[\s\S]*config\.tableIndex === table\.tableIndex \? true/
   );
 });
+
+test("智能填充字段候选冲突应在识别完成后立即确认而非等待匹配前按钮", () => {
+  assert.match(
+    source,
+    /const showInitialSmartFieldConflicts = \([\s\S]*collectSmartStructureFieldConflicts/
+  );
+  assert.match(
+    source,
+    /const runSmartStructureRecognition[\s\S]*batchTableConfigs\.value = configs;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW;[\s\S]*showInitialSmartFieldConflicts\(result\.tables/
+  );
+  assert.match(source, /smartFieldConflictContext\.value = "initial"/);
+  assert.match(
+    source,
+    /handleSmartFieldConflictConfirm[\s\S]*smartFieldConflictContext\.value === "initial"[\s\S]*if \(!replaceRecognizedTables\([\s\S]*return;[\s\S]*buildSmartFillConfigsFromRecognizedTables/
+  );
+});

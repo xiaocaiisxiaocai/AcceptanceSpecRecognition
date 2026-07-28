@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
@@ -44,6 +44,45 @@ import {
 defineOptions({
   name: "ImportData"
 });
+
+const fieldConflictDialogVisible = ref(false);
+const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
+const dataImportFieldConflictContext = ref<"initial" | "batch" | null>(null);
+let pendingInitialFieldConflictTables: SmartConfigRecognizedTable[] = [];
+let pendingInitialFieldConflictResolver:
+  | ((tables: SmartConfigRecognizedTable[] | null) => void)
+  | null = null;
+
+const finishPendingInitialFieldConflict = (
+  tables: SmartConfigRecognizedTable[] | null
+) => {
+  const resolve = pendingInitialFieldConflictResolver;
+  pendingInitialFieldConflictResolver = null;
+  pendingInitialFieldConflictTables = [];
+  resolve?.(tables);
+};
+
+const resolveDataImportFieldConflicts = (
+  tables: SmartConfigRecognizedTable[],
+  selectedTableIndexes: number[]
+): Promise<SmartConfigRecognizedTable[] | null> => {
+  const conflicts = collectSmartStructureFieldConflicts(
+    tables,
+    selectedTableIndexes
+  );
+  if (conflicts.length === 0) return Promise.resolve(tables);
+
+  pendingInitialFieldConflictTables = tables;
+  pendingFieldConflicts.value = conflicts;
+  dataImportFieldConflictContext.value = "initial";
+  fieldConflictDialogVisible.value = true;
+  currentStep.value = 1;
+  return new Promise(resolve => {
+    pendingInitialFieldConflictResolver = resolve;
+  });
+};
+
+onBeforeUnmount(() => finishPendingInitialFieldConflict(null));
 
 const {
   MAPPING_PREVIEW_ROWS,
@@ -153,7 +192,9 @@ const {
   applyDifferenceDecisionToAll,
   handleTabRemove,
   restoreSelectedTablesForMapping
-} = useDataImportPage();
+} = useDataImportPage({
+  resolveInitialFieldConflicts: resolveDataImportFieldConflicts
+});
 
 const isCompletionStep = computed(
   () =>
@@ -179,8 +220,6 @@ const smartConfirmDrafts = ref<
   Record<number, SmartConfigConfirmRequest | null>
 >({});
 const batchConfirmImportRunning = ref(false);
-const fieldConflictDialogVisible = ref(false);
-const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
 const batchConfirmingTableIndex = ref<number | null>(null);
 const batchConfirmProgress = ref<{
   phase: SmartStructureBatchConfirmProgress["phase"];
@@ -192,9 +231,11 @@ const batchConfirmProgress = ref<{
 watch(
   () => uploadedFile.value?.fileId,
   () => {
+    finishPendingInitialFieldConflict(null);
     smartConfirmDrafts.value = {};
     fieldConflictDialogVisible.value = false;
     pendingFieldConflicts.value = [];
+    dataImportFieldConflictContext.value = null;
     batchConfirmImportRunning.value = false;
     batchConfirmingTableIndex.value = null;
     batchConfirmProgress.value = {
@@ -411,6 +452,7 @@ const handleSmartStructureBatchConfirmImport = async () => {
   );
   if (conflicts.length > 0) {
     pendingFieldConflicts.value = conflicts;
+    dataImportFieldConflictContext.value = "batch";
     fieldConflictDialogVisible.value = true;
     return;
   }
@@ -418,16 +460,30 @@ const handleSmartStructureBatchConfirmImport = async () => {
   await executeSmartStructureBatchConfirmImport();
 };
 const handleFieldConflictCancel = () => {
+  if (dataImportFieldConflictContext.value === "initial") {
+    finishPendingInitialFieldConflict(null);
+  }
   fieldConflictDialogVisible.value = false;
   pendingFieldConflicts.value = [];
+  dataImportFieldConflictContext.value = null;
 };
 const handleFieldConflictConfirm = async (
   selections: SmartStructureFieldConflictSelection[]
 ) => {
-  const currentTables = recognizedTables.value;
+  const currentTables =
+    dataImportFieldConflictContext.value === "initial"
+      ? pendingInitialFieldConflictTables
+      : recognizedTables.value;
   const nextTables = currentTables.map(table =>
     applySmartStructureFieldSelectionsToTable(table, selections)
   );
+  if (dataImportFieldConflictContext.value === "initial") {
+    fieldConflictDialogVisible.value = false;
+    pendingFieldConflicts.value = [];
+    dataImportFieldConflictContext.value = null;
+    finishPendingInitialFieldConflict(nextTables);
+    return;
+  }
   const nextDrafts = { ...smartConfirmDrafts.value };
   currentTables.forEach(table => {
     const request = nextDrafts[table.tableIndex];
@@ -443,6 +499,7 @@ const handleFieldConflictConfirm = async (
   replaceRecognizedTables(nextTables, uploadedFile.value?.fileId);
   fieldConflictDialogVisible.value = false;
   pendingFieldConflicts.value = [];
+  dataImportFieldConflictContext.value = null;
   await nextTick();
   await executeSmartStructureBatchConfirmImport();
 };

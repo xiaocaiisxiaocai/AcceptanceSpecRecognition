@@ -795,3 +795,22 @@ test("数据导入应在批量学习前确认已选 Sheet 的字段候选冲突"
     /<SmartStructureFieldConflictDialog[\s\S]*:conflicts="pendingFieldConflicts"[\s\S]*@cancel="handleFieldConflictCancel"[\s\S]*@confirm="handleFieldConflictConfirm"/
   );
 });
+
+test("数据导入字段候选冲突应在正式预览生成前处理", () => {
+  assert.match(
+    dataImportSource,
+    /resolveInitialFieldConflicts:[\s\S]*resolveDataImportFieldConflicts/
+  );
+  assert.match(
+    dataImportSource,
+    /dataImportFieldConflictContext\.value = "initial"/
+  );
+  assert.match(
+    dataImportSource,
+    /handleFieldConflictConfirm[\s\S]*dataImportFieldConflictContext\.value === "initial"[\s\S]*finishPendingInitialFieldConflict\(nextTables\)/
+  );
+  assert.match(
+    dataImportSource,
+    /onBeforeUnmount\(\(\) => finishPendingInitialFieldConflict\(null\)\)/
+  );
+});

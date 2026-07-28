@@ -5,7 +5,7 @@ import type {
   SmartStructureFieldConflictItem,
   SmartStructureFieldConflictSelection
 } from "./smart-structure-field-conflicts";
-import { getSmartStructureRecommendedColumnIndex } from "./smart-structure-field-conflicts";
+import { createUnresolvedSmartStructureFieldSelections } from "./smart-structure-field-conflicts";
 
 const props = withDefaults(
   defineProps<{
@@ -33,10 +33,10 @@ watch(
   ([visible, conflicts]) => {
     if (!visible) return;
     Object.keys(selectedColumns).forEach(key => delete selectedColumns[key]);
-    conflicts.forEach(conflict => {
-      selectedColumns[conflict.key] =
-        getSmartStructureRecommendedColumnIndex(conflict);
-    });
+    Object.assign(
+      selectedColumns,
+      createUnresolvedSmartStructureFieldSelections(conflicts)
+    );
   },
   { deep: true }
 );
@@ -126,7 +126,7 @@ const handleConfirm = () => {
         <span class="dialog-kicker">字段映射需要确认</span>
         <h3>请选择最终使用的数据列</h3>
         <p>
-          系统发现多个同分高置信候选。选择后会更新页面范围，并用于本次学习。
+          系统发现多个同分高置信候选。请逐项确认，系统推荐不会代替您的选择。
         </p>
       </div>
     </template>

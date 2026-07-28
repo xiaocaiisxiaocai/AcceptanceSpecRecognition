@@ -385,6 +385,79 @@ describe("useDataImportSmartStructureRecognition", () => {
     expect(state.recognizedTables.value).toHaveLength(1);
   });
 
+  it("结构识别后应先解决字段冲突再生成导入预览", async () => {
+    const ensurePreviewDataLoaded = vi.fn().mockResolvedValue(true);
+    const resolveFieldConflicts = vi.fn(
+      async (tables: SmartConfigRecognizedTable[]) => {
+        expect(ensurePreviewDataLoaded).not.toHaveBeenCalled();
+        return tables;
+      }
+    );
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(0),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([]),
+      resolveFieldConflicts,
+      ensurePreviewDataLoaded
+    });
+
+    expect(await state.runSmartStructureRecognition()).toBe(true);
+    expect(resolveFieldConflicts).toHaveBeenCalledOnce();
+    expect(ensurePreviewDataLoaded).toHaveBeenCalledOnce();
+    expect(resolveFieldConflicts.mock.invocationCallOrder[0]).toBeLessThan(
+      ensurePreviewDataLoaded.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("用户暂不处理字段冲突时不得生成导入预览", async () => {
+    const ensurePreviewDataLoaded = vi.fn().mockResolvedValue(true);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(0),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys: ref<string[]>([]),
+      excludedRowIndexMap: ref<Record<number, number[]>>({}),
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([]),
+      resolveFieldConflicts: vi.fn().mockResolvedValue(null),
+      ensurePreviewDataLoaded
+    });
+
+    expect(await state.runSmartStructureRecognition()).toBe(false);
+    expect(ensurePreviewDataLoaded).not.toHaveBeenCalled();
+    expect(state.recognizedTables.value).toHaveLength(1);
+  });
+
   it("识别到预览完成前重复触发时只执行一次完整流程", async () => {
     let resolvePreview!: (value: boolean) => void;
     const ensurePreviewDataLoaded = vi.fn(

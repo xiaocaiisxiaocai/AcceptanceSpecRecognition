@@ -29,6 +29,11 @@ type EnsurePreviewDataLoaded = (options: {
   completeText?: string;
 }) => Promise<boolean>;
 
+type ResolveInitialFieldConflicts = (
+  tables: SmartConfigRecognizedTable[],
+  selectedTableIndexes: number[]
+) => Promise<SmartConfigRecognizedTable[] | null>;
+
 export function useDataImportSmartStructureRecognition({
   uploadedFile,
   selectedCustomerId,
@@ -44,6 +49,7 @@ export function useDataImportSmartStructureRecognition({
   selectedSmartTableIndexes,
   enableLlmAssistance = ref(false),
   llmServiceId = ref<number | undefined>(),
+  resolveFieldConflicts = async tables => tables,
   ensurePreviewDataLoaded
 }: {
   uploadedFile: Ref<FileUploadResponse | null>;
@@ -60,6 +66,7 @@ export function useDataImportSmartStructureRecognition({
   selectedSmartTableIndexes: Ref<number[]>;
   enableLlmAssistance?: Ref<boolean>;
   llmServiceId?: Ref<number | undefined>;
+  resolveFieldConflicts?: ResolveInitialFieldConflicts;
   ensurePreviewDataLoaded: EnsurePreviewDataLoaded;
 }) {
   const {
@@ -280,8 +287,17 @@ export function useDataImportSmartStructureRecognition({
       selectedSmartTableIndexes.value = createDefaultSelectedSmartTableIndexes(
         result.tables
       );
+      const resolvedTables = await resolveFieldConflicts(result.tables, [
+        ...selectedSmartTableIndexes.value
+      ]);
+      if (!resolvedTables || !isCurrentSmartFlow(sourceFileId, flowVersion)) {
+        return false;
+      }
+      if (!replaceRecognizedTables(resolvedTables, sourceFileId)) {
+        return false;
+      }
       return await applySmartRecognizedTables(
-        result.tables,
+        resolvedTables,
         sourceFile,
         flowVersion
       );

@@ -7,6 +7,7 @@ import {
   applySmartStructureFieldSelectionsToDraft,
   applySmartStructureFieldSelectionsToTable,
   collectSmartStructureFieldConflicts,
+  createUnresolvedSmartStructureFieldSelections,
   getSmartStructureRecommendedColumnIndex
 } from "./smart-structure-field-conflicts";
 
@@ -129,10 +130,13 @@ const draft = (): SmartConfigConfirmRequest => ({
 });
 
 describe("smart-structure-field-conflicts", () => {
-  it("字段冲突默认采用系统推荐列，仍允许用户随后改选", () => {
+  it("字段冲突保留系统推荐信息但不应把推荐列当成人工选择", () => {
     const conflict = collectSmartStructureFieldConflicts([table()], [0])[0];
 
     expect(getSmartStructureRecommendedColumnIndex(conflict)).toBe(3);
+    expect(createUnresolvedSmartStructureFieldSelections([conflict])).toEqual({
+      [conflict.key]: undefined
+    });
     expect(
       getSmartStructureRecommendedColumnIndex({
         ...conflict,
