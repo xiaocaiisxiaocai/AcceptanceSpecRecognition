@@ -1,27 +1,49 @@
-# Windows Docker 部署指南
+# Windows Docker 部署与生产更新指南
 
-本文用于将当前项目部署到 Windows 主机的 Docker 环境中，包含：
+本文是本项目在 Windows 主机上使用 Docker Compose 部署和更新的统一操作手册。
 
-- 前端 `web`
-- 后端 `api`
-- 数据库 `mysql`
+适用组件：
 
-本文默认部署主分支：
+- `acceptance-web`
+- `acceptance-api`
+- `acceptance-mysql`
 
-```text
-main
+默认配置：
+
+- 代码分支：`main`
+- 环境文件：`.env.docker`
+- Web 端口：`80`
+- API 本机排障端口：`5290`
+- MySQL：仅容器网络访问
+
+## 一、生产安全红线
+
+生产环境禁止执行：
+
+```powershell
+docker compose down -v
+docker volume rm ...
+docker system prune --volumes
+docker compose rm mysql
 ```
 
-## 1. 前置条件
+同时禁止：
 
-目标机器需满足：
+- 删除或重建 `acceptance-mysql`。
+- 删除 MySQL 的 `/var/lib/mysql` 持久化卷。
+- 从新目录启动同一套生产 Compose。
+- 用 `.env.docker.example` 覆盖生产 `.env.docker`。
+- 将真实密码、JWT 密钥或生产 `.env.docker` 提交到 Git。
+- 手工修改 `__EFMigrationsHistory`。
+- 迁移失败后强行启动新版本。
+- 未确认影响时把数据库备份恢复并覆盖生产库。
 
-- 已安装 `Docker Desktop`
-- 已启动 `Docker Desktop`
-- 已安装 `Git`
-- 可访问 GitHub 与 Docker 镜像仓库
+生产更新必须始终在原部署目录执行。Compose 的卷名与项目目录或项目名有关；
+换目录启动可能创建一套新的空卷，使系统看起来像“数据丢失”。
 
-先在 PowerShell 中确认：
+## 二、首次部署
+
+### 1. 检查环境
 
 ```powershell
 docker --version
@@ -29,76 +51,32 @@ docker compose version
 git --version
 ```
 
-## 2. 拉取代码
-
-如果目标机器上还没有代码：
+### 2. 克隆代码
 
 ```powershell
-cd D:\
+Set-Location D:\project
 git clone https://github.com/xiaocaiisxiaocai/AcceptanceSpecRecognition.git
-cd .\AcceptanceSpecRecognition
-git fetch origin
+Set-Location .\AcceptanceSpecRecognition
 git switch main
 git pull --ff-only origin main
-git branch --show-current
+git rev-parse HEAD
 ```
 
-如果目标机器上已经有代码：
+### 3. 创建生产配置
+
+复制示例文件：
 
 ```powershell
-cd D:\你的项目目录\AcceptanceSpecRecognition
-git fetch origin
-git switch main
-git pull --ff-only origin main
-git branch --show-current
+Copy-Item .env.docker.example .env.docker
 ```
 
-确认输出为：
+填写 `.env.docker` 中的真实配置。不得保留示例密码或占位符；不得在聊天、
+截图、日志或 Git 中公开配置值。
 
-```text
-main
-```
-
-## 3. 启动项目
-
-在仓库根目录执行：
-
-```powershell
-docker compose --env-file .env.docker up -d --build
-```
-
-首次构建时间会较长，属于正常现象。
-
-## 4. 查看运行状态
-
-```powershell
-docker compose ps
-docker compose logs --tail=200 mysql
-docker compose logs --tail=200 api
-docker compose logs --tail=200 web
-```
-
-如果需要持续查看日志：
-
-```powershell
-docker compose logs -f api
-docker compose logs -f web
-docker compose logs -f mysql
-```
-
-## 5. 访问地址
-
-启动成功后可访问：
-
-- 前端：`http://localhost`
-- API 接流量就绪检查：`http://localhost:5290/health/ready`
-
-当前支持无 SSO 的内网同站 HTTP 部署。局域网用户应始终通过一个固定的 Web 主机名或 IP 访问，由 Nginx 同站代理 API，并把该 HTTP 入口的精确来源写入 CORS/BrowserAuth。必须显式开启受控内网 HTTP 模式；不要把 `5290` API 端口直接开放给局域网用户或公网。
-
-`.env.docker` 至少应包含以下浏览器认证组合，并将来源替换为用户实际访问的固定入口：
+内网 HTTP 部署至少需要：
 
 ```env
-CORS_ORIGIN_0=http://acceptance.internal
+CORS_ORIGIN_0=http://实际固定内网主机名或IP
 CORS_ORIGIN_1=
 BROWSER_AUTH_ALLOW_INSECURE_HTTP=true
 BROWSER_AUTH_REFRESH_COOKIE_NAME=acceptance-refresh
@@ -107,135 +85,400 @@ BROWSER_AUTH_COOKIE_SAME_SITE=Strict
 BROWSER_AUTH_COOKIE_DOMAIN=
 ```
 
-HTTP 是明文传输。HttpOnly、SameSite、CSRF 和精确 Origin 不能阻止内网监听或中间人读取登录口令、AccessToken 或 Cookie。仅可在受信任的隔离网段/VLAN中使用，并以 Windows 防火墙限制来源；不得用于互联网或不可信无线网络。无法保证链路可信时应改用内部 HTTPS。
+HTTP 只适用于受信任的隔离内网，不得暴露到互联网或不可信无线网络。
 
-在 PowerShell 中也可以直接验证：
-
-```powershell
-Invoke-WebRequest http://localhost:5290/health/ready
-```
-
-## 6. 默认容器说明
-
-当前 `docker-compose.yml` 会启动以下容器：
-
-- `acceptance-web`
-- `acceptance-api`
-- `acceptance-mysql`
-
-默认端口：
-
-- 前端：`80`
-- API：`5290`
-- MySQL：仅容器内访问，不映射到宿主机
-
-## 7. 配置说明
-
-当前部署配置由 `docker-compose.yml` 和 `.env.docker` 共同提供，不需要额外改 `appsettings.Production.json`。
-
-非敏感默认配置如下：
-
-- 数据库名：`acceptance_spec_db`
-- 数据库用户：`acceptance`
-- API 端口：`5290`
-- 前端端口：`80`
-
-从 `.env.docker.example` 创建 `.env.docker` 后，必须填写数据库 root/应用用户密码、JWT 密钥、管理员密码和普通用户密码。敏感值为空时不得部署。
-
-启动命令必须带 `--env-file .env.docker`，否则 Docker Compose 会把未设置变量解析为空，导致 MySQL 或 API 启动失败。
-
-前端通过 Nginx 反向代理到 API，正常情况下优先通过前端地址访问系统。
-
-## 8. Windows 防火墙放行
-
-如果本机能访问，但局域网其他电脑访问不到，需要放行端口：
+### 4. 首次构建和启动
 
 ```powershell
-New-NetFirewallRule -DisplayName "Acceptance Web 80" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 80
+docker compose --env-file .env.docker build api
+docker compose --env-file .env.docker build web
+docker compose --env-file .env.docker up -d
+docker compose --env-file .env.docker ps
 ```
 
-API 的 `5290` 端口只绑定 `127.0.0.1`，不得创建局域网入站规则。
+首次空库会自动建立最终数据库结构。已有数据库升级必须使用后文的生产更新流程。
 
-## 9. 常用维护命令
-
-停止容器：
+### 5. 首次验证
 
 ```powershell
-docker compose down
+curl.exe --max-time 15 http://127.0.0.1:5290/health/ready
+curl.exe -I --max-time 15 http://127.0.0.1/
 ```
 
-停止并删除数据卷：
+预期：
 
-```powershell
-docker compose down -v
-```
+- API 返回 `"status":"Healthy"`。
+- Web 返回 `HTTP/1.1 200 OK`。
+- `docker compose ps` 中三个容器均为 `healthy`。
 
-注意：
+## 三、生产更新最短流程
+
+每次更新必须按以下顺序执行：
 
 ```text
-docker compose down -v
+拉取并核对版本
+→ 备份数据库
+→ 保留旧镜像
+→ 构建新镜像
+→ 只读数据预检
+→ 停止 Web/API
+→ 单实例执行受控迁移
+→ 先启动并验证 API
+→ 再启动并验证 Web
+→ 抽查历史业务数据
 ```
 
-会清空数据库、上传文件、DataProtection 密钥和本机数据库备份，只在确认无需保留数据时使用。生产环境应先完成可验证的离机备份，并避免执行该命令。
+不要从构建、迁移或启动步骤中途开始。
 
-重新构建并启动：
+## 四、生产更新详细步骤
+
+以下命令默认在原生产目录执行：
 
 ```powershell
-docker compose --env-file .env.docker up -d --build
+Set-Location D:\project\AcceptanceSpecRecognition
 ```
 
-## 10. 常见问题
+如果实际目录不同，只替换这一行；后续不得切换到新的 Compose 目录。
 
-### 10.1 前端打不开
+### 步骤 1：拉取并核对最新代码
+
+先确认工作区：
+
+```powershell
+git status --short
+```
+
+如果有输出，停止更新并先确认这些本地修改，禁止使用 `git reset --hard` 清理。
+
+工作区干净时执行：
+
+```powershell
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git rev-parse HEAD
+```
+
+记录完整 SHA，确保它是本次计划发布的版本。
+
+### 步骤 2：确认原持久化卷
+
+```powershell
+docker compose --env-file .env.docker ps
+docker inspect acceptance-mysql --format '{{range .Mounts}}{{println .Name " -> " .Destination}}{{end}}'
+docker inspect acceptance-api --format '{{range .Mounts}}{{println .Name " -> " .Destination}}{{end}}'
+```
+
+必须确认原有卷仍分别挂载到：
+
+- `/var/lib/mysql`
+- `/data/files`
+- `/data/dp-keys`
+- `/app/backups`
+
+挂载不符合预期时停止更新。
+
+### 步骤 3：生成本次数据库备份
+
+创建仓库外备份目录：
+
+```powershell
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupDir = "D:\AcceptanceBackups"
+$BackupFile = "$BackupDir\backup-before-update-$Stamp.sql"
+New-Item -ItemType Directory -Force $BackupDir | Out-Null
+```
+
+在 MySQL 容器内生成一致性备份。下面是一整行命令，中途不要回车：
+
+```powershell
+docker exec acceptance-mysql sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction "$MYSQL_DATABASE" -r/tmp/acceptance-predeploy.sql'
+```
+
+出现 `Using a password on the command line interface can be insecure` 是 MySQL 客户端警告；
+退出码为 `0` 时不代表失败。
+
+检查并复制备份：
+
+```powershell
+$LASTEXITCODE
+docker exec acceptance-mysql ls -lh /tmp/acceptance-predeploy.sql
+docker cp acceptance-mysql:/tmp/acceptance-predeploy.sql $BackupFile
+Get-Item $BackupFile | Select-Object FullName,Length,LastWriteTime
+Get-FileHash $BackupFile -Algorithm SHA256
+```
+
+要求：
+
+- `mysqldump` 退出码为 `0`。
+- 容器文件和宿主机文件大小均大于 `0`。
+- 保存 SHA256。
+- 生产环境应另存一份离机副本，并定期在隔离 MySQL 中进行恢复验证。
+
+确认宿主机备份有效后，清理容器临时文件：
+
+```powershell
+docker exec acceptance-mysql rm -f /tmp/acceptance-predeploy.sql
+```
+
+### 步骤 4：保留当前运行镜像
+
+在构建新镜像前记录当前容器镜像并添加回退标签：
+
+```powershell
+$OldApiImage = docker inspect acceptance-api --format '{{.Image}}'
+$OldWebImage = docker inspect acceptance-web --format '{{.Image}}'
+docker image tag $OldApiImage "acceptancespecrecognition-api:pre-$Stamp"
+docker image tag $OldWebImage "acceptancespecrecognition-web:pre-$Stamp"
+```
+
+检查标签：
+
+```powershell
+docker images acceptancespecrecognition-api
+docker images acceptancespecrecognition-web
+```
+
+### 步骤 5：构建新镜像
+
+旧系统继续运行时构建，减少停机时间：
+
+```powershell
+docker compose --env-file .env.docker build api
+$LASTEXITCODE
+docker compose --env-file .env.docker build web
+$LASTEXITCODE
+```
+
+两个退出码都必须为 `0`。构建失败不会修改数据库，也不会替换正在运行的旧容器。
+
+### 步骤 6：只读检查结构模板唯一键冲突
+
+进入 MySQL 交互终端，避免 Windows PowerShell 嵌套引号破坏 SQL：
+
+```powershell
+docker exec -it acceptance-mysql mysql -uroot -p
+```
+
+根据 `.env.docker` 中的 `MYSQL_DATABASE` 选择数据库：
+
+```sql
+USE 生产数据库名;
+```
+
+执行：
+
+```sql
+SELECT CustomerId, HeadersFingerprint, COUNT(*) AS DuplicateCount
+FROM DocumentTemplates
+GROUP BY CustomerId, HeadersFingerprint
+HAVING COUNT(*) > 1;
+```
+
+必须返回：
+
+```text
+Empty set
+```
+
+存在重复行时停止部署，禁止手工删除数据后继续。
+
+退出：
+
+```sql
+exit
+```
+
+### 步骤 7：停止 Web 和 API
+
+```powershell
+docker compose --env-file .env.docker stop web api
+docker compose --env-file .env.docker ps
+```
+
+要求：
+
+- `acceptance-web` 和 `acceptance-api` 已停止。
+- `acceptance-mysql` 继续运行并保持 `healthy`。
+
+### 步骤 8：单实例执行受控迁移
+
+只有在已完成备份及恢复验证后，才允许声明 `--backup-verified`：
+
+```powershell
+docker compose --env-file .env.docker run --rm --no-deps api --apply-destructive-migrations --backup-verified
+```
+
+要求：
+
+- 只运行一个迁移容器。
+- 不得同时启动 API 副本。
+- 迁移过程不得中断。
+- 完成日志应包含“数据库迁移命令已完成”。
+- `$LASTEXITCODE` 必须为 `0`。
+
+迁移期间出现慢查询警告可能是索引和历史数据处理产生的；最终退出码不为 `0`
+时仍视为失败。
+
+迁移失败时禁止启动新版本、禁止手工写迁移历史，应保留完整日志并检查数据库状态。
+
+### 步骤 9：先启动和验证 API
+
+```powershell
+docker compose --env-file .env.docker up -d --no-deps api
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs --tail 100 api
+```
+
+验证：
+
+```powershell
+curl.exe --max-time 15 http://127.0.0.1:5290/health/ready
+```
+
+必须确认：
+
+- API 容器为 `healthy`。
+- `database` 为 `Healthy`。
+- `migrations` 为 `Healthy`。
+- `pendingDestructiveMigrationIds` 为空。
+- `singleCompany` 为 `Healthy`。
+
+API 不健康时禁止启动 Web。
+
+### 步骤 10：启动和验证 Web
+
+```powershell
+docker compose --env-file .env.docker up -d --no-deps web
+docker compose --env-file .env.docker ps
+curl.exe -I --max-time 15 http://127.0.0.1/
+```
+
+Web 刚启动时可能短暂显示 `health: starting`。最终应为 `healthy`，首页应返回：
+
+```text
+HTTP/1.1 200 OK
+```
+
+不要使用 `GET /login` 判断前端健康。`/login` 是认证接口，错误方法或未认证请求返回
+`401 Unauthorized` 不代表前端启动失败。
+
+### 步骤 11：业务数据验收
+
+浏览器登录后至少抽查：
+
+- 客户
+- 制程
+- 机型
+- 验收规格
+- 结构模板
+- 系统用户、角色和组织
+- 上传文件
+- 导入记录
+
+历史数据、附件和权限均正常后，部署才算完成。保留本次 SQL 备份和回退镜像，
+不要立即清理。
+
+## 五、失败处理与回退
+
+### 1. 拉取失败
+
+不要使用 `reset --hard` 或强制覆盖。保留 `git status`、当前 SHA 和错误输出后处理。
+
+### 2. 构建失败
+
+旧容器仍在运行，不需要操作数据库。先修复源代码或构建环境，再重新构建。
+
+### 3. 迁移失败
+
+不要启动新 API，不要修改 `__EFMigrationsHistory`，不要立即恢复数据库覆盖生产。
+先判断迁移是否产生部分 DDL，再决定前向修复或经批准恢复备份。
+
+### 4. 应用启动失败
 
 先检查：
 
 ```powershell
-docker compose ps
-docker compose logs --tail=200 web
+docker compose --env-file .env.docker ps
+docker compose --env-file .env.docker logs --tail 200 api
+docker compose --env-file .env.docker logs --tail 200 web
 ```
 
-### 10.2 API 启动失败
+应用镜像回退不等于数据库回退。只有确认旧应用兼容迁移后的数据库时，才可把
+`pre-$Stamp` 镜像重新标记为 `latest` 并重建对应应用容器。
 
-先检查：
+数据库恢复会覆盖恢复点之后产生的新业务数据，必须单独审批并在停写状态下执行。
+
+## 六、常见问题
+
+### PowerShell 出现 `>>`
+
+`>>` 表示命令或引号尚未结束，通常是复制时把容器命令拆成了多行。
+
+处理方式：
+
+1. 按 `Ctrl+C` 取消当前命令。
+2. 重新复制文档中的单行命令。
+3. SQL 较长时进入 MySQL 交互终端执行。
+
+### `Using a password on the command line interface can be insecure`
+
+这是 MySQL 客户端警告。以命令退出码、备份文件大小和 SHA256 判断备份结果。
+不要把包含密码或环境变量的完整输出发到聊天、工单或截图中。
+
+### `wwwroot` 不存在
+
+Docker 部署中前端由独立 Nginx Web 容器提供，API 镜像没有 `/app/wwwroot`
+通常不影响运行。
+
+### Web 显示 `health: starting`
+
+容器刚启动时属于正常状态。等待健康检查完成，再确认是否变为 `healthy`。
+
+### 页面打开但历史数据为空
+
+立即停止写入并检查：
 
 ```powershell
-docker compose logs --tail=200 api
+docker inspect acceptance-mysql --format '{{range .Mounts}}{{println .Name " -> " .Destination}}{{end}}'
+docker volume ls
+docker compose ls
 ```
 
-### 10.3 MySQL 未就绪导致 API 连不上
+常见原因是从新目录或不同 Compose 项目名启动，挂载了新的空卷。不要初始化空库、
+不要删除原卷、不要把备份覆盖到未确认的目标。
 
-先检查：
-
-```powershell
-docker compose logs --tail=200 mysql
-```
-
-等待 `mysql` 健康检查通过后，`api` 会自动继续启动。
-
-### 10.4 端口被占用
-
-如果 `80` 或 `5290` 被其他程序占用，可先查看端口：
+### 端口占用
 
 ```powershell
 netstat -ano | findstr :80
 netstat -ano | findstr :5290
 ```
 
-## 11. 推荐执行顺序
+生产环境不得未经确认结束未知进程。先识别 PID 对应的服务及影响。
 
-建议按以下顺序执行：
+## 七、部署完成检查表
 
-1. 确认 Docker 和 Git 已安装
-2. 切换到 `main` 并使用 `git pull --ff-only origin main` 更新代码
-3. 执行 `docker compose --env-file .env.docker up -d --build`
-4. 执行 `docker compose ps`
-5. 执行 `Invoke-WebRequest http://localhost:5290/health/ready`
-6. 浏览器使用配置好的固定内网 HTTP 主机名或 IP 验收，并确认所有 API 请求都经同站 Web 入口代理
+- [ ] 从原部署目录开始。
+- [ ] `main` 已使用 `git pull --ff-only origin main` 拉取。
+- [ ] 已记录发布 SHA。
+- [ ] 原 MySQL、文件、密钥和备份卷挂载正常。
+- [ ] 新 SQL 备份已复制到仓库外并记录 SHA256。
+- [ ] 旧 API/Web 镜像已有 `pre-$Stamp` 标签。
+- [ ] API/Web 新镜像构建退出码均为 `0`。
+- [ ] 结构模板重复指纹查询为 `Empty set`。
+- [ ] 迁移期间只有一个迁移容器。
+- [ ] 迁移退出码为 `0`。
+- [ ] API `/health/ready` 为 `Healthy`。
+- [ ] Web 首页返回 `200 OK`。
+- [ ] 三个容器最终均为 `healthy`。
+- [ ] 客户、制程、机型、验收规格和附件历史数据已抽查。
+- [ ] 备份和回退镜像继续保留。
 
-## 12. 相关文件
+## 八、相关文件
 
 - `docker-compose.yml`
+- `.env.docker.example`
 - `src/AcceptanceSpecSystem.Api/Dockerfile`
 - `web/Dockerfile`
 - `deploy/nginx/default.conf`
