@@ -116,11 +116,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         await using var stream = File.OpenRead(absolutePath);
         var tablesData = await parser.ExtractAllTablesDataAsync(stream, cancellationToken);
 
-        var columnHeaderRules = await BuildColumnHeaderRulesAsync(command.CustomerId, cancellationToken);
+        var columnHeaderRuleSets = await BuildColumnHeaderRuleSetsAsync(
+            command.CustomerId,
+            cancellationToken);
+        var columnHeaderRules = columnHeaderRuleSets.All;
         var routingRules = await _unitOfWork.SmartStructureRoutingRules.GetEffectiveForCustomerAsync(
             command.CustomerId,
             cancellationToken);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromRules(columnHeaderRules);
+        var fieldConflictMatcher = HeaderKeywordMatcher.FromRules(
+            columnHeaderRuleSets.ConflictEligible);
         var tables = new List<SmartConfigurationRecognizedTable>();
         var llmAssistanceEnabled = command.EnableLlmAssistance && command.LlmServiceId.HasValue;
         var llmCallBudget = llmAssistanceEnabled
@@ -202,7 +207,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             recognizedTable = AttachFieldConflicts(
                 fullTableData,
                 recognizedTable,
-                headerKeywordMatcher);
+                fieldConflictMatcher);
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
@@ -3434,21 +3439,32 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             tableName);
     }
 
-    private async Task<IReadOnlyList<ColumnHeaderMappingRule>> BuildColumnHeaderRulesAsync(
+    private async Task<(
+        IReadOnlyList<ColumnHeaderMappingRule> All,
+        IReadOnlyList<ColumnHeaderMappingRule> ConflictEligible)> BuildColumnHeaderRuleSetsAsync(
         int? customerId,
         CancellationToken cancellationToken)
     {
         var rules = await _unitOfWork.ColumnMappingRules.GetEffectiveForCustomerAsync(customerId);
-        return rules
+        var effectiveRules = rules
             .Where(rule => ToColumnType(rule.TargetField) != ColumnType.Unknown)
             .Where(rule => !string.IsNullOrWhiteSpace(rule.Pattern))
-            .Select(rule => new ColumnHeaderMappingRule(
-                ToColumnType(rule.TargetField),
-                ToColumnHeaderMatchMode(rule.MatchMode),
-                rule.Pattern.Trim(),
-                rule.Priority,
-                customerId.HasValue && rule.CustomerId == customerId.Value))
             .ToList();
+        IReadOnlyList<ColumnHeaderMappingRule> MapRules(
+            IEnumerable<ColumnMappingRule> source) =>
+            source.Select(rule => new ColumnHeaderMappingRule(
+                    ToColumnType(rule.TargetField),
+                    ToColumnHeaderMatchMode(rule.MatchMode),
+                    rule.Pattern.Trim(),
+                    rule.Priority,
+                    customerId.HasValue && rule.CustomerId == customerId.Value))
+                .ToList();
+
+        return (
+            MapRules(effectiveRules),
+            // 自动学习用于改善下一次映射，不能反过来增加人工确认项。
+            MapRules(effectiveRules.Where(rule =>
+                rule.Source != ColumnMappingRuleSource.Learned)));
     }
 
     private static ColumnType ToColumnType(ColumnMappingTargetField targetField) => targetField switch

@@ -253,6 +253,33 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
     }
 
     [Fact]
+    public async Task Recognize_WhenLearnedAliasesHaveEqualPriority_ShouldNotCreateNewFieldConflict()
+    {
+        var customerId = await CreateCustomerAsync($"学习规则稳定性-{Guid.NewGuid():N}");
+        await CreateColumnRuleAsync(
+            customerId,
+            "項目",
+            targetField: 1,
+            source: ColumnMappingRuleSource.Learned);
+        await CreateColumnRuleAsync(
+            customerId,
+            "細項",
+            targetField: 1,
+            source: ColumnMappingRuleSource.Learned);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateLearnedProjectAliasesExcelBytes(),
+            "smart-recognize-learned-project-aliases.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId, customerId);
+
+        table.GetProperty("fieldConflicts").EnumerateArray()
+            .Should().NotContain(conflict =>
+                conflict.GetProperty("field").GetString() == "Project",
+                "自动学习用于改善下次映射，不应反过来制造新的人工确认项");
+    }
+
+    [Fact]
     public async Task Recognize_WhenRecommendedRemarkColumnIsVerticallyMerged_ShouldPreferPerRowColumn()
     {
         var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
@@ -360,7 +387,11 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         return json.Data.GetProperty("id").GetInt32();
     }
 
-    private async Task CreateColumnRuleAsync(int? customerId, string pattern, int targetField)
+    private async Task CreateColumnRuleAsync(
+        int? customerId,
+        string pattern,
+        int targetField,
+        ColumnMappingRuleSource source = ColumnMappingRuleSource.Manual)
     {
         var response = await _client.PostAsync("/api/column-mapping-rules", ApiClientJson.ToJsonContent(new
         {
@@ -369,11 +400,31 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
             matchMode = 2,
             priority = 200,
             enabled = true,
-            source = 2,
+            source,
             customerId
         }));
         var responseText = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+    }
+
+    private static byte[] CreateLearnedProjectAliasesExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "項目";
+        worksheet.Cell(1, 2).Value = "細項";
+        worksheet.Cell(1, 3).Value = "規格";
+        worksheet.Cell(1, 4).Value = "OK/NG";
+        worksheet.Cell(1, 5).Value = "Remark";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "表面";
+        worksheet.Cell(2, 3).Value = "无划伤";
+        worksheet.Cell(2, 4).Value = "OK";
+        worksheet.Cell(2, 5).Value = "抽检";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     private static byte[] CreateRepeatedHeaderWithDisguisedDataExcelBytes()
