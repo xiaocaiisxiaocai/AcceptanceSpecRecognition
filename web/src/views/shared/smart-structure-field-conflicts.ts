@@ -37,10 +37,15 @@ export const getSmartStructureRecommendedColumnIndex = (
   )?.columnIndex ??
   conflict.candidates.find(candidate => candidate.isRecommended)?.columnIndex;
 
-export const createUnresolvedSmartStructureFieldSelections = (
+export const createRecommendedSmartStructureFieldSelections = (
   conflicts: readonly SmartStructureFieldConflictItem[]
 ): Record<string, number | undefined> =>
-  Object.fromEntries(conflicts.map(conflict => [conflict.key, undefined]));
+  Object.fromEntries(
+    conflicts.map(conflict => [
+      conflict.key,
+      getSmartStructureRecommendedColumnIndex(conflict)
+    ])
+  );
 
 const fieldLabels: Record<string, string> = {
   Project: "项目列",

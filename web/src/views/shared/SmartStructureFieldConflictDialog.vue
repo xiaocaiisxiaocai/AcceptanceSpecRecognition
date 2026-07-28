@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import type { TableInfo } from "@/api/document";
 import type {
   SmartStructureFieldConflictItem,
   SmartStructureFieldConflictSelection
 } from "./smart-structure-field-conflicts";
-import { createUnresolvedSmartStructureFieldSelections } from "./smart-structure-field-conflicts";
+import { createRecommendedSmartStructureFieldSelections } from "./smart-structure-field-conflicts";
 
 const props = withDefaults(
   defineProps<{
@@ -27,15 +27,17 @@ const emit = defineEmits<{
 }>();
 
 const selectedColumns = reactive<Record<string, number | undefined>>({});
+const hasAdjustedSelection = ref(false);
 
 watch(
   () => [props.visible, props.conflicts] as const,
   ([visible, conflicts]) => {
     if (!visible) return;
+    hasAdjustedSelection.value = false;
     Object.keys(selectedColumns).forEach(key => delete selectedColumns[key]);
     Object.assign(
       selectedColumns,
-      createUnresolvedSmartStructureFieldSelections(conflicts)
+      createRecommendedSmartStructureFieldSelections(conflicts)
     );
   },
   { deep: true }
@@ -125,14 +127,15 @@ const handleConfirm = () => {
       <div class="dialog-heading">
         <span class="dialog-kicker">字段映射需要确认</span>
         <h3>请选择最终使用的数据列</h3>
-        <p>
-          系统发现多个同分高置信候选。请逐项确认，系统推荐不会代替您的选择。
-        </p>
+        <p>系统已预选推荐项，您可以直接确认或调整；确认后才会生效。</p>
       </div>
     </template>
 
     <div class="conflict-progress">
-      <span>已完成 {{ resolvedCount }} / {{ conflicts.length }}</span>
+      <span>
+        {{ hasAdjustedSelection ? "已选择" : "已预选" }}
+        {{ resolvedCount }} / {{ conflicts.length }}，确认后生效
+      </span>
       <el-progress
         :percentage="
           conflicts.length
@@ -160,6 +163,7 @@ const handleConfirm = () => {
         <el-radio-group
           v-model="selectedColumns[conflict.key]"
           class="candidate-grid"
+          @change="hasAdjustedSelection = true"
         >
           <el-radio
             v-for="candidate in conflict.candidates"
@@ -199,7 +203,7 @@ const handleConfirm = () => {
 
     <template #footer>
       <div class="dialog-footer">
-        <span>未完成选择不会学习配置，也不会进入下一步</span>
+        <span>预选结果不会自动生效，确认后才会学习配置并进入下一步</span>
         <div>
           <el-button @click="handleCancel">暂不处理</el-button>
           <el-button

@@ -62,6 +62,13 @@ const rangeEditorSource = readFileSync(
   ),
   "utf8"
 );
+const fieldConflictDialogSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/shared/SmartStructureFieldConflictDialog.vue"
+  ),
+  "utf8"
+);
 const dataImportPageSource = readFileSync(
   resolve(
     process.cwd(),
@@ -813,4 +820,17 @@ test("数据导入字段候选冲突应在正式预览生成前处理", () => {
     dataImportSource,
     /onBeforeUnmount\(\(\) => finishPendingInitialFieldConflict\(null\)\)/
   );
+});
+
+test("字段候选弹框应预选推荐项并明确提示仍需人工确认", () => {
+  assert.match(
+    fieldConflictDialogSource,
+    /hasAdjustedSelection \? "已选择" : "已预选"/
+  );
+  assert.match(fieldConflictDialogSource, /确认后生效/);
+  assert.match(
+    fieldConflictDialogSource,
+    /@change="hasAdjustedSelection = true"/
+  );
+  assert.doesNotMatch(fieldConflictDialogSource, /已完成/);
 });
