@@ -80,9 +80,12 @@ test("两个智能结构识别入口应仅在 LLM 与 Embedding 均可用时自�
   assert.doesNotMatch(controlSource, /getAiServiceList/);
   assert.doesNotMatch(controlSource, /<el-select/);
   assert.match(controlSource, /AI 辅助疑难识别/);
-  assert.match(controlSource, /关闭后仍可识别，确认后仍会学习/);
+  assert.doesNotMatch(
+    controlSource,
+    /仅在模板和规则难以判断时调用 AI|关闭后仍可识别，确认后仍会学习/
+  );
   assert.doesNotMatch(controlSource, /AI 增强结构识别/);
-  assert.match(controlSource, /自动使用/);
+  assert.doesNotMatch(controlSource, /自动使用/);
   assert.match(controlSource, />LLM</);
   assert.match(controlSource, />Embedding</);
   assert.match(controlSource, /llmServiceModel/);

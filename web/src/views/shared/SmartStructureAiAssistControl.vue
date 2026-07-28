@@ -173,12 +173,7 @@ onBeforeUnmount(stopPendingSelection);
 <template>
   <div class="structure-ai-control">
     <div class="structure-ai-header">
-      <div>
-        <div class="structure-ai-title">AI 辅助疑难识别</div>
-        <div class="structure-ai-description">
-          仅在模板和规则难以判断时调用 AI；关闭后仍可识别，确认后仍会学习。
-        </div>
-      </div>
+      <div class="structure-ai-title">AI 辅助疑难识别</div>
       <el-switch
         :model-value="enabled"
         :disabled="loading || !hasServices"
@@ -191,7 +186,6 @@ onBeforeUnmount(stopPendingSelection);
       class="structure-ai-service"
       role="status"
     >
-      <span class="structure-ai-service-label">自动使用</span>
       <div class="structure-ai-service-list">
         <div class="structure-ai-service-row">
           <span class="structure-ai-purpose">LLM</span>
@@ -266,23 +260,9 @@ onBeforeUnmount(stopPendingSelection);
   color: var(--el-text-color-primary);
 }
 
-.structure-ai-description {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
 .structure-ai-service {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
   margin-top: 12px;
   font-size: 13px;
-}
-
-.structure-ai-service-label {
-  padding-top: 2px;
-  color: var(--el-text-color-secondary);
 }
 
 .structure-ai-service-list {
