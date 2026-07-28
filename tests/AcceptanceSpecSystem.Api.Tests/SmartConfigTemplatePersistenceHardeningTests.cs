@@ -175,6 +175,160 @@ public sealed class SmartConfigTemplatePersistenceHardeningTests : IClassFixture
     }
 
     [Fact]
+    public async Task SaveTemplate_WhenOnlyDataEndRowsChange_ShouldUpdateExistingTemplate()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-数据行数变化复用模板客户");
+        var headers = new[] { "项目", "规格", "验收" };
+        var mapping = new ColumnMapping
+        {
+            ProjectColumn = 0,
+            SpecificationColumn = 1,
+            AcceptanceColumn = 2,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1
+        };
+        static DocumentTemplateRegionInput Region(int index, int header, int start, int end) => new()
+        {
+            RegionIndex = index,
+            Headers = ["项目", "规格", "验收"],
+            HeaderRowIndex = header,
+            HeaderRowCount = 1,
+            DataStartRowIndex = start,
+            DataEndRowIndex = end,
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2
+        };
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var service = scope.ServiceProvider.GetRequiredService<DocumentTemplateAppService>();
+        var first = await service.SaveTemplateAsync(
+            customerId,
+            "工作表1",
+            headers,
+            mapping,
+            3,
+            regions: [Region(0, 0, 1, 3), Region(1, 5, 6, 9)]);
+        var updated = await service.SaveTemplateAsync(
+            customerId,
+            "工作表1",
+            headers,
+            mapping,
+            4,
+            regions: [Region(0, 0, 1, 4), Region(1, 5, 6, 10)]);
+
+        updated.Id.Should().Be(first.Id);
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.DocumentTemplates.CountAsync(template => template.CustomerId == customerId))
+            .Should().Be(1);
+        var persisted = await db.DocumentTemplates
+            .Include(template => template.Regions)
+            .SingleAsync(template => template.CustomerId == customerId);
+        persisted.DataEndRowIndex.Should().Be(4);
+        persisted.Regions.OrderBy(region => region.RegionIndex)
+            .Select(region => region.DataEndRowIndex)
+            .Should().Equal(4, 10);
+    }
+
+    [Fact]
+    public async Task SaveTemplate_WhenLegacyVariantsDifferOnlyByDataEnd_ShouldReuseMostValuableTemplate()
+    {
+        var customerId = await CreateCustomerAsync("智能识别-旧模板变体收敛客户");
+        var headers = new[] { "项目", "规格", "验收" };
+        var headersJson = JsonSerializer.Serialize(headers);
+        var now = DateTime.UtcNow;
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        static DocumentTemplateRegion Region(string headersJson, int end) => new()
+        {
+            RegionIndex = 0,
+            HeadersJson = headersJson,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1,
+            DataEndRowIndex = end,
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2
+        };
+        var older = new DocumentTemplate
+        {
+            CustomerId = customerId,
+            TemplateName = "旧低价值模板",
+            HeadersFingerprint = new string('a', 64),
+            HeadersJson = headersJson,
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1,
+            DataEndRowIndex = 8,
+            UsageCount = 1,
+            CreatedAt = now.AddDays(-2),
+            UpdatedAt = now.AddDays(-2),
+            Regions = [Region(headersJson, 8)]
+        };
+        var valuable = new DocumentTemplate
+        {
+            CustomerId = customerId,
+            TemplateName = "旧高价值模板",
+            HeadersFingerprint = new string('b', 64),
+            HeadersJson = headersJson,
+            ProjectColumnIndex = 0,
+            SpecificationColumnIndex = 1,
+            AcceptanceColumnIndex = 2,
+            HeaderRowIndex = 0,
+            HeaderRowCount = 1,
+            DataStartRowIndex = 1,
+            DataEndRowIndex = 10,
+            UsageCount = 7,
+            LastUsedAt = now.AddHours(-1),
+            CreatedAt = now.AddDays(-1),
+            UpdatedAt = now.AddHours(-1),
+            Regions = [Region(headersJson, 10)]
+        };
+        db.DocumentTemplates.AddRange(older, valuable);
+        await db.SaveChangesAsync();
+
+        var service = scope.ServiceProvider.GetRequiredService<DocumentTemplateAppService>();
+        var updated = await service.SaveTemplateAsync(
+            customerId,
+            "工作表1",
+            headers,
+            new ColumnMapping
+            {
+                ProjectColumn = 0,
+                SpecificationColumn = 1,
+                AcceptanceColumn = 2,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1
+            },
+            12,
+            regions:
+            [
+                new DocumentTemplateRegionInput
+                {
+                    RegionIndex = 0,
+                    Headers = headers,
+                    HeaderRowIndex = 0,
+                    HeaderRowCount = 1,
+                    DataStartRowIndex = 1,
+                    DataEndRowIndex = 12,
+                    ProjectColumnIndex = 0,
+                    SpecificationColumnIndex = 1,
+                    AcceptanceColumnIndex = 2
+                }
+            ]);
+
+        updated.Id.Should().Be(valuable.Id);
+        (await db.DocumentTemplates.CountAsync(template => template.CustomerId == customerId))
+            .Should().Be(2, "兼容收敛不得自动删除历史记录");
+    }
+
+    [Fact]
     public async Task Recognize_WhenOldSingleRegionTemplateMissesShiftedSecondRegion_ShouldRemoveCoveredHeaderWarning()
     {
         var customerId = await CreateCustomerAsync("智能识别-旧模板移列新增区域客户");

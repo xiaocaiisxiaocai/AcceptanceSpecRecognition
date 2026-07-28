@@ -285,20 +285,36 @@ public sealed class DocumentTemplateAppService
                 $"document-template:{customerId}",
                 cancellationToken);
 
-        // 完整结构相同才更新；相同首段表头但区域位置/列不同的模板必须并存。
-        var customerTemplates = await _unitOfWork.DocumentTemplates
+        // 当前稳定指纹走唯一索引快路径；仅在兼容旧指纹时扫描该客户历史模板。
+        var existing = await _unitOfWork.DocumentTemplates
             .Query(asNoTracking: false)
             .Include(t => t.Regions)
-            .Where(t => t.CustomerId == customerId)
-            .ToListAsync(cancellationToken);
-        var existing = customerTemplates.FirstOrDefault(template =>
-            string.Equals(template.HeadersFingerprint, structureFingerprint, StringComparison.Ordinal) ||
-            (GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
-             HasEquivalentRegions(template, effectiveRegions)));
-        existing ??= customerTemplates.FirstOrDefault(template =>
-            GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
-            effectiveRegions.Count == 1 &&
-            GetPersistedRegionCount(template) <= 1);
+            .SingleOrDefaultAsync(template =>
+                template.CustomerId == customerId &&
+                template.HeadersFingerprint == structureFingerprint,
+                cancellationToken);
+
+        if (existing == null)
+        {
+            // 完整结构相同才更新；相同首段表头但区域位置/列不同的模板必须并存。
+            // 旧记录可能仍使用历史指纹，按价值与时间确定性选择保留者。
+            var customerTemplates = await _unitOfWork.DocumentTemplates
+                .Query(asNoTracking: false)
+                .Include(t => t.Regions)
+                .Where(t => t.CustomerId == customerId)
+                .OrderByDescending(t => t.UsageCount)
+                .ThenByDescending(t => t.LastUsedAt)
+                .ThenByDescending(t => t.UpdatedAt)
+                .ThenByDescending(t => t.Id)
+                .ToListAsync(cancellationToken);
+            existing = customerTemplates.FirstOrDefault(template =>
+                GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
+                HasEquivalentRegions(template, effectiveRegions));
+            existing ??= customerTemplates.FirstOrDefault(template =>
+                GenerateHeadersFingerprint(ReadHeaders(template.HeadersJson)) == primaryFingerprint &&
+                effectiveRegions.Count == 1 &&
+                GetPersistedRegionCount(template) <= 1);
+        }
 
         if (existing != null)
         {
@@ -461,7 +477,6 @@ public sealed class DocumentTemplateAppService
                 region.HeaderRowIndex,
                 region.HeaderRowCount,
                 region.DataStartRowIndex,
-                region.DataEndRowIndex,
                 ProjectColumnIndex = region.IsSpecificationOnly ? null : region.ProjectColumnIndex,
                 region.SpecificationColumnIndex,
                 region.AcceptanceColumnIndex,
