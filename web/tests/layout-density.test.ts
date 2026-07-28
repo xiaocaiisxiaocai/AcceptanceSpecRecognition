@@ -721,7 +721,7 @@ test("权限字典页应固定筛选栏和分页，并仅在表格内容区滚�
   assert.match(permissionsPageSource, /const pageSize = ref\(50\)/);
 });
 
-test("审计日志页应使用紧凑单行筛选和固定分页布局", () => {
+test("审计日志页应使用分层筛选、独立清理和抽屉详情布局", () => {
   assert.match(
     auditLogsSource,
     /<div class="page page--fill audit-logs-page">/
@@ -730,13 +730,22 @@ test("审计日志页应使用紧凑单行筛选和固定分页布局", () => {
     auditLogsSource,
     /<el-card class="table-card audit-table-card" shadow="never">/
   );
-  assert.match(auditLogsSource, /class="filter-form audit-filter-form"/);
-  assert.match(
-    auditLogsSource,
-    /\.audit-filter-form\s*\{[^}]*flex-wrap:\s*nowrap/s
-  );
-  assert.match(auditLogsSource, /search-select--160/);
-  assert.doesNotMatch(auditLogsSource, /search-select--300/);
+  assert.match(auditLogsSource, /class="audit-toolbar"/);
+  assert.match(auditLogsSource, /class="filter-form audit-primary-filter"/);
+  assert.match(auditLogsSource, /advancedFiltersVisible/);
+  assert.match(auditLogsSource, /<el-collapse-transition>/);
+  assert.match(auditLogsSource, /class="filter-form audit-advanced-filter"/);
+  assert.match(auditLogsSource, /日志清理/);
+  assert.match(auditLogsSource, /v-model="deleteDialogVisible"/);
+  assert.doesNotMatch(auditLogsSource, /class="delete-row filter-form"/);
+  assert.match(auditLogsSource, /<el-drawer/);
+  assert.match(auditLogsSource, /class="audit-detail-drawer"/);
+  assert.match(auditLogsSource, /class="detail-summary"/);
+  assert.match(auditLogsSource, /copyDetails/);
+  assert.doesNotMatch(auditLogsSource, /<el-dialog[\s\S]*title="审计详情"/);
+  assert.match(auditLogsSource, /前端事件/);
+  assert.match(auditLogsSource, /formatEventLabel/);
+  assert.match(auditLogsSource, /formatDateTime/);
   assert.doesNotMatch(auditLogsSource, /详情可点击“查看”展开/);
   assert.match(auditLogsSource, /<div class="table-region">/);
   assert.match(auditLogsSource, /<div class="pagination-bar">/);

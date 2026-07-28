@@ -1,4 +1,4 @@
-export type ScopeType = 0 | 1 | 2 | 4;
+export type ScopeType = 0 | 1 | 2 | 3 | 4;
 
 export interface RoleFormModel {
   id: number;

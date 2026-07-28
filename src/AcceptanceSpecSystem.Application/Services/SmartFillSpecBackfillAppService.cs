@@ -118,6 +118,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 {
                     spec.Remark = item.OverrideRemark;
                 }
+                spec.UpdatedAt = DateTime.UtcNow;
                 _unitOfWork.AcceptanceSpecs.Update(spec);
                 await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
                 response.UpdatedCount++;

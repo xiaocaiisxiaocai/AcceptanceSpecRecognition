@@ -20,7 +20,8 @@ import { ensurePermission } from "@/utils/permission-guard";
 import {
   formatTemplateDataRange,
   formatTemplateHeaderRange,
-  getTemplateRegionRanges
+  getTemplateRegionRanges,
+  normalizeApiUtcDateTime
 } from "./document-template-display";
 
 defineOptions({ name: "DocumentTemplates" });
@@ -63,7 +64,9 @@ const recommendationLabels: Record<string, string> = {
 };
 
 const formatDate = (value?: string | null) =>
-  value ? dayjs(value).format("YYYY-MM-DD HH:mm") : "-";
+  value
+    ? dayjs(normalizeApiUtcDateTime(value)).format("YYYY-MM-DD HH:mm")
+    : "-";
 
 const getTableKindLabel = (value: string) =>
   tableKindLabels[value] ?? value ?? "待判断";

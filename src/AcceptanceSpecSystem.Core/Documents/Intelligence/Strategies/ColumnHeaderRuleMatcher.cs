@@ -9,6 +9,7 @@ namespace AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 /// </summary>
 public static class ColumnHeaderRuleMatcher
 {
+    private const string CompositeHeaderSeparator = " / ";
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(200);
     public const int MaxHeaderInputLength = 1024;
     private const int MaxFuzzyTextLength = 128;
@@ -49,10 +50,7 @@ public static class ColumnHeaderRuleMatcher
 
         return rule.MatchMode switch
         {
-            ColumnHeaderMatchMode.Equals => string.Equals(
-                text,
-                pattern,
-                StringComparison.OrdinalIgnoreCase)
+            ColumnHeaderMatchMode.Equals => EqualsWholeHeaderOrCompositeLeaf(text, pattern)
                 ? new ColumnHeaderRuleMatch(true, 0.99)
                 : ColumnHeaderRuleMatch.NoMatch,
             ColumnHeaderMatchMode.Regex => RegexMatches(text, pattern)
@@ -60,6 +58,28 @@ public static class ColumnHeaderRuleMatcher
                 : ColumnHeaderRuleMatch.NoMatch,
             _ => MatchContains(text, pattern)
         };
+    }
+
+    private static bool EqualsWholeHeaderOrCompositeLeaf(string text, string pattern)
+    {
+        if (string.Equals(text, pattern, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var separatorIndex = text.LastIndexOf(
+            CompositeHeaderSeparator,
+            StringComparison.Ordinal);
+        if (separatorIndex < 0)
+        {
+            return false;
+        }
+
+        var leafStart = separatorIndex + CompositeHeaderSeparator.Length;
+        return leafStart < text.Length &&
+               text.AsSpan(leafStart).Equals(
+                   pattern.AsSpan(),
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsMatch(string? header, ColumnHeaderMappingRule rule) => Match(header, rule).Matched;

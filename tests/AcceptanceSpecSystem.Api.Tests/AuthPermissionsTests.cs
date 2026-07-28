@@ -418,7 +418,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task GetList_AfterSeed_ShouldHideRemovedMatchingKnowledgeAndLegacyPermissions()
+    public async Task GetList_AfterSeed_ShouldHideRemovedLegacyAndExposeOrgUnitCrudPermissions()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
@@ -441,10 +441,10 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissionCodes.Should().NotContain("page:other:synonyms");
         permissionCodes.Should().NotContain("page:other:keywords");
         permissionCodes.Should().NotContain("api:auth:routes");
-        permissionCodes.Should().NotContain("api:org-unit:create");
-        permissionCodes.Should().NotContain("api:org-unit:delete");
-        permissionCodes.Should().NotContain("btn:org-unit:create");
-        permissionCodes.Should().NotContain("btn:org-unit:delete");
+        permissionCodes.Should().Contain("api:org-unit:create");
+        permissionCodes.Should().Contain("api:org-unit:delete");
+        permissionCodes.Should().Contain("btn:org-unit:create");
+        permissionCodes.Should().Contain("btn:org-unit:delete");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -453,11 +453,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
                 permission.Code == "page:config:text-processing" ||
                 permission.Code == "page:other:synonyms" ||
                 permission.Code == "page:other:keywords" ||
-                permission.Code == "api:auth:routes" ||
-                permission.Code == "api:org-unit:create" ||
-                permission.Code == "api:org-unit:delete" ||
-                permission.Code == "btn:org-unit:create" ||
-                permission.Code == "btn:org-unit:delete")
+                permission.Code == "api:auth:routes")
             .ToListAsync();
 
         legacyPermissions.Should().OnlyContain(permission => !permission.IsActive);
@@ -485,7 +481,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Login_AfterSeed_ShouldHideRemovedMatchingKnowledgePermissionsInAuthorizationSnapshot()
+    public async Task Login_AfterSeed_ShouldHideRemovedPermissionsAndIncludeOrgUnitCrud()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
 
@@ -509,10 +505,10 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().NotContain("page:other:synonyms");
         permissions.Should().NotContain("page:other:keywords");
         permissions.Should().NotContain("api:auth:routes");
-        permissions.Should().NotContain("api:org-unit:create");
-        permissions.Should().NotContain("api:org-unit:delete");
-        permissions.Should().NotContain("btn:org-unit:create");
-        permissions.Should().NotContain("btn:org-unit:delete");
+        permissions.Should().Contain("api:org-unit:create");
+        permissions.Should().Contain("api:org-unit:delete");
+        permissions.Should().Contain("btn:org-unit:create");
+        permissions.Should().Contain("btn:org-unit:delete");
     }
 
     [Fact]

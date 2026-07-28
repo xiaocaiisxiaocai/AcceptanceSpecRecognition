@@ -59,4 +59,31 @@ public class ColumnHeaderRuleMatcherTests
 
         ColumnHeaderRuleMatcher.IsMatch(new string('a', 257), rule).Should().BeFalse();
     }
+
+    [Fact]
+    public void Match_WithEqualsRuleAndCompositeHeader_ShouldMatchLeafHeader()
+    {
+        var rule = new ColumnHeaderMappingRule(
+            ColumnType.Project,
+            ColumnHeaderMatchMode.Equals,
+            "具體項目");
+
+        var result = ColumnHeaderRuleMatcher.Match(
+            "功能項目 / 功能項目 / 具體項目",
+            rule);
+
+        result.Matched.Should().BeTrue();
+        result.Confidence.Should().Be(0.99);
+    }
+
+    [Fact]
+    public void Match_WithEqualsRule_ShouldNotSplitBusinessSlashText()
+    {
+        var rule = new ColumnHeaderMappingRule(
+            ColumnType.Acceptance,
+            ColumnHeaderMatchMode.Equals,
+            "NG");
+
+        ColumnHeaderRuleMatcher.IsMatch("OK/NG", rule).Should().BeFalse();
+    }
 }

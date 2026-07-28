@@ -239,28 +239,39 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             {
                 Resource = x.Resource.Trim().ToLowerInvariant(),
                 ScopeType = x.ScopeType,
-                OrgUnitIds = x.OrgUnitIds?.Distinct().ToList() ?? []
+                OrgUnitIds = x.ScopeType is DataScopeType.Self or DataScopeType.All
+                    ? []
+                    : x.OrgUnitIds?.Distinct().ToList() ?? []
             })
             .ToList();
 
-        if (normalizedScopes.Any(scope => scope.ScopeType == DataScopeType.CustomNodes))
-            return "单组织模式不支持自定义多组织范围";
-
-        var rootOrgUnitId = await _dbContext.OrgUnits
-            .AsNoTracking()
-            .Where(org => org.CompanyId == companyId && org.ParentId == null && org.UnitType == OrgUnitType.Company)
-            .OrderBy(org => org.Id)
-            .Select(org => (int?)org.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (!rootOrgUnitId.HasValue)
-            return "根组织不存在";
+        if (normalizedScopes.Any(scope => !Enum.IsDefined(scope.ScopeType)))
+            return "存在无效的数据范围类型";
+        if (normalizedScopes.Any(scope =>
+                scope.ScopeType is DataScopeType.OrgNode or DataScopeType.OrgSubtree &&
+                scope.OrgUnitIds.Count != 1))
+            return "单个组织或组织及子树范围必须选择一个组织节点";
+        if (normalizedScopes.Any(scope =>
+                scope.ScopeType == DataScopeType.CustomNodes &&
+                scope.OrgUnitIds.Count == 0))
+            return "自定义组织范围至少需要选择一个组织节点";
 
         var allNodeIds = normalizedScopes
             .SelectMany(x => x.OrgUnitIds)
             .Distinct()
             .ToList();
-        if (allNodeIds.Count > 0 && allNodeIds.Any(nodeId => nodeId != rootOrgUnitId.Value))
-            return "单组织模式下数据范围只允许选择根组织节点";
+        if (allNodeIds.Count > 0)
+        {
+            var validNodeCount = await _dbContext.OrgUnits
+                .AsNoTracking()
+                .CountAsync(
+                    org => allNodeIds.Contains(org.Id) &&
+                           org.CompanyId == companyId &&
+                           org.IsActive,
+                    cancellationToken);
+            if (validNodeCount != allNodeIds.Count)
+                return "数据范围包含不存在、已停用或不属于当前公司的组织节点";
+        }
 
         var existingScopes = await _dbContext.AuthRoleDataScopes
             .Include(s => s.Nodes)

@@ -106,6 +106,13 @@ const actionColumnWidth = computed(() => {
   return 170;
 });
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString();
+};
+
 const buildRequestParams = (): SpecListRequest => {
   const params: SpecListRequest = {
     page: queryParams.page,
@@ -315,14 +322,45 @@ const handleBatchDelete = async () => {
     return;
   }
 
+  const ids = selectedRows.value.map(row => row.id).sort((a, b) => a - b);
+  const deleteCount = ids.length;
+
   try {
     await ElMessageBox.confirm(
-      `确定要删除选中的 ${selectedRows.value.length} 条规格吗？`,
-      "提示",
-      { confirmButtonText: "确定", cancelButtonText: "取消", type: "warning" }
+      `即将永久删除选中的 ${deleteCount} 条规格，删除后无法恢复。是否继续？`,
+      "批量删除确认",
+      {
+        confirmButtonText: "继续",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
     );
 
-    const ids = selectedRows.value.map(row => row.id);
+    await ElMessageBox.prompt(
+      `请输入数字 ${deleteCount}，确认永久删除这些规格。`,
+      "二次确认",
+      {
+        confirmButtonText: "永久删除",
+        cancelButtonText: "取消",
+        type: "error",
+        inputPlaceholder: `请输入 ${deleteCount}`,
+        inputValidator: value =>
+          value.trim() === String(deleteCount) ||
+          `请输入数字 ${deleteCount} 以确认删除`
+      }
+    );
+
+    const currentIds = selectedRows.value
+      .map(row => row.id)
+      .sort((a, b) => a - b);
+    if (
+      currentIds.length !== ids.length ||
+      currentIds.some((id, index) => id !== ids[index])
+    ) {
+      ElMessage.warning("选择内容已变化，请重新执行批量删除");
+      return;
+    }
+
     const res = await batchDeleteSpecs(ids);
     if (res.code === 0) {
       ElMessage.success("删除成功");
@@ -578,6 +616,11 @@ const scopeBreadcrumbItems = computed(() =>
               row.remark
             }}</span>
             <span v-else class="text-gray-400">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="更新时间" width="180">
+          <template #default="{ row }">
+            {{ formatDateTime(row.updatedAt ?? row.importedAt) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" :width="actionColumnWidth" fixed="right">

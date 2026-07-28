@@ -22,6 +22,7 @@ import {
 import { isMessageBoxCancel } from "@/utils/message-box";
 import RoleFormDialog from "./components/RoleFormDialog.vue";
 import type { RoleFormModel, ScopeType } from "./roleForm.types";
+import { normalizeScopeOrgUnitIds, validateScopeOrgUnitIds } from "./roleScope";
 
 defineOptions({
   name: "AuthRolesConfig"
@@ -41,6 +42,7 @@ const scopeTypeOptions = [
   { label: "仅本人", value: 0 as ScopeType },
   { label: "单个组织", value: 1 as ScopeType },
   { label: "组织及子树", value: 2 as ScopeType },
+  { label: "自定义组织", value: 3 as ScopeType },
   { label: "全部数据", value: 4 as ScopeType }
 ];
 
@@ -114,11 +116,11 @@ const getDefaultScopeOrgId = () => {
   return firstActive?.id;
 };
 
-const normalizeScopeOrgUnitIds = (
+const resolveScopeOrgUnitIds = (
   scopeType: ScopeType,
   orgUnitIds?: number[]
 ) => {
-  const normalized = normalizeNumberList(orgUnitIds ?? []);
+  const normalized = normalizeScopeOrgUnitIds(scopeType, orgUnitIds ?? []);
   if ((scopeType === 1 || scopeType === 2) && normalized.length === 0) {
     const defaultOrgId = getDefaultScopeOrgId();
     return defaultOrgId ? [defaultOrgId] : [];
@@ -140,6 +142,7 @@ const normalizeScopeType = (scopeType?: number) => {
   return normalized === 0 ||
     normalized === 1 ||
     normalized === 2 ||
+    normalized === 3 ||
     normalized === 4
     ? (normalized as ScopeType)
     : (2 as ScopeType);
@@ -223,7 +226,7 @@ const applyRoleToEditForm = (role: AuthRole) => {
   editForm.isActive = role.isActive;
   editForm.permissionCodes = [...(role.permissionCodes ?? [])];
   editForm.scopeType = normalizedScopeType;
-  editForm.scopeOrgUnitIds = normalizeScopeOrgUnitIds(
+  editForm.scopeOrgUnitIds = resolveScopeOrgUnitIds(
     normalizedScopeType,
     specScope?.orgUnitIds
   );
@@ -261,10 +264,11 @@ const validateRoleForm = (form: RoleFormModel, isCreate: boolean) => {
     return "角色名称不能为空";
   }
 
-  const nodeIds = normalizeNumberList(form.scopeOrgUnitIds);
-  if ((form.scopeType === 1 || form.scopeType === 2) && nodeIds.length !== 1) {
-    return "当前数据范围必须选择一个组织节点";
-  }
+  const scopeError = validateScopeOrgUnitIds(
+    form.scopeType,
+    form.scopeOrgUnitIds
+  );
+  if (scopeError) return scopeError;
 
   return null;
 };
@@ -277,6 +281,15 @@ const buildDataScopes = (form: RoleFormModel) => {
         resource: "spec",
         scopeType: form.scopeType,
         orgUnitIds: orgUnitIds.slice(0, 1)
+      }
+    ];
+  }
+  if (form.scopeType === 3) {
+    return [
+      {
+        resource: "spec",
+        scopeType: form.scopeType,
+        orgUnitIds
       }
     ];
   }
@@ -386,7 +399,7 @@ const formatScopeSummary = (role: AuthRole) => {
   const normalizedScopeType = normalizeScopeType(scope.scopeType);
   const label = scopeTypeLabel(normalizedScopeType);
   if (normalizedScopeType === 1 || normalizedScopeType === 2) {
-    const scopeOrgIds = normalizeScopeOrgUnitIds(
+    const scopeOrgIds = resolveScopeOrgUnitIds(
       normalizedScopeType,
       scope.orgUnitIds
     );
@@ -394,6 +407,14 @@ const formatScopeSummary = (role: AuthRole) => {
       ? orgUnitMap.value.get(scopeOrgIds[0])
       : undefined;
     return `${label}${org ? `：${org.name}` : ""}`;
+  }
+  if (normalizedScopeType === 3) {
+    const names = resolveScopeOrgUnitIds(normalizedScopeType, scope.orgUnitIds)
+      .map(id => orgUnitMap.value.get(id)?.name)
+      .filter(Boolean);
+    if (names.length === 0) return label;
+    if (names.length <= 2) return `${label}：${names.join("、")}`;
+    return `${label}：${names.slice(0, 2).join("、")} 等 ${names.length} 个`;
   }
   return label;
 };

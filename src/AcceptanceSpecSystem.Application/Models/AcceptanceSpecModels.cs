@@ -26,6 +26,8 @@ public sealed class AcceptanceSpecSummary
 
     public DateTime ImportedAt { get; set; }
 
+    public DateTime? UpdatedAt { get; set; }
+
     public int? OwnerOrgUnitId { get; set; }
 
     public int? CreatedByUserId { get; set; }

@@ -491,13 +491,6 @@ const importResultPresentation = computed(() => {
         description="左侧为数据库已有数据，右侧为本次待导入数据。未命中的数据已按当前流程处理。"
       />
       <div class="difference-entry__actions">
-        <span
-          v-if="hasCommittedImportProgress"
-          class="difference-entry__summary"
-        >
-          已完成无重复数据处理：成功 {{ committedSuccessCount }} 条，跳过
-          {{ committedSkippedCount }} 条，失败 {{ committedFailedCount }} 条
-        </span>
         <el-button type="warning" @click="emit('openDifferenceConfirmDialog')">
           打开重复确认弹窗
         </el-button>

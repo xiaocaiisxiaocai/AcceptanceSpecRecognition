@@ -128,7 +128,7 @@ public class AuthController : ControllerBase
     /// 刷新令牌
     /// </summary>
     [HttpPost("refresh-token")]
-    [AuditOperation("refresh-token", "auth")]
+    [AuditOperation("refresh-token", "auth", recordSuccessful: false)]
     [AllowAnonymous]
     [EnableRateLimiting("refresh-token")]
     public async Task<ActionResult<FrontendAuthResponse<RefreshTokenSuccessData>>> RefreshToken(

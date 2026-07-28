@@ -154,6 +154,7 @@ public sealed class AcceptanceSpecAppService
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
             ImportedAt = spec.ImportedAt,
+            UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,
             CreatedByUserId = spec.CreatedByUserId
         };
@@ -179,6 +180,7 @@ public sealed class AcceptanceSpecAppService
         spec.Specification = NormalizeRequiredText(specification, "规格内容不能为空");
         spec.Acceptance = NormalizeOptionalText(acceptance);
         spec.Remark = NormalizeOptionalText(remark);
+        spec.UpdatedAt = DateTime.UtcNow;
 
         _unitOfWork.AcceptanceSpecs.Update(spec);
         await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);

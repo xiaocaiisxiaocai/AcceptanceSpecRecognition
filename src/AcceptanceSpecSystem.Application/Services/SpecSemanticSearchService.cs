@@ -247,6 +247,7 @@ public sealed class SpecSemanticSearchService
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
             ImportedAt = spec.ImportedAt,
+            UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,
             CreatedByUserId = spec.CreatedByUserId,
             Score = score

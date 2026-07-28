@@ -4,7 +4,8 @@ import { getSmartStructureSourceLabel } from "@/views/shared/smart-structure-rec
 import {
   formatTemplateDataRange,
   formatTemplateHeaderRange,
-  getTemplateRegionRanges
+  getTemplateRegionRanges,
+  normalizeApiUtcDateTime
 } from "./document-template-display";
 
 const region: DocumentTemplateRegion = {
@@ -48,5 +49,17 @@ describe("结构模板展示", () => {
     expect(getSmartStructureSourceLabel("Template")).toBe("历史模板");
     expect(getSmartStructureSourceLabel("RuleBased")).toBe("规则识别");
     expect(getSmartStructureSourceLabel("CustomSource")).toBe("CustomSource");
+  });
+
+  it("将后端未携带时区的 UTC 时间补全为 UTC", () => {
+    expect(normalizeApiUtcDateTime("2026-07-28T06:35:32.175453")).toBe(
+      "2026-07-28T06:35:32.175453Z"
+    );
+    expect(normalizeApiUtcDateTime("2026-07-28T06:35:32Z")).toBe(
+      "2026-07-28T06:35:32Z"
+    );
+    expect(normalizeApiUtcDateTime("2026-07-28T14:35:32+08:00")).toBe(
+      "2026-07-28T14:35:32+08:00"
+    );
   });
 });

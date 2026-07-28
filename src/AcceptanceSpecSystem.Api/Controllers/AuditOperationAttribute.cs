@@ -27,10 +27,19 @@ public sealed class AuditOperationAttribute : Attribute
     /// </summary>
     public string Resource { get; }
 
-    public AuditOperationAttribute(string operation, string resource)
+    /// <summary>
+    /// 是否记录成功请求；失败请求始终记录。
+    /// </summary>
+    public bool RecordSuccessful { get; }
+
+    public AuditOperationAttribute(
+        string operation,
+        string resource,
+        bool recordSuccessful = true)
     {
         Operation = operation;
         Resource = resource;
+        RecordSuccessful = recordSuccessful;
     }
 }
 
@@ -149,6 +158,11 @@ public sealed class AuditOperationFilter :
         try
         {
             var level = ResolveLevel(statusCode, exception);
+            if (!state.Attribute.RecordSuccessful &&
+                level == AuditLogLevel.Information)
+            {
+                return;
+            }
 
             var detailsPayload = new
             {

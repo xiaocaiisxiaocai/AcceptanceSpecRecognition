@@ -243,6 +243,7 @@ public sealed class AcceptanceSpecQueryService
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
             ImportedAt = spec.ImportedAt,
+            UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,
             CreatedByUserId = spec.CreatedByUserId
         };

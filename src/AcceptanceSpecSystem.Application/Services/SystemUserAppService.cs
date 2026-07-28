@@ -148,7 +148,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
         var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
-            throw new ApplicationServiceException(400, "组织节点无效，单组织系统只允许根组织");
+            throw new ApplicationServiceException(400, "组织节点不存在、已停用或不属于当前公司");
 
         var now = DateTime.UtcNow;
         var user = new SystemUser
@@ -233,7 +233,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
         var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
-            throw new ApplicationServiceException(400, "组织节点无效，单组织系统只允许根组织");
+            throw new ApplicationServiceException(400, "组织节点不存在、已停用或不属于当前公司");
 
         user.Nickname = NormalizeNickname(request.Nickname, user.Username);
         user.Avatar = NormalizeOptional(request.Avatar);
@@ -399,16 +399,14 @@ public sealed class SystemUserAppService : ISystemUserAppService
         if (!orgUnitId.HasValue)
             return null;
 
-        var rootOrgUnitId = await _dbContext.OrgUnits
+        return await _dbContext.OrgUnits
             .AsNoTracking()
-            .Where(org => org.CompanyId == companyId && org.ParentId == null && org.UnitType == OrgUnitType.Company)
-            .OrderBy(org => org.Id)
+            .Where(org =>
+                org.Id == orgUnitId.Value &&
+                org.CompanyId == companyId &&
+                org.IsActive)
             .Select(org => (int?)org.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        if (!rootOrgUnitId.HasValue)
-            return null;
-
-        return rootOrgUnitId.Value == orgUnitId.Value ? rootOrgUnitId.Value : null;
     }
 
     private async Task<bool> ValidateAdminBoundaryAsync(

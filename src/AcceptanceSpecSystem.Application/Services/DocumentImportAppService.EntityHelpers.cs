@@ -29,7 +29,7 @@ public sealed partial class DocumentImportAppService
         existingSpec.Acceptance = NormalizeNullable(acceptance);
         existingSpec.Remark = NormalizeNullable(remark);
         existingSpec.WordFileId = wordFileId;
-        existingSpec.ImportedAt = DateTime.UtcNow;
+        existingSpec.UpdatedAt = DateTime.UtcNow;
     }
 
     private static void OverwriteAcceptanceAndRemark(
@@ -47,7 +47,7 @@ public sealed partial class DocumentImportAppService
         existingSpec.Acceptance = NormalizeNullable(acceptance);
         existingSpec.Remark = NormalizeNullable(remark);
         existingSpec.WordFileId = wordFileId;
-        existingSpec.ImportedAt = DateTime.UtcNow;
+        existingSpec.UpdatedAt = DateTime.UtcNow;
     }
 
     private static AcceptanceSpec CreateAcceptanceSpec(

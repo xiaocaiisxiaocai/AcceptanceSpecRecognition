@@ -207,6 +207,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             recognizedTable = AttachFieldConflicts(
                 fullTableData,
                 recognizedTable,
+                headerKeywordMatcher,
                 fieldConflictMatcher);
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
@@ -237,7 +238,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private static SmartConfigurationRecognizedTable AttachFieldConflicts(
         TableData fullTableData,
         SmartConfigurationRecognizedTable table,
-        HeaderKeywordMatcher matcher)
+        HeaderKeywordMatcher mappingMatcher,
+        HeaderKeywordMatcher conflictMatcher)
     {
         if (table.Regions.Count == 0)
         {
@@ -247,8 +249,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var detectionTable = BuildHeaderDetectionTableData(fullTableData);
         var regions = table.Regions.Select(region =>
         {
-            region = PreferPerRowWritableTargetColumns(detectionTable, region, matcher);
-            var conflicts = BuildFieldConflicts(detectionTable, region, matcher);
+            region = PreferPerRowWritableTargetColumns(detectionTable, region, mappingMatcher);
+            var conflicts = BuildFieldConflicts(detectionTable, region, conflictMatcher);
             if (conflicts.Count == 0)
             {
                 return region;
@@ -350,7 +352,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         ColumnType columnType,
         int? selectedColumnIndex)
     {
-        if (!selectedColumnIndex.HasValue ||
+        if (selectedColumnIndex.HasValue &&
             !HasDominantVerticalMergeAcrossDataRows(
                 detectionTable,
                 region,
@@ -839,6 +841,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             },
             validatedRegions,
             headerKeywordMatcher);
+        validatedRegions = DowngradeConfirmedCoverageIssues(
+            validatedRegions,
+            recognizedTable.Decision);
 
         // 旧模板只保存了第一块时，后续新区域可能连列位置也发生变化。此时用旧列
         // 审计业务行会看不到数据，因此额外寻找未覆盖的完整表头和其后的健康数据。
@@ -907,6 +912,35 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             Regions = validatedRegions,
             Decision = validatedRegions.Any(HasErrorIssue) ? "NeedConfirm" : recognizedTable.Decision
         };
+    }
+
+    private static List<SmartConfigurationRecognizedRegion> DowngradeConfirmedCoverageIssues(
+        IReadOnlyList<SmartConfigurationRecognizedRegion> regions,
+        string confirmedDecision)
+    {
+        return regions.Select(region =>
+        {
+            var issues = region.Issues.Select(issue =>
+                string.Equals(issue.Code, "UncoveredBusinessRows", StringComparison.Ordinal)
+                    ? new SmartConfigurationRecognitionIssue
+                    {
+                        Code = issue.Code,
+                        Severity = "Warning",
+                        Field = issue.Field,
+                        Message = issue.Message
+                    }
+                    : issue).ToList();
+            return region with
+            {
+                Issues = issues,
+                Decision = issues.Any(issue => string.Equals(
+                    issue.Severity,
+                    "Error",
+                    StringComparison.OrdinalIgnoreCase))
+                    ? "NeedConfirm"
+                    : confirmedDecision
+            };
+        }).ToList();
     }
 
     private static bool MappedHeadersMatch(

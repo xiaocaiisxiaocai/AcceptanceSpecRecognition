@@ -392,6 +392,15 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             "旧验收",
             "旧备注");
         await SeedEmbeddingCacheAsync(specId);
+        DateTime originalImportedAt;
+        using (var baselineScope = _factory.Services.CreateScope())
+        {
+            var baselineDb = baselineScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            originalImportedAt = await baselineDb.AcceptanceSpecs
+                .Where(spec => spec.Id == specId)
+                .Select(spec => spec.ImportedAt)
+                .SingleAsync();
+        }
 
         var fileId = await UploadExcelAsync(CreateExcelBytes(new[]
         {
@@ -463,6 +472,10 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var cacheExists = await dbContext.EmbeddingCaches.AnyAsync(cache => cache.SpecId == specId);
         cacheExists.Should().BeFalse("导入覆盖已有规格后旧向量已失效，应清理该规格的全部 EmbeddingCaches");
+        var updatedSpec = await dbContext.AcceptanceSpecs.SingleAsync(spec => spec.Id == specId);
+        updatedSpec.ImportedAt.Should().Be(originalImportedAt);
+        updatedSpec.UpdatedAt.Should().NotBeNull();
+        updatedSpec.UpdatedAt.Should().BeOnOrAfter(originalImportedAt);
     }
 
     [Fact]

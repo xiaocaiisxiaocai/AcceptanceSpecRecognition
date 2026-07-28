@@ -296,6 +296,71 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
     }
 
     [Fact]
+    public async Task Recognize_WhenWritableRemarkAlternativeComesFromLearnedRule_ShouldKeepMappedColumn()
+    {
+        var customerId = await CreateCustomerAsync($"可写备注学习规则-{Guid.NewGuid():N}");
+        await CreateColumnRuleAsync(
+            customerId,
+            "归档甲",
+            targetField: 4,
+            source: ColumnMappingRuleSource.Learned);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateVerticallyMergedLearnedRemarkCandidateExcelBytes(),
+            "smart-recognize-learned-writable-remark.xlsx");
+        var confirmResponse = await _client.PostAsync(
+            "/api/smart-config/confirm",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                fileId,
+                tableIndex = 0,
+                templateName = "已确认纵向合并备注模板",
+                headers = new[] { "项目", "规格", "OK/NG", "Remark", "归档甲" },
+                projectColumnIndex = 0,
+                specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = (int?)null,
+                headerRowIndex = 0,
+                headerRowCount = 1,
+                dataStartRowIndex = 1,
+                dataEndRowIndex = 3,
+                isSpecificationOnly = false,
+                learnedColumns = Array.Empty<object>(),
+                regions = new[]
+                {
+                    new
+                    {
+                        regionId = "table-0-region-0",
+                        regionIndex = 0,
+                        headers = new[] { "项目", "规格", "OK/NG", "Remark", "归档甲" },
+                        projectColumnIndex = 0,
+                        specificationColumnIndex = 1,
+                        acceptanceColumnIndex = 2,
+                        remarkColumnIndex = (int?)null,
+                        headerRowIndex = 0,
+                        headerRowCount = 1,
+                        dataStartRowIndex = 1,
+                        dataEndRowIndex = 3,
+                        isSpecificationOnly = false
+                    }
+                }
+            }));
+        var confirmText = await confirmResponse.Content.ReadAsStringAsync();
+        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK, confirmText);
+
+        var table = await RecognizeSingleTableAsync(fileId, customerId);
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+
+        region.GetProperty("remarkColumnIndex").GetInt32().Should().Be(
+            4,
+            "自动学习规则可以提供逐行可写的目标列，但不应因此制造新的字段冲突");
+        region.GetProperty("fieldConflicts").EnumerateArray()
+            .Should().NotContain(conflict =>
+                conflict.GetProperty("field").GetString() == "Remark");
+    }
+
+    [Fact]
     public async Task Recognize_WhenAcceptanceColumnHasOnlyLocalVerticalMerge_ShouldKeepAcceptanceColumn()
     {
         var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
@@ -648,6 +713,28 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         worksheet.Range("D2:D3").Merge();
         worksheet.Cell(2, 5).Value = "逐行备注1";
         worksheet.Cell(3, 5).Value = "逐行备注2";
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateVerticallyMergedLearnedRemarkCandidateExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "OK/NG";
+        worksheet.Cell(1, 4).Value = "Remark";
+        worksheet.Cell(1, 5).Value = "归档甲";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(3, 1).Value = "尺寸";
+        worksheet.Cell(3, 2).Value = "10±1mm";
+        worksheet.Cell(4, 1).Value = "功能";
+        worksheet.Cell(4, 2).Value = "运行正常";
+        worksheet.Range(2, 4, 4, 4).Merge();
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

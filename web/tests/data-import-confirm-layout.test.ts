@@ -89,6 +89,19 @@ test("数据导入确认页应把导入设置和待导入清单折叠，避免�
   assert.match(confirmPanelSource, /待导入清单/);
 });
 
+test("疑似重复提示应移除已处理统计行并提高提示文案行距", () => {
+  assert.doesNotMatch(confirmPanelSource, /已完成无重复数据处理/);
+  assert.doesNotMatch(confirmPanelSource, /difference-entry__summary/);
+  assert.match(
+    dataImportStyleSource,
+    /\.difference-entry\s+:deep\(\.el-alert__title\)[\s\S]*line-height:\s*1\.6/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.difference-entry\s+:deep\(\.el-alert__description\)[\s\S]*line-height:\s*1\.7/
+  );
+});
+
 test("AI 疑似重复检查关闭时应收起无效配置，并由确认组件自身承载样式", () => {
   assert.match(
     confirmPanelSource,
@@ -260,6 +273,13 @@ test("导入完成页应解除旧宽度限制并取消无用的底部操作栏�
     /\.import-result\s*\{[\s\S]*?max-width:\s*none;/
   );
   assert.doesNotMatch(dataImportStyleSource, /max-width:\s*1200px/);
+});
+
+test("任一智能导入完成分支都应切换到独立完成步骤", () => {
+  assert.match(
+    dataImportPageSource,
+    /watch\(\s*importResult,\s*result\s*=>\s*\{[\s\S]*!advancedMode\.value[\s\S]*currentStep\.value\s*=\s*SMART_STEP_COMPLETE[\s\S]*\{\s*immediate:\s*true\s*\}/
+  );
 });
 
 test("智能结构确认卡片应常驻展示多区域范围，并移除重复高级字段", () => {

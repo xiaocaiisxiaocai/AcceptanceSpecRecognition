@@ -1361,6 +1361,16 @@ export function useDataImportPage(
     ensureRuntimeAiReady: ensureImportRuntimeAiReady
   });
 
+  watch(
+    importResult,
+    result => {
+      if (result && !advancedMode.value) {
+        currentStep.value = SMART_STEP_COMPLETE;
+      }
+    },
+    { immediate: true }
+  );
+
   const handleImport = async () => {
     if (!(await ensureImportRuntimeAiReady())) return;
 
@@ -1370,9 +1380,6 @@ export function useDataImportPage(
     if (!loaded) return;
 
     await executeImport();
-    if (!advancedMode.value && importResult.value) {
-      currentStep.value = SMART_STEP_COMPLETE;
-    }
   };
 
   const pendingDifferenceDisplayStart = computed(() => {

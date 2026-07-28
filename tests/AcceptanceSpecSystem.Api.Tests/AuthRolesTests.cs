@@ -202,18 +202,19 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Create_WhenDataScopeUsesCustomMultipleOrgNodes_ShouldReturnBadRequest()
+    public async Task Create_WhenDataScopeUsesCustomMultipleOrgNodes_ShouldPersistEveryNode()
     {
         var roleCode = $"multi-{Guid.NewGuid():N}"[..18];
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var childOrgUnitId = await SeedChildOrgUnitAsync();
 
         var response = await _client.PostAsync(
             "/api/auth-roles",
             ApiClientJson.ToJsonContent(new
             {
                 code = roleCode,
-                name = "非法多组织角色",
-                description = "测试单组织限制",
+                name = "多组织范围角色",
+                description = "测试自定义组织范围",
                 isActive = true,
                 permissionCodes = Array.Empty<string>(),
                 dataScopes = new[]
@@ -222,18 +223,27 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                     {
                         resource = "spec",
                         scopeType = 3,
-                        orgUnitIds = new[] { rootOrgUnitId }
+                        orgUnitIds = new[] { rootOrgUnitId, childOrgUnitId }
                     }
                 }
             }));
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("单组织");
+        var roleId = body.Data.GetProperty("id").GetInt32();
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var savedNodeIds = await dbContext.AuthRoleDataScopeNodes
+            .Where(node => node.RoleDataScope.RoleId == roleId)
+            .Select(node => node.OrgUnitId)
+            .OrderBy(id => id)
+            .ToListAsync();
+        savedNodeIds.Should().Equal(new[] { rootOrgUnitId, childOrgUnitId }.OrderBy(id => id));
     }
 
     [Fact]
-    public async Task Create_WhenDataScopeTargetsNonRootOrgNode_ShouldReturnBadRequest()
+    public async Task Create_WhenDataScopeTargetsActiveNonRootOrgNode_ShouldSucceed()
     {
         var roleCode = $"node-{Guid.NewGuid():N}"[..18];
         var childOrgUnitId = await SeedChildOrgUnitAsync();
@@ -243,8 +253,8 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
             ApiClientJson.ToJsonContent(new
             {
                 code = roleCode,
-                name = "非法组织范围角色",
-                description = "测试根组织约束",
+                name = "事业部范围角色",
+                description = "测试子节点范围",
                 isActive = true,
                 permissionCodes = Array.Empty<string>(),
                 dataScopes = new[]
@@ -258,9 +268,14 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("根组织");
+        body.Data.GetProperty("dataScopes")[0]
+            .GetProperty("orgUnitIds")
+            .EnumerateArray()
+            .Select(item => item.GetInt32())
+            .Should()
+            .Equal(childOrgUnitId);
     }
 
     private async Task<int> GetRootOrgUnitIdAsync()

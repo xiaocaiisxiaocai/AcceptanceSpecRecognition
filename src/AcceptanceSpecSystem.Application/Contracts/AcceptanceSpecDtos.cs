@@ -68,6 +68,11 @@ public class AcceptanceSpecDto
     public DateTime ImportedAt { get; set; }
 
     /// <summary>
+    /// 最近更新时间；未修改时为空
+    /// </summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
     /// 数据归属组织节点ID
     /// </summary>
     public int? OwnerOrgUnitId { get; set; }

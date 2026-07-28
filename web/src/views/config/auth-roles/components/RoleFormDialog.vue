@@ -7,6 +7,10 @@ import type {
   RoleFormOption,
   ScopeType
 } from "../roleForm.types";
+import {
+  normalizeScopeOrgUnitIds,
+  validateScopeOrgUnitIds
+} from "../roleScope";
 
 const props = defineProps<{
   visible: boolean;
@@ -104,6 +108,8 @@ const setExpanded = (expanded: boolean) => {
 
 const needsSingleOrg = (scopeType: ScopeType) =>
   scopeType === 1 || scopeType === 2;
+const needsOrgSelection = (scopeType: ScopeType) =>
+  needsSingleOrg(scopeType) || scopeType === 3;
 
 const formRules: FormRules<RoleFormModel> = {
   code: [
@@ -126,10 +132,11 @@ const formRules: FormRules<RoleFormModel> = {
   scopeOrgUnitIds: [
     {
       validator: (_rule, value: number[], callback) => {
-        if (needsSingleOrg(props.modelValue.scopeType) && value.length !== 1) {
-          callback(new Error("请选择一个组织节点"));
-          return;
-        }
+        const message = validateScopeOrgUnitIds(
+          props.modelValue.scopeType,
+          value
+        );
+        if (message) return callback(new Error(message));
         callback();
       },
       trigger: "change"
@@ -140,9 +147,10 @@ const formRules: FormRules<RoleFormModel> = {
 const handleScopeTypeChange = (scopeType: ScopeType) => {
   updateForm({
     scopeType,
-    scopeOrgUnitIds: needsSingleOrg(scopeType)
-      ? props.modelValue.scopeOrgUnitIds.slice(0, 1)
-      : []
+    scopeOrgUnitIds: normalizeScopeOrgUnitIds(
+      scopeType,
+      props.modelValue.scopeOrgUnitIds
+    )
   });
   void nextTick(() => formRef.value?.validateField("scopeOrgUnitIds"));
 };
@@ -274,11 +282,12 @@ const handleOpened = () => {
         </el-select>
       </el-form-item>
       <el-form-item
-        v-if="needsSingleOrg(modelValue.scopeType)"
+        v-if="needsOrgSelection(modelValue.scopeType)"
         label="组织节点"
         prop="scopeOrgUnitIds"
       >
         <el-select
+          v-if="needsSingleOrg(modelValue.scopeType)"
           :model-value="modelValue.scopeOrgUnitIds[0] ?? null"
           clearable
           filterable
@@ -286,6 +295,28 @@ const handleOpened = () => {
           class="dialog-select dialog-select--320"
           @update:model-value="
             value => updateForm({ scopeOrgUnitIds: value ? [value] : [] })
+          "
+        >
+          <el-option
+            v-for="option in orgUnitOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+            :disabled="option.disabled"
+          />
+        </el-select>
+        <el-select
+          v-else
+          :model-value="modelValue.scopeOrgUnitIds"
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
+          filterable
+          :disabled="readOnly"
+          class="dialog-select dialog-select--320"
+          placeholder="请选择一个或多个组织节点"
+          @update:model-value="
+            value => updateForm({ scopeOrgUnitIds: value as number[] })
           "
         >
           <el-option

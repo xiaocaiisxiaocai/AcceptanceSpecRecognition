@@ -15,6 +15,7 @@ export interface AcceptanceSpec {
   acceptance?: string;
   remark?: string;
   importedAt: string;
+  updatedAt?: string | null;
 }
 
 /** 创建验收规格请求 */

@@ -66,6 +66,11 @@ public class AcceptanceSpec
     public DateTime ImportedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
+    /// 最近更新时间；首次导入后尚未修改时为空
+    /// </summary>
+    public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>
     /// 导航属性：所属客户
     /// </summary>
     public Customer Customer { get; set; } = null!;

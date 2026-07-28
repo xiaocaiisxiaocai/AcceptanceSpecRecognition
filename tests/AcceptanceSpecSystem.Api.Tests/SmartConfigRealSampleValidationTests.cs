@@ -79,15 +79,16 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             "NeedConfirm",
             "多区域验收表需要确认范围，但前端仍应自动选中并进入确认页");
         var regions = usableTable.GetProperty("regions").EnumerateArray().ToList();
-        regions.Should().HaveCount(2);
+        regions.Should().HaveCount(3);
         ReadRegionCoordinates(regions[0]).Should().Be((7, 1, 8, 111));
         ReadRegionCoordinates(regions[1]).Should().Be(
             (125, 1, 126, 142),
             "第 126 行是第二段末级表头，第 127 行已经是业务数据，不能静默丢弃首行");
+        ReadRegionCoordinates(regions[2]).Should().Be((145, 1, 146, 146));
         regions[1].GetProperty("projectColumnIndex").GetInt32().Should().Be(2);
         regions[1].GetProperty("specificationColumnIndex").GetInt32().Should().Be(3);
         regions[1].GetProperty("acceptanceColumnIndex").GetInt32().Should().Be(8);
-        regions[1].GetProperty("remarkColumnIndex").GetInt32().Should().Be(9);
+        regions[1].GetProperty("remarkColumnIndex").GetInt32().Should().Be(14);
         var remarkConflict = regions[0].GetProperty("fieldConflicts")
             .EnumerateArray()
             .Single(conflict => conflict.GetProperty("field").GetString() == "Remark");
@@ -164,8 +165,8 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
         var reuseBody = await reuseResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         var reusedTable = reuseBody.Data!.GetProperty("tables").EnumerateArray()
             .Single(table => table.GetProperty("tableIndex").GetInt32() == 0);
-        reusedTable.GetProperty("source").GetString().Should().NotBe("Template",
-            "存在未覆盖业务行时，历史模板不能覆盖当前文件重新识别出的范围");
+        reusedTable.GetProperty("source").GetString().Should().Be("Template",
+            "用户已确认的相同文件结构应直接复用模板，而不是每次重复确认");
         reusedTable.GetProperty("regions").EnumerateArray()
             .Select(ReadRegionCoordinates)
             .Should().Equal(regions.Select(ReadRegionCoordinates));

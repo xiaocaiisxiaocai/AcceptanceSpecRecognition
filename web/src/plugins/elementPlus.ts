@@ -56,6 +56,7 @@ import {
   ElTag,
   ElText,
   ElTimePicker,
+  ElTooltip,
   ElTree,
   ElUpload,
   ElSegmented,
@@ -117,6 +118,7 @@ const components = [
   ElTag,
   ElText,
   ElTimePicker,
+  ElTooltip,
   ElTree,
   ElUpload,
   ElSegmented

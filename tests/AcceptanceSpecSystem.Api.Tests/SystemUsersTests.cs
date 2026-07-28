@@ -202,7 +202,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Create_WithNonRootOrgUnit_ShouldReturnBadRequest()
+    public async Task Create_WithActiveNonRootOrgUnit_ShouldAssignExactlyThatNode()
     {
         var childOrgUnitId = await SeedChildOrgUnitAsync();
         var username = $"child_org_{Guid.NewGuid():N}"[..18];
@@ -213,16 +213,24 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             {
                 username,
                 password = "User@1234567",
-                nickname = "非法组织用户",
+                nickname = "事业部用户",
                 avatar = "",
                 roleCode = "common",
                 orgUnitId = childOrgUnitId,
                 isActive = true
             }));
 
-        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        body.Message.Should().Contain("根组织");
+        var userId = body.Data.GetProperty("id").GetInt32();
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var assignments = await dbContext.AuthUserOrgUnits
+            .Where(link => link.UserId == userId)
+            .Select(link => link.OrgUnitId)
+            .ToListAsync();
+        assignments.Should().Equal(childOrgUnitId);
     }
 
     [Fact]

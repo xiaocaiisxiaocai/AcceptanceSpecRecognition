@@ -1197,14 +1197,24 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void AuthRolePage_ShouldNotExposeMultiOrgScopePicker()
+    public void AuthRolePage_ShouldExposeCustomMultiOrgScopePicker()
     {
-        var content = File.ReadAllText(Path.Combine(
+        var pageContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/config/auth-roles/index.vue".Replace('/', Path.DirectorySeparatorChar)));
+        var dialogContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/components/RoleFormDialog.vue"
+                .Replace('/', Path.DirectorySeparatorChar)));
+        var scopeContent = File.ReadAllText(Path.Combine(
+            GetRepositoryRoot(),
+            "web/src/views/config/auth-roles/roleScope.ts"
+                .Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().NotContain("needsMultiOrg", "单组织契约下角色页不应再暴露多节点范围选择分支");
-        content.Should().NotContain("scopeType === 3", "角色页不应继续兼容自定义多节点范围类型");
+        pageContent.Should().Contain("自定义组织", "角色应支持配置多个指定组织节点");
+        pageContent.Should().Contain("scopeType === 3", "自定义组织范围应保留全部有效节点");
+        dialogContent.Should().Contain("multiple", "自定义组织范围应使用多选控件");
+        scopeContent.Should().Contain("请至少选择一个组织节点", "空的自定义范围必须在提交前阻止");
     }
 
     [Fact]

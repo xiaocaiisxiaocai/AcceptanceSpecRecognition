@@ -89,6 +89,7 @@ internal static class ApplicationModelMappingExtensions
             Acceptance = item.Acceptance,
             Remark = item.Remark,
             ImportedAt = item.ImportedAt,
+            UpdatedAt = item.UpdatedAt,
             OwnerOrgUnitId = item.OwnerOrgUnitId,
             CreatedByUserId = item.CreatedByUserId
         };

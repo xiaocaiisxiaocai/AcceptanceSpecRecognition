@@ -24,6 +24,15 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
     public async Task SpecBackfill_ShouldUpdateMatchedSpec_AndCreateManualSpec()
     {
         var setup = await SeedBackfillScopeAsync();
+        DateTime originalImportedAt;
+        await using (var baselineScope = _factory.Services.CreateAsyncScope())
+        {
+            var baselineDb = baselineScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            originalImportedAt = await baselineDb.AcceptanceSpecs
+                .Where(spec => spec.Id == setup.SpecId)
+                .Select(spec => spec.ImportedAt)
+                .SingleAsync();
+        }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
         request.Headers.Add("X-Test-Role", "common");
@@ -67,6 +76,9 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
         updated.Specification.Should().Be("原规格");
         updated.Acceptance.Should().Be("更新后的验收");
         updated.Remark.Should().Be("更新后的备注");
+        updated.ImportedAt.Should().Be(originalImportedAt);
+        updated.UpdatedAt.Should().NotBeNull();
+        updated.UpdatedAt.Should().BeOnOrAfter(originalImportedAt);
 
         var cacheExists = await db.EmbeddingCaches.AnyAsync(cache => cache.SpecId == setup.SpecId);
         cacheExists.Should().BeFalse();

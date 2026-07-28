@@ -250,6 +250,47 @@ public class RuleBasedMappingStrategyTests
     }
 
     [Fact]
+    public async Task IdentifyAsync_WithCompositeHeaders_ShouldUseExactLeafProjectHeader()
+    {
+        var strategy = CreateStrategy();
+
+        var result = await strategy.IdentifyAsync(
+            [
+                "功能項目 / 功能項目 / 功能",
+                "功能項目 / 功能項目 / 具體項目",
+                "規格 / 規格 / 規格",
+                "OK/NG",
+                "Remark"
+            ],
+            [
+                ["设备功能", "升降机构", "运行平稳", "OK", ""]
+            ],
+            [
+                new ColumnHeaderMappingRule(
+                    ColumnType.Project,
+                    ColumnHeaderMatchMode.Equals,
+                    "具體項目"),
+                new ColumnHeaderMappingRule(
+                    ColumnType.Specification,
+                    ColumnHeaderMatchMode.Equals,
+                    "規格"),
+                new ColumnHeaderMappingRule(
+                    ColumnType.Acceptance,
+                    ColumnHeaderMatchMode.Equals,
+                    "OK/NG"),
+                new ColumnHeaderMappingRule(
+                    ColumnType.Remark,
+                    ColumnHeaderMatchMode.Equals,
+                    "Remark")
+            ]);
+
+        result.Mapping.ProjectColumn.Should().Be(1);
+        result.Mapping.SpecificationColumn.Should().Be(2);
+        result.Mapping.AcceptanceColumn.Should().Be(3);
+        result.Mapping.RemarkColumn.Should().Be(4);
+    }
+
+    [Fact]
     public async Task IdentifyAsync_WithContainsRule_ShouldMatchContainedHeaderText()
     {
         var strategy = CreateStrategy();

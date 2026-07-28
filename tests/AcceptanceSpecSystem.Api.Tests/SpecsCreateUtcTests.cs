@@ -63,6 +63,54 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task UpdateSpec_ShouldPreserveImportedAt_AndReturnUpdatedAt()
+    {
+        var customerId = await CreateCustomerAsync(_client, "更新时间-客户");
+        var processId = await CreateProcessAsync(_client, "更新时间-制程");
+
+        var createResponse = await _client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                processId,
+                project = "首次导入项目",
+                specification = "首次导入规格",
+                acceptance = "首次导入验收",
+                remark = "首次导入备注"
+            }));
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var specId = created.Data.GetProperty("id").GetInt32();
+        var importedAt = created.Data.GetProperty("importedAt").GetDateTime();
+        created.Data.GetProperty("updatedAt").ValueKind.Should().Be(JsonValueKind.Null);
+
+        var updateStartedAt = DateTime.UtcNow;
+        var updateResponse = await _client.PutAsync(
+            $"/api/specs/{specId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                project = "更新后项目",
+                specification = "更新后规格",
+                acceptance = "更新后验收",
+                remark = "更新后备注"
+            }));
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updated = await updateResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        updated.Data.GetProperty("importedAt").GetDateTime().Should().Be(importedAt);
+        updated.Data.GetProperty("updatedAt").GetDateTime().Should().BeOnOrAfter(updateStartedAt);
+
+        var listResponse = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=10&customerId={customerId}&processId={processId}");
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var list = await listResponse.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        var listedSpec = list.Data!.Items.Single(item => item.GetProperty("id").GetInt32() == specId);
+        listedSpec.GetProperty("importedAt").GetDateTime().Should().Be(importedAt);
+        listedSpec.GetProperty("updatedAt").GetDateTime().Should().BeOnOrAfter(updateStartedAt);
+    }
+
+    [Fact]
     public async Task CreateSpec_WhenDifferentUsersCreateManualSpecs_ShouldUseUserScopedManualWordFile()
     {
         var adminCustomerId = await CreateCustomerAsync(_client, "手工文件-管理员客户");

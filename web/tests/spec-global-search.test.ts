@@ -77,3 +77,35 @@ test("验收规格分页应保留五百条并移除一千条", () => {
   assert.match(specTableSource, /:page-sizes="\[100, 200, 500\]"/);
   assert.doesNotMatch(specTableSource, /:page-sizes="[^"]*1000/);
 });
+
+test("验收规格列表应展示更新时间并对历史数据回退导入时间", () => {
+  assert.match(
+    specTableSource,
+    /<el-table-column[^>]*label="更新时间"[^>]*width="180"/
+  );
+  assert.match(
+    specTableSource,
+    /formatDateTime\(row\.updatedAt \?\? row\.importedAt\)/
+  );
+});
+
+test("验收规格批量删除应要求输入删除数量并防止选择变化后误删", () => {
+  const handlerStart = specTableSource.indexOf(
+    "const handleBatchDelete = async () =>"
+  );
+  const handlerEnd = specTableSource.indexOf(
+    "const handleInspectDuplicates = async () =>"
+  );
+  const handlerSource = specTableSource.slice(handlerStart, handlerEnd);
+
+  assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+  assert.match(handlerSource, /永久删除/);
+  assert.match(handlerSource, /ElMessageBox\.prompt/);
+  assert.match(handlerSource, /value\.trim\(\) === String\(deleteCount\)/);
+  assert.match(handlerSource, /currentIds/);
+  assert.match(handlerSource, /选择内容已变化/);
+  assert.ok(
+    handlerSource.indexOf("ElMessageBox.prompt") <
+      handlerSource.indexOf("batchDeleteSpecs(ids)")
+  );
+});

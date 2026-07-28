@@ -54,6 +54,31 @@ public class OrgUnitsController : BaseApiController
     }
 
     /// <summary>
+    /// 新增组织节点
+    /// </summary>
+    [HttpPost]
+    [AuditOperation("create", "org-unit")]
+    [ProducesResponseType(typeof(ApiResponse<OrgUnitDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<OrgUnitDto>>> Create(
+        [FromBody] CreateOrgUnitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!companyId.HasValue)
+            return Error<OrgUnitDto>(401, "会话缺少公司上下文");
+
+        try
+        {
+            var item = await _orgUnitAppService.CreateAsync(companyId.Value, request, cancellationToken);
+            return Success(item, "新增组织节点成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<OrgUnitDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 更新组织节点
     /// </summary>
     [HttpPut("{id:int}")]
@@ -76,6 +101,31 @@ public class OrgUnitsController : BaseApiController
         catch (ApplicationServiceException ex)
         {
             return Error<OrgUnitDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 删除组织节点
+    /// </summary>
+    [HttpDelete("{id:int}")]
+    [AuditOperation("delete", "org-unit")]
+    [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<object>>> Delete(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!companyId.HasValue)
+            return Error<object>(401, "会话缺少公司上下文");
+
+        try
+        {
+            await _orgUnitAppService.DeleteAsync(companyId.Value, id, cancellationToken);
+            return Success<object>(new { }, "删除组织节点成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<object>(ex.Code, ex.Message);
         }
     }
 

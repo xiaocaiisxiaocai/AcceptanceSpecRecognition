@@ -88,6 +88,48 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task SuccessfulRefreshToken_ShouldNotGenerateAuditLog()
+    {
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            "admin",
+            ApiWebApplicationFactory.TestAdminPassword);
+        using var loginResponse = await _client.SendAsync(loginRequest);
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var (refreshToken, csrfToken) = AuthCookieTestHelper.ReadSessionCookies(loginResponse);
+        var traceId = $"refresh-success-{Guid.NewGuid():N}";
+        using var refreshRequest = AuthCookieTestHelper.CreateStateChangingRequest(
+            "/refresh-token",
+            refreshToken,
+            csrfToken);
+        refreshRequest.Headers.Add("X-Client-Trace-Id", traceId);
+
+        using var refreshResponse = await _client.SendAsync(refreshRequest);
+
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var audits = await GetAuditsByTraceIdAsync(_client, traceId);
+        audits.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RejectedRefreshToken_ShouldGenerateWarningAuditLog()
+    {
+        var traceId = $"refresh-rejected-{Guid.NewGuid():N}";
+        using var refreshRequest = AuthCookieTestHelper.CreateStateChangingRequest(
+            "/refresh-token",
+            "invalid-token",
+            "csrf");
+        refreshRequest.Headers.Add("X-Client-Trace-Id", traceId);
+
+        using var refreshResponse = await _client.SendAsync(refreshRequest);
+
+        refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var audits = await GetAuditsByTraceIdAsync(_client, traceId);
+        audits.Should().ContainSingle();
+        audits[0].GetProperty("eventType").GetString().Should().Be("controller.refresh-token");
+        audits[0].GetProperty("level").GetInt32().Should().Be((int)AuditLogLevel.Warning);
+    }
+
+    [Fact]
     public async Task DeleteByRange_ShouldReturnSuccess()
     {
         var from = DateTime.UtcNow.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm:ss");
@@ -255,14 +297,19 @@ public class AuditLogsTests : IClassFixture<ApiWebApplicationFactory>
 
     private static async Task<JsonElement> FindAuditByTraceIdAsync(HttpClient client, string traceId)
     {
+        var matches = await GetAuditsByTraceIdAsync(client, traceId);
+        matches.Should().ContainSingle();
+        return matches[0];
+    }
+
+    private static async Task<JsonElement[]> GetAuditsByTraceIdAsync(HttpClient client, string traceId)
+    {
         using var response = await client.GetAsync("/api/audit-logs?page=1&pageSize=200");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
-        var matches = body.Data!.Items
+        return body.Data!.Items
             .Where(item => item.GetProperty("clientTraceId").GetString() == traceId)
             .ToArray();
-        matches.Should().ContainSingle();
-        return matches[0];
     }
 
     private sealed class ThrowingAuthLoginAppService : IAuthLoginAppService

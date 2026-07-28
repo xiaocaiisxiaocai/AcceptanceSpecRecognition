@@ -149,20 +149,23 @@
   margin-bottom: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+}
+
+.difference-entry :deep(.el-alert__title) {
+  line-height: 1.6;
+}
+
+.difference-entry :deep(.el-alert__description) {
+  line-height: 1.7;
 }
 
 .difference-entry__actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.difference-entry__summary {
-  font-size: 13px;
-  color: var(--app-warning);
 }
 
 .import-result {
