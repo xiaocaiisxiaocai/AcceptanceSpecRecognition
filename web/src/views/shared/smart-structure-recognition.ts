@@ -292,6 +292,74 @@ export const toExcelColumnLabel = (columnNumber: number) => {
   return label;
 };
 
+export type SmartStructureEditableFieldName =
+  | "Project"
+  | "Specification"
+  | "Acceptance"
+  | "Remark";
+
+export const buildSmartStructureHeaderOptions = (
+  headers: string[],
+  baseColumn = 1
+) => {
+  const seen = new Set<string>();
+
+  return headers.flatMap((value, columnIndex) => {
+    const header = value?.trim();
+    if (!header) return [];
+
+    const normalized = header.normalize("NFKC").toLocaleLowerCase();
+    if (seen.has(normalized)) return [];
+    seen.add(normalized);
+
+    return [
+      {
+        columnIndex,
+        columnLabel: toExcelColumnLabel(baseColumn + columnIndex),
+        header
+      }
+    ];
+  });
+};
+
+export const updateSmartStructureRegionFieldColumn = (
+  region: SmartConfigRecognizedRegion,
+  field: SmartStructureEditableFieldName,
+  columnIndex?: number
+): SmartConfigRecognizedRegion => {
+  const keyByField: Record<
+    SmartStructureEditableFieldName,
+    | "projectColumnIndex"
+    | "specificationColumnIndex"
+    | "acceptanceColumnIndex"
+    | "remarkColumnIndex"
+  > = {
+    Project: "projectColumnIndex",
+    Specification: "specificationColumnIndex",
+    Acceptance: "acceptanceColumnIndex",
+    Remark: "remarkColumnIndex"
+  };
+  const existing = region.fields.find(item => item.field === field);
+  const updatedField: SmartConfigRecognizedField = {
+    field,
+    columnIndex,
+    header: columnIndex == null ? undefined : region.headers[columnIndex],
+    confidence: existing?.confidence ?? 1,
+    source: "Manual"
+  };
+
+  return {
+    ...region,
+    [keyByField[field]]: columnIndex,
+    isSpecificationOnly:
+      field === "Project" ? columnIndex == null : region.isSpecificationOnly,
+    fields: [
+      ...region.fields.filter(item => item.field !== field),
+      updatedField
+    ]
+  };
+};
+
 export const excelColumnLabelToNumber = (columnLabel: string) => {
   const normalized = columnLabel.trim().toUpperCase();
   if (!/^[A-Z]+$/.test(normalized)) return undefined;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applySmartConfigConfirmRequestToTable,
+  buildSmartStructureHeaderOptions,
   buildSmartConfigConfirmRequest,
   canConfirmSmartStructureTable,
   canSelectSmartStructureTable,
@@ -25,6 +26,7 @@ import {
   toActualColumnNumber,
   toActualRowNumber,
   toExcelColumnLabel,
+  updateSmartStructureRegionFieldColumn,
   validateSmartStructureExcelRanges,
   validateSmartStructureRegions
 } from "./smart-structure-recognition";
@@ -120,6 +122,77 @@ describe("filterSmartStructureIssuesForRegions", () => {
 });
 
 describe("smart-structure-recognition", () => {
+  it("表头候选使用实际列并将合并表头的重复标题只显示一次", () => {
+    expect(
+      buildSmartStructureHeaderOptions(
+        ["", "功能项目", "功能项目", "需求说明", "说明"],
+        1
+      )
+    ).toEqual([
+      { columnIndex: 1, columnLabel: "B", header: "功能项目" },
+      { columnIndex: 3, columnLabel: "D", header: "需求说明" },
+      { columnIndex: 4, columnLabel: "E", header: "说明" }
+    ]);
+  });
+
+  it("按表头切换项目列时同步字段标题并退出仅规格模式", () => {
+    const region = {
+      ...table({}),
+      regionId: "table-0-region-0",
+      regionIndex: 0,
+      isSpecificationOnly: true,
+      projectColumnIndex: null,
+      fields: []
+    };
+
+    const updated = updateSmartStructureRegionFieldColumn(region, "Project", 0);
+
+    expect(updated.projectColumnIndex).toBe(0);
+    expect(updated.isSpecificationOnly).toBe(false);
+    expect(updated.fields).toContainEqual({
+      field: "Project",
+      columnIndex: 0,
+      header: "项目",
+      confidence: 1,
+      source: "Manual"
+    });
+    expect(region.projectColumnIndex).toBeNull();
+  });
+
+  it("清空项目表头时同步为仅规格模式且保留其他字段映射", () => {
+    const region = {
+      ...table({}),
+      regionId: "table-0-region-0",
+      regionIndex: 0,
+      fields: [
+        {
+          field: "Specification",
+          columnIndex: 1,
+          header: "规格",
+          confidence: 0.9,
+          source: "Rule"
+        }
+      ]
+    };
+
+    const updated = updateSmartStructureRegionFieldColumn(
+      region,
+      "Project",
+      undefined
+    );
+
+    expect(updated.projectColumnIndex).toBeUndefined();
+    expect(updated.isSpecificationOnly).toBe(true);
+    expect(updated.fields).toContainEqual(region.fields[0]);
+    expect(updated.fields).toContainEqual({
+      field: "Project",
+      columnIndex: undefined,
+      header: undefined,
+      confidence: 1,
+      source: "Manual"
+    });
+  });
+
   it("从数据区上方向前找到最近有效单行表头并跳过非表头行", () => {
     const rows = [
       ["", "项目", "细项", "规格", "", "", "", "", "厂商确认", ""],

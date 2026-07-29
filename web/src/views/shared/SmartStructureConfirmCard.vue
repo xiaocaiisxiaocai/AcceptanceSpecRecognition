@@ -10,6 +10,7 @@ import type {
 } from "@/api/smart-config";
 import SmartStructureRangeEditorDrawer from "./SmartStructureRangeEditorDrawer.vue";
 import {
+  buildSmartStructureHeaderOptions,
   buildSmartConfigConfirmRequest,
   canConfirmSmartStructureTable,
   filterSmartStructureIssuesForRegions,
@@ -23,8 +24,10 @@ import {
   needsManualStructureFallback,
   countSmartStructureRegionRows,
   resolveSmartStructureRegionEndRowIndex,
+  updateSmartStructureRegionFieldColumn,
   validateSmartStructureRegions
 } from "./smart-structure-recognition";
+import type { SmartStructureEditableFieldName } from "./smart-structure-recognition";
 
 const props = withDefaults(
   defineProps<{
@@ -139,6 +142,18 @@ const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
   }));
 };
 
+const handleHeaderSelectionChange = (
+  regionId: string,
+  field: SmartStructureEditableFieldName,
+  columnIndex?: number
+) => {
+  editableRegions.value = editableRegions.value.map(region =>
+    region.regionId === regionId
+      ? updateSmartStructureRegionFieldColumn(region, field, columnIndex)
+      : region
+  );
+};
+
 const buildColumnRangeSummary = (
   columnIndex: number | null | undefined,
   startRowIndex: number,
@@ -161,29 +176,45 @@ const buildColumnRangeSummary = (
 
 const rangeSummaryFields = computed(() =>
   [
-    { label: "项目列", key: "projectColumnIndex" },
-    { label: "规格列", key: "specificationColumnIndex" },
-    { label: "验收列", key: "acceptanceColumnIndex" },
-    { label: "备注列", key: "remarkColumnIndex" }
+    { label: "项目列", key: "projectColumnIndex", field: "Project" },
+    {
+      label: "规格列",
+      key: "specificationColumnIndex",
+      field: "Specification"
+    },
+    { label: "验收列", key: "acceptanceColumnIndex", field: "Acceptance" },
+    { label: "备注列", key: "remarkColumnIndex", field: "Remark" }
   ].map(field => {
-    const ranges = activeRegions.value
-      .map((region, regionIndex) => {
-        const range = buildColumnRangeSummary(
-          region[field.key as keyof typeof region] as number | null | undefined,
-          region.dataStartRowIndex,
-          region.dataEndRowIndex
-        );
-        return range ? { ...range, key: `${field.key}-${regionIndex}` } : null;
-      })
-      .filter(range => range !== null);
+    const ranges = activeRegions.value.map((region, regionIndex) => {
+      const columnIndex = region[field.key as keyof typeof region] as
+        | number
+        | null
+        | undefined;
+      const range = buildColumnRangeSummary(
+        columnIndex,
+        region.dataStartRowIndex,
+        region.dataEndRowIndex
+      );
+      return {
+        key: `${field.key}-${regionIndex}`,
+        regionId: region.regionId,
+        regionLabel: `区域 ${region.regionIndex + 1}`,
+        columnIndex: columnIndex ?? undefined,
+        options: buildSmartStructureHeaderOptions(
+          region.headers,
+          props.tableInfo?.usedRangeStartColumn ?? 1
+        ),
+        emptyText:
+          field.field === "Project" && region.isSpecificationOnly
+            ? "仅规格表"
+            : "未识别",
+        ...range
+      };
+    });
     return {
       label: field.label,
-      ranges,
-      emptyText:
-        field.key === "projectColumnIndex" &&
-        activeRegions.value.every(region => region.isSpecificationOnly)
-          ? "仅规格表"
-          : "未识别"
+      field: field.field as SmartStructureEditableFieldName,
+      ranges
     };
   })
 );
@@ -595,25 +626,62 @@ const emitConfirm = () => {
           :key="field.label"
           class="range-row"
         >
-          <span class="range-label">{{ field.label }}</span>
           <div class="range-values">
             <div
               v-for="range in field.ranges"
               :key="range.key"
-              class="range-interval"
-              :aria-label="`${range.column}${range.startRow} 到 ${range.column}${range.endRow}`"
+              class="range-mapping"
             >
-              <span class="range-interval-value"
-                >{{ range.column }}{{ range.startRow }}</span
+              <div class="range-field-heading">
+                <span class="range-label">{{ field.label }}</span>
+                <template v-if="isExcelFile">
+                  <span class="range-header-bracket" aria-hidden="true">[</span>
+                  <el-select
+                    class="range-header-select"
+                    :model-value="range.columnIndex"
+                    :disabled="controlsLocked"
+                    clearable
+                    placeholder="请选择"
+                    :aria-label="`${range.regionLabel}${field.label}表头`"
+                    @change="
+                      value =>
+                        handleHeaderSelectionChange(
+                          range.regionId,
+                          field.field,
+                          value as number | undefined
+                        )
+                    "
+                  >
+                    <el-option
+                      v-for="option in range.options"
+                      :key="option.columnIndex"
+                      :value="option.columnIndex"
+                      :label="option.header"
+                    >
+                      <span>{{ option.header }}</span>
+                      <span class="range-header-option-column">
+                        {{ option.columnLabel }}列
+                      </span>
+                    </el-option>
+                  </el-select>
+                  <span class="range-header-bracket" aria-hidden="true">]</span>
+                </template>
+              </div>
+              <div
+                v-if="range.column"
+                class="range-interval"
+                :aria-label="`${range.column}${range.startRow} 到 ${range.column}${range.endRow}`"
               >
-              <span class="range-interval-line" aria-hidden="true" />
-              <span class="range-interval-value"
-                >{{ range.column }}{{ range.endRow }}</span
-              >
+                <span class="range-interval-value"
+                  >{{ range.column }}{{ range.startRow }}</span
+                >
+                <span class="range-interval-line" aria-hidden="true" />
+                <span class="range-interval-value"
+                  >{{ range.column }}{{ range.endRow }}</span
+                >
+              </div>
+              <span v-else class="range-empty">{{ range.emptyText }}</span>
             </div>
-            <span v-if="field.ranges.length === 0" class="range-empty">{{
-              field.emptyText
-            }}</span>
           </div>
         </div>
       </div>
@@ -886,9 +954,53 @@ const emitConfirm = () => {
   min-width: 0;
 }
 
+.range-mapping {
+  display: grid;
+  gap: 7px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.range-field-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
 .range-label {
   font-size: 12px;
   font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.range-header-bracket {
+  font-size: 12px;
+  color: var(--app-text-primary);
+}
+
+.range-header-select {
+  width: clamp(88px, 10vw, 168px);
+  min-width: 0;
+}
+
+.range-header-select :deep(.el-select__wrapper) {
+  min-height: 24px;
+  padding: 0 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.range-header-select :deep(.el-select__selected-item) {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.range-header-option-column {
+  float: right;
+  margin-left: 18px;
   color: var(--app-text-secondary);
 }
 

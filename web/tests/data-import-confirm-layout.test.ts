@@ -295,8 +295,8 @@ test("智能结构确认卡片应把项目列放在规格列之前", () => {
   const summaryStart = confirmCardSource.indexOf("const rangeSummaryFields");
   const summaryEnd = confirmCardSource.indexOf("const regionSummaryItems");
   const summarySource = confirmCardSource.slice(summaryStart, summaryEnd);
-  const projectIndex = summarySource.indexOf('{ label: "项目列"');
-  const specificationIndex = summarySource.indexOf('{ label: "规格列"');
+  const projectIndex = summarySource.search(/\{\s*label:\s*"项目列"/);
+  const specificationIndex = summarySource.search(/\{\s*label:\s*"规格列"/);
 
   assert.ok(summaryStart >= 0 && summaryEnd > summaryStart);
   assert.ok(projectIndex >= 0, "范围摘要缺少项目列");
@@ -692,6 +692,26 @@ test("Excel 范围抽屉应允许直接编辑 A1 范围并反算内部行列映�
     /draft\.headerStartRow = headerRow;[\s\S]*draft\.headerEndRow = headerRow;/
   );
   assert.match(rangeEditorSource, /<template v-else>[\s\S]*表头起始行/);
+});
+
+test("Excel 确认卡应按字段表头下拉和纵向坐标组合布局", () => {
+  assert.match(confirmCardSource, /buildSmartStructureHeaderOptions/);
+  assert.match(confirmCardSource, /class="range-field-heading"/);
+  assert.match(confirmCardSource, /class="range-header-select"/);
+  assert.match(
+    confirmCardSource,
+    /@change="[\s\S]*handleHeaderSelectionChange/
+  );
+  assert.match(confirmCardSource, /class="range-interval"/);
+  assert.match(
+    confirmCardSource,
+    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.startRow\s*\}\}/
+  );
+  assert.match(
+    confirmCardSource,
+    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.endRow\s*\}\}/
+  );
+  assert.match(confirmCardSource, /@click="rangeEditorVisible = true"/);
 });
 
 test("Excel 范围抽屉应把每个区域精简为单行四范围编辑器", () => {
