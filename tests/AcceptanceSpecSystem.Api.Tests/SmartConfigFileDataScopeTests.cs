@@ -120,7 +120,15 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
     [Fact]
     public async Task Confirm_WhenRequestHeadersAreForged_ShouldPersistActualFileHeadersOnly()
     {
-        var fileId = await UploadAsAdminAsync();
+        var suffix = Guid.NewGuid().ToString("N");
+        var actualHeaders = new[]
+        {
+            $"实际字段甲-{suffix}",
+            $"实际字段乙-{suffix}",
+            $"实际字段丙-{suffix}",
+            $"实际字段丁-{suffix}"
+        };
+        var fileId = await UploadAsAdminAsync(actualHeaders);
         var customerId = await CreateCustomerAsync();
 
         using var response = await _client.PostAsync(
@@ -153,12 +161,12 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var template = await db.DocumentTemplates.SingleAsync(item => item.CustomerId == customerId);
         JsonSerializer.Deserialize<string[]>(template.HeadersJson)
-            .Should().Equal("项目", "规格", "验收", "备注");
+            .Should().Equal(actualHeaders);
         var patterns = await db.ColumnMappingRules
             .Where(item => item.CustomerId == customerId)
             .Select(item => item.Pattern)
             .ToListAsync();
-        patterns.Should().Contain(["项目", "规格", "验收", "备注"])
+        patterns.Should().Contain(actualHeaders)
             .And.NotContain(item => item.Contains("伪造"));
     }
 
@@ -246,11 +254,11 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    private async Task<int> UploadAsAdminAsync()
+    private async Task<int> UploadAsAdminAsync(IReadOnlyList<string>? headers = null)
     {
         return await SmartConfigRecognizeTestFiles.UploadExcelAsync(
             _client,
-            CreateExcelBytes(),
+            CreateExcelBytes(headers),
             $"smart-config-scope-{Guid.NewGuid():N}.xlsx");
     }
 
@@ -273,14 +281,20 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
         return body.Data.GetProperty("fileId").GetInt32();
     }
 
-    private static byte[] CreateExcelBytes()
+    private static byte[] CreateExcelBytes(IReadOnlyList<string>? headers = null)
     {
+        var effectiveHeaders = headers ?? ["项目", "规格", "验收", "备注"];
+        if (effectiveHeaders.Count != 4)
+        {
+            throw new ArgumentException("测试工作簿必须提供四列表头", nameof(headers));
+        }
+
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("验收表");
-        worksheet.Cell(1, 1).Value = "项目";
-        worksheet.Cell(1, 2).Value = "规格";
-        worksheet.Cell(1, 3).Value = "验收";
-        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(1, 1).Value = effectiveHeaders[0];
+        worksheet.Cell(1, 2).Value = effectiveHeaders[1];
+        worksheet.Cell(1, 3).Value = effectiveHeaders[2];
+        worksheet.Cell(1, 4).Value = effectiveHeaders[3];
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
         worksheet.Cell(2, 3).Value = "OK";
