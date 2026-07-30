@@ -31,6 +31,7 @@ import {
   validateForm
 } from "@/utils/form-rules";
 import { loadAllPagedItems } from "@/utils/paged-options";
+import { formatCustomerScope as formatCustomerScopeLabel } from "./customer-scope";
 
 defineOptions({
   name: "ColumnMappingRules"
@@ -105,14 +106,8 @@ const customerNameById = computed(
     )
 );
 
-const formatCustomerScope = (customerId?: number) => {
-  if (customerId === undefined) return "全局";
-
-  const customerName = customerNameById.value.get(customerId);
-  return customerName
-    ? `${customerName}（ID: ${customerId}）`
-    : `未知客户（ID: ${customerId}）`;
-};
+const formatCustomerScope = (customerId?: number | null) =>
+  formatCustomerScopeLabel(customerId, customerNameById.value);
 
 const filteredRulesByTarget = computed(() => {
   const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
@@ -267,7 +262,7 @@ const openEdit = (row: ColumnMappingRule) => {
   form.priority = row.priority ?? 0;
   form.enabled = row.enabled;
   form.source = row.source ?? ColumnMappingRuleSource.Manual;
-  form.customerId = row.customerId;
+  form.customerId = row.customerId ?? undefined;
   dialogVisible.value = true;
 };
 
@@ -335,7 +330,7 @@ const persistRow = async (row: ColumnMappingRule) => {
       priority: row.priority ?? 0,
       enabled: row.enabled,
       source: row.source ?? ColumnMappingRuleSource.Manual,
-      customerId: row.customerId
+      customerId: row.customerId ?? undefined
     });
     if (res.code !== 0) {
       ElMessage.error(res.message || "更新失败");
