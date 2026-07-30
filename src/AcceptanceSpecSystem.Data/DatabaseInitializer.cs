@@ -30,6 +30,7 @@ public static class DatabaseInitializer
         "20260720120000_EnforceGlobalColumnMappingPatternIdentity",
         "20260720123000_HardenDocumentImportExecutions",
         "20260728090000_RestoreDocumentTemplateFingerprintUniqueIndex",
+        "20260730120000_RemoveRedundantCustomerLearnedColumnRules",
     };
     private static readonly HashSet<string> SafeMigrationIds = new(StringComparer.Ordinal)
     {

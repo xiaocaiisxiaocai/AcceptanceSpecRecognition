@@ -25,15 +25,20 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
     [Fact]
     public async Task Confirm_ShouldUpsertTemplateAndWriteCustomerLearnedRules()
     {
+        var suffix = Guid.NewGuid().ToString("N");
+        var projectHeader = $"管控项目-{suffix}";
+        var specificationHeader = $"规格要求-{suffix}";
         var customerId = await CreateCustomerAsync("确认学习-客户A");
-        var fileId = await UploadConfirmationFileAsync(["管控项目", "规格要求", "判定标准", "备注"], 21);
+        var fileId = await UploadConfirmationFileAsync(
+            [projectHeader, specificationHeader, "判定标准", "备注"],
+            21);
 
         var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
         {
             fileId,
             customerId,
             templateName = "客户A-规格模板",
-            headers = new[] { "管控项目", "规格要求", "判定标准", "备注" },
+            headers = new[] { projectHeader, specificationHeader, "判定标准", "备注" },
             projectColumnIndex = 0,
             specificationColumnIndex = 1,
             acceptanceColumnIndex = 2,
@@ -45,8 +50,8 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
             isSpecificationOnly = false,
             learnedColumns = new[]
             {
-                new { header = "管控项目", targetField = 1 },
-                new { header = "规格要求", targetField = 2 }
+                new { header = projectHeader, targetField = 1 },
+                new { header = specificationHeader, targetField = 2 }
             }
         }));
 
@@ -75,7 +80,7 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
             .OrderBy(rule => rule.TargetField)
             .ToListAsync();
 
-        learnedRules.Select(rule => rule.Pattern).Should().Equal("管控项目", "规格要求");
+        learnedRules.Select(rule => rule.Pattern).Should().Equal(projectHeader, specificationHeader);
     }
 
     [Fact]
@@ -229,6 +234,204 @@ public class SmartConfigConfirmLearningTests : IClassFixture<ApiWebApplicationFa
                 item.TargetField == ColumnMappingTargetField.Project &&
                 item.Pattern.ToLower() == "管控项目".ToLower())).Should().Be(1);
         }
+    }
+
+    [Fact]
+    public async Task Confirm_WhenEnabledGlobalRuleCoversSameTarget_ShouldNotCreateCustomerLearnedRule()
+    {
+        var header = $"全局覆盖-{Guid.NewGuid():N}";
+        var customerId = await CreateCustomerAsync("确认学习-全局覆盖客户");
+        await SeedGlobalRuleAsync(
+            header,
+            ColumnMappingTargetField.Project,
+            ColumnMappingMatchMode.Contains,
+            enabled: true);
+
+        await ConfirmHeaderAsync(customerId, header, targetField: 1);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.ColumnMappingRules.AnyAsync(rule =>
+            rule.CustomerId == customerId &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.NormalizedPattern == ColumnMappingRule.NormalizePattern(header)))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Confirm_WhenGlobalRuleDoesNotSafelyCover_ShouldKeepCustomerOverride()
+    {
+        var differentTargetHeader = $"全局不同字段-{Guid.NewGuid():N}";
+        var regexHeader = $"全局正则-{Guid.NewGuid():N}";
+        var disabledHeader = $"全局禁用-{Guid.NewGuid():N}";
+        var differentTargetCustomerId = await CreateCustomerAsync("确认学习-全局不同字段客户");
+        var regexCustomerId = await CreateCustomerAsync("确认学习-全局正则客户");
+        var disabledCustomerId = await CreateCustomerAsync("确认学习-全局禁用客户");
+        await SeedGlobalRuleAsync(
+            differentTargetHeader,
+            ColumnMappingTargetField.Remark,
+            ColumnMappingMatchMode.Equals,
+            enabled: true);
+        await SeedGlobalRuleAsync(
+            regexHeader,
+            ColumnMappingTargetField.Project,
+            ColumnMappingMatchMode.Regex,
+            enabled: true);
+        await SeedGlobalRuleAsync(
+            disabledHeader,
+            ColumnMappingTargetField.Project,
+            ColumnMappingMatchMode.Equals,
+            enabled: false);
+
+        await ConfirmHeaderAsync(differentTargetCustomerId, differentTargetHeader, targetField: 1);
+        await ConfirmHeaderAsync(regexCustomerId, regexHeader, targetField: 1);
+        await ConfirmHeaderAsync(disabledCustomerId, disabledHeader, targetField: 1);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customerRules = await db.ColumnMappingRules
+            .Where(rule =>
+                rule.CustomerId != null &&
+                (rule.CustomerId == differentTargetCustomerId ||
+                 rule.CustomerId == regexCustomerId ||
+                 rule.CustomerId == disabledCustomerId))
+            .ToListAsync();
+        customerRules.Should().Contain(rule =>
+            rule.CustomerId == differentTargetCustomerId &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Source == ColumnMappingRuleSource.Learned);
+        customerRules.Should().Contain(rule =>
+            rule.CustomerId == regexCustomerId &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Source == ColumnMappingRuleSource.Learned);
+        customerRules.Should().Contain(rule =>
+            rule.CustomerId == disabledCustomerId &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Source == ColumnMappingRuleSource.Learned);
+    }
+
+    [Fact]
+    public async Task Confirm_WhenGlobalRuleCoversSameTarget_ShouldPreserveManualAndDisabledCustomerRules()
+    {
+        var header = $"全局覆盖保护-{Guid.NewGuid():N}";
+        var manualCustomerId = await CreateCustomerAsync("确认学习-手工保护客户");
+        var disabledCustomerId = await CreateCustomerAsync("确认学习-禁用保护客户");
+        var newCustomerId = await CreateCustomerAsync("确认学习-覆盖跳过客户");
+        await SeedGlobalRuleAsync(
+            header,
+            ColumnMappingTargetField.Project,
+            ColumnMappingMatchMode.Equals,
+            enabled: true);
+
+        int manualRuleId;
+        int disabledRuleId;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var manualRule = CreateCustomerRule(
+                manualCustomerId,
+                header,
+                ColumnMappingTargetField.Project,
+                ColumnMappingRuleSource.Manual,
+                enabled: true);
+            var disabledRule = CreateCustomerRule(
+                disabledCustomerId,
+                header,
+                ColumnMappingTargetField.Project,
+                ColumnMappingRuleSource.Learned,
+                enabled: false);
+            db.ColumnMappingRules.AddRange(manualRule, disabledRule);
+            await db.SaveChangesAsync();
+            manualRuleId = manualRule.Id;
+            disabledRuleId = disabledRule.Id;
+        }
+
+        await ConfirmHeaderAsync(newCustomerId, header, targetField: 1);
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.ColumnMappingRules.AnyAsync(rule => rule.Id == manualRuleId)).Should().BeTrue();
+            (await db.ColumnMappingRules.AnyAsync(rule => rule.Id == disabledRuleId)).Should().BeTrue();
+            (await db.ColumnMappingRules.AnyAsync(rule =>
+                rule.CustomerId == newCustomerId &&
+                rule.NormalizedPattern == ColumnMappingRule.NormalizePattern(header)))
+                .Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public async Task Confirm_WhenSameHeaderIsLearnedConcurrently_ShouldPromoteAndRemoveCustomerDuplicates()
+    {
+        var header = $"并发全局提升-{Guid.NewGuid():N}";
+        var firstCustomerId = await CreateCustomerAsync("确认学习-并发提升客户A");
+        var secondCustomerId = await CreateCustomerAsync("确认学习-并发提升客户B");
+
+        await Task.WhenAll(
+            ConfirmHeaderAsync(firstCustomerId, header, targetField: 1),
+            ConfirmHeaderAsync(secondCustomerId, header, targetField: 1));
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var normalizedPattern = ColumnMappingRule.NormalizePattern(header);
+        var matchingRules = await db.ColumnMappingRules
+            .Where(rule => rule.NormalizedPattern == normalizedPattern)
+            .ToListAsync();
+        matchingRules.Should().ContainSingle(rule =>
+            rule.CustomerId == null &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Enabled);
+        matchingRules.Should().NotContain(rule =>
+            rule.CustomerId != null &&
+            rule.TargetField == ColumnMappingTargetField.Project &&
+            rule.Source == ColumnMappingRuleSource.Learned &&
+            rule.Enabled);
+    }
+
+    private async Task SeedGlobalRuleAsync(
+        string pattern,
+        ColumnMappingTargetField targetField,
+        ColumnMappingMatchMode matchMode,
+        bool enabled)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rule = new ColumnMappingRule
+        {
+            CustomerId = null,
+            TargetField = targetField,
+            MatchMode = matchMode,
+            Pattern = pattern,
+            Priority = 80,
+            Enabled = enabled,
+            Source = ColumnMappingRuleSource.Learned,
+            CreatedAt = DateTime.UtcNow
+        };
+        rule.RefreshUniqueIdentity();
+        db.ColumnMappingRules.Add(rule);
+        await db.SaveChangesAsync();
+    }
+
+    private static ColumnMappingRule CreateCustomerRule(
+        int customerId,
+        string pattern,
+        ColumnMappingTargetField targetField,
+        ColumnMappingRuleSource source,
+        bool enabled)
+    {
+        var rule = new ColumnMappingRule
+        {
+            CustomerId = customerId,
+            TargetField = targetField,
+            MatchMode = ColumnMappingMatchMode.Equals,
+            Pattern = pattern,
+            Priority = 100,
+            Enabled = enabled,
+            Source = source,
+            CreatedAt = DateTime.UtcNow
+        };
+        rule.RefreshUniqueIdentity();
+        return rule;
     }
 
     private async Task ConfirmHeaderAsync(int customerId, string header, int targetField)

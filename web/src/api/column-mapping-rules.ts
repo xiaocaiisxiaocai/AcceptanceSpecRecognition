@@ -28,7 +28,7 @@ export interface ColumnMappingRule {
   priority: number;
   enabled: boolean;
   source: ColumnMappingRuleSource;
-  customerId?: number;
+  customerId?: number | null;
   createdAt: string;
   updatedAt?: string;
 }
