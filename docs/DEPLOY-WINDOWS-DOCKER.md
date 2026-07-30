@@ -73,7 +73,7 @@ Copy-Item .env.docker.example .env.docker
 填写 `.env.docker` 中的真实配置。不得保留示例密码或占位符；不得在聊天、
 截图、日志或 Git 中公开配置值。
 
-内网 HTTP 部署至少需要：
+内网同站 HTTP 部署至少需要：
 
 ```env
 CORS_ORIGIN_0=http://实际固定内网主机名或IP
