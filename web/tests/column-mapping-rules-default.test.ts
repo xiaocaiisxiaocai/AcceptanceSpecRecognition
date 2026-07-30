@@ -114,3 +114,28 @@ test("列映射规则页应提供恢复内置默认词入口", () => {
   assert.match(source, /重启只在某字段内置词全空时兜底补齐/);
   assert.match(source, /@click="restoreDefaults"/);
 });
+
+test("列映射规则客户域应显示具体客户并通过下拉框选择", () => {
+  const source = readProjectFile(
+    "web/src/views/config/column-mapping-rules/index.vue"
+  );
+  const customerFormStart = source.indexOf('<el-form-item label="客户域">');
+  const customerFormEnd = source.indexOf("</el-form-item>", customerFormStart);
+  assert.notEqual(customerFormStart, -1, "未找到客户域表单项");
+  assert.notEqual(customerFormEnd, -1, "未找到客户域表单项结束标签");
+  const customerForm = source.slice(
+    customerFormStart,
+    customerFormEnd + "</el-form-item>".length
+  );
+
+  assert.match(source, /getCustomerList/);
+  assert.match(source, /loadAllPagedItems/);
+  assert.match(source, /formatCustomerScope\(row\.customerId\)/);
+  assert.match(source, /formatCustomerScope\(customer\.id\)/);
+  assert.match(source, /未知客户（ID: \$\{customerId\}）/);
+  assert.match(
+    customerForm,
+    /<el-select[\s\S]*?v-model="form\.customerId"[\s\S]*?filterable[\s\S]*?clearable/
+  );
+  assert.doesNotMatch(customerForm, /<el-input-number/);
+});

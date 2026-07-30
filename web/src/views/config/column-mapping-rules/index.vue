@@ -17,6 +17,7 @@ import {
   updateColumnMappingRule,
   type ColumnMappingRule
 } from "@/api/column-mapping-rules";
+import { getCustomerList, type Customer } from "@/api/customer";
 import { hasPerms } from "@/utils/auth";
 import {
   getRequestErrorMessage,
@@ -29,13 +30,16 @@ import {
   requiredTrimmedRule,
   validateForm
 } from "@/utils/form-rules";
+import { loadAllPagedItems } from "@/utils/paged-options";
 
 defineOptions({
   name: "ColumnMappingRules"
 });
 
 const loading = ref(false);
+const customerLoading = ref(false);
 const rules = ref<ColumnMappingRule[]>([]);
+const customers = ref<Customer[]>([]);
 
 const activeTarget = ref<ColumnMappingTargetField>(
   ColumnMappingTargetField.Project
@@ -94,6 +98,22 @@ const getMatchModeLabel = (matchMode: ColumnMappingMatchMode) =>
 const getSourceOption = (source?: ColumnMappingRuleSource) =>
   sourceOptions.find(option => option.value === source) ?? sourceOptions[1];
 
+const customerNameById = computed(
+  () =>
+    new Map(
+      customers.value.map(customer => [customer.id, customer.name] as const)
+    )
+);
+
+const formatCustomerScope = (customerId?: number) => {
+  if (customerId === undefined) return "全局";
+
+  const customerName = customerNameById.value.get(customerId);
+  return customerName
+    ? `${customerName}（ID: ${customerId}）`
+    : `未知客户（ID: ${customerId}）`;
+};
+
 const filteredRulesByTarget = computed(() => {
   const result = {} as Record<ColumnMappingTargetField, ColumnMappingRule[]>;
 
@@ -113,7 +133,7 @@ const filteredRulesByTarget = computed(() => {
           rule.pattern.toLowerCase().includes(keyword) ||
           matchModeLabel.includes(keyword) ||
           sourceLabel.includes(keyword) ||
-          String(rule.customerId ?? "全局").includes(keyword)
+          formatCustomerScope(rule.customerId).toLowerCase().includes(keyword)
         );
       })
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || a.id - b.id);
@@ -158,6 +178,28 @@ const load = async () => {
     ElMessage.error("加载规则失败");
   } finally {
     loading.value = false;
+  }
+};
+
+const loadCustomers = async () => {
+  customerLoading.value = true;
+  try {
+    customers.value = await loadAllPagedItems(
+      (page, pageSize, signal) =>
+        getCustomerList({ page, pageSize }, { signal }),
+      { getKey: customer => customer.id }
+    );
+  } catch (error: unknown) {
+    if (!isGloballyHandledAuthError(error)) {
+      ElMessage.error(
+        getRequestErrorMessage(
+          error,
+          "加载客户列表失败，客户域将暂时显示客户 ID"
+        )
+      );
+    }
+  } finally {
+    customerLoading.value = false;
   }
 };
 
@@ -371,7 +413,10 @@ const restoreDefaults = async () => {
   }
 };
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void loadCustomers();
+});
 </script>
 
 <template>
@@ -455,14 +500,15 @@ onMounted(load);
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="客户域" width="120">
+                <el-table-column label="客户域" min-width="180">
                   <template #default="{ row }">
                     <el-tag
                       :type="row.customerId ? 'success' : 'info'"
                       effect="plain"
                       size="small"
+                      :title="formatCustomerScope(row.customerId)"
                     >
-                      {{ row.customerId ? `客户 ${row.customerId}` : "全局" }}
+                      {{ formatCustomerScope(row.customerId) }}
                     </el-tag>
                   </template>
                 </el-table-column>
@@ -588,13 +634,27 @@ onMounted(load);
           </el-select>
         </el-form-item>
         <el-form-item label="客户域">
-          <el-input-number
+          <el-select
             v-model="form.customerId"
-            :min="1"
-            :controls="false"
-            placeholder="留空为全局规则"
+            filterable
             clearable
-          />
+            :loading="customerLoading"
+            placeholder="全局（所有客户）"
+            popper-class="config-select-popper"
+          >
+            <el-option
+              v-if="form.customerId && !customerNameById.has(form.customerId)"
+              :label="formatCustomerScope(form.customerId)"
+              :value="form.customerId"
+              disabled
+            />
+            <el-option
+              v-for="customer in customers"
+              :key="customer.id"
+              :label="formatCustomerScope(customer.id)"
+              :value="customer.id"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
