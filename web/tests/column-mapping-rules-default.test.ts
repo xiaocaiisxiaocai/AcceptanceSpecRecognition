@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { formatCustomerScope } from "../src/views/config/column-mapping-rules/customer-scope.ts";
 
 const getRepositoryRoot = () => {
   const cwd = process.cwd();
@@ -113,4 +114,46 @@ test("列映射规则页应提供恢复内置默认词入口", () => {
   assert.match(source, /恢复默认词/);
   assert.match(source, /重启只在某字段内置词全空时兜底补齐/);
   assert.match(source, /@click="restoreDefaults"/);
+});
+
+test("列映射规则客户域应显示具体客户并通过下拉框选择", () => {
+  const source = readProjectFile(
+    "web/src/views/config/column-mapping-rules/index.vue"
+  );
+  const customerScopeSource = readProjectFile(
+    "web/src/views/config/column-mapping-rules/customer-scope.ts"
+  );
+  const apiSource = readProjectFile("web/src/api/column-mapping-rules.ts");
+  const customerFormStart = source.indexOf('<el-form-item label="客户域">');
+  const customerFormEnd = source.indexOf("</el-form-item>", customerFormStart);
+  assert.notEqual(customerFormStart, -1, "未找到客户域表单项");
+  assert.notEqual(customerFormEnd, -1, "未找到客户域表单项结束标签");
+  const customerForm = source.slice(
+    customerFormStart,
+    customerFormEnd + "</el-form-item>".length
+  );
+
+  assert.match(source, /getCustomerList/);
+  assert.match(source, /loadAllPagedItems/);
+  assert.match(source, /formatCustomerScope\(row\.customerId\)/);
+  assert.match(source, /formatCustomerScope\(customer\.id\)/);
+  assert.match(customerScopeSource, /未知客户（ID: \$\{customerId\}）/);
+  assert.match(customerScopeSource, /if \(customerId == null\) return "全局"/);
+  assert.match(apiSource, /customerId\?: number \| null/);
+  assert.match(source, /form\.customerId = row\.customerId \?\? undefined/);
+  assert.match(source, /customerId: row\.customerId \?\? undefined/);
+  assert.match(
+    customerForm,
+    /<el-select[\s\S]*?v-model="form\.customerId"[\s\S]*?filterable[\s\S]*?clearable/
+  );
+  assert.doesNotMatch(customerForm, /<el-input-number/);
+});
+
+test("客户域格式化应将 null 和 undefined 都识别为全局", () => {
+  const customerNames = new Map([[34, "示例客户"]]);
+
+  assert.equal(formatCustomerScope(null, customerNames), "全局");
+  assert.equal(formatCustomerScope(undefined, customerNames), "全局");
+  assert.equal(formatCustomerScope(34, customerNames), "示例客户（ID: 34）");
+  assert.equal(formatCustomerScope(99, customerNames), "未知客户（ID: 99）");
 });
