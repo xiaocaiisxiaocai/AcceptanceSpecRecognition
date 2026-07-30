@@ -131,16 +131,20 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
                 tableIndex = 0,
                 customerId,
                 templateName = "伪造表头测试",
-                headers = new[] { "伪造项目", "伪造规格" },
+                headers = new[] { "伪造项目", "伪造规格", "伪造验收", "伪造备注" },
                 projectColumnIndex = 0,
                 specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
                 headerRowIndex = 0,
                 headerRowCount = 1,
                 dataStartRowIndex = 1,
                 learnedColumns = new[]
                 {
                     new { header = "伪造项目", targetField = 1 },
-                    new { header = "伪造规格", targetField = 2 }
+                    new { header = "伪造规格", targetField = 2 },
+                    new { header = "伪造验收", targetField = 3 },
+                    new { header = "伪造备注", targetField = 4 }
                 }
             }));
 
@@ -148,12 +152,14 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
         await using var scope = _factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var template = await db.DocumentTemplates.SingleAsync(item => item.CustomerId == customerId);
-        JsonSerializer.Deserialize<string[]>(template.HeadersJson).Should().Equal("项目", "规格");
+        JsonSerializer.Deserialize<string[]>(template.HeadersJson)
+            .Should().Equal("项目", "规格", "验收", "备注");
         var patterns = await db.ColumnMappingRules
             .Where(item => item.CustomerId == customerId)
             .Select(item => item.Pattern)
             .ToListAsync();
-        patterns.Should().Contain(["项目", "规格"]).And.NotContain(item => item.Contains("伪造"));
+        patterns.Should().Contain(["项目", "规格", "验收", "备注"])
+            .And.NotContain(item => item.Contains("伪造"));
     }
 
     [Fact]
@@ -273,8 +279,12 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
         var worksheet = workbook.AddWorksheet("验收表");
         worksheet.Cell(1, 1).Value = "项目";
         worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收";
+        worksheet.Cell(1, 4).Value = "备注";
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();

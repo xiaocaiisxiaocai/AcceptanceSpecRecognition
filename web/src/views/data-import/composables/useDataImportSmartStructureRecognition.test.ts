@@ -208,6 +208,46 @@ describe("useDataImportSmartStructureRecognition", () => {
     expect(ensurePreviewDataLoaded).toHaveBeenCalledOnce();
   });
 
+  it("确认学习后刷新导入配置时保留用户已移出的行", async () => {
+    const excludedRowIndexMap = ref<Record<number, number[]>>({});
+    const importPreviewSelectionKeys = ref<string[]>([]);
+    const ensurePreviewDataLoaded = vi.fn().mockResolvedValue(true);
+    const state = useDataImportSmartStructureRecognition({
+      uploadedFile: ref({
+        fileId: 7,
+        fileName: "test.xlsx",
+        fileType: 1,
+        fileHash: "hash",
+        isDuplicate: false,
+        tableCount: 1,
+        tableCountReady: true
+      }),
+      selectedCustomerId: ref(1),
+      isExcelFile: ref(true),
+      currentStep: ref(1),
+      tableConfigs: ref<any[]>([]),
+      selectedTableIndexes: ref<number[]>([]),
+      selectedTables: ref<any[]>([]),
+      activeTableIndex: ref<number | null>(null),
+      importPreviewSelectionKeys,
+      excludedRowIndexMap,
+      smartStageText: ref(""),
+      selectedSmartTableIndexes: ref<number[]>([0]),
+      ensurePreviewDataLoaded
+    });
+
+    await state.runSmartStructureRecognition();
+    excludedRowIndexMap.value = { 0: [2, 4, 6] };
+    importPreviewSelectionKeys.value = ["0:region-1:1"];
+
+    expect(await state.applyCurrentSmartRecognizedTables()).toBe(true);
+    expect(excludedRowIndexMap.value).toEqual({ 0: [2, 4, 6] });
+    expect(importPreviewSelectionKeys.value).toEqual([]);
+    expect(ensurePreviewDataLoaded).toHaveBeenLastCalledWith(
+      expect.objectContaining({ previewRows: 0 })
+    );
+  });
+
   it("确认成功但导入配置刷新失败时返回失败", async () => {
     const ensurePreviewDataLoaded = vi
       .fn()

@@ -570,6 +570,52 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             recognizedTable.DataStartRowIndex,
             recognizedTable,
             headerKeywordMatcher);
+        if (!HasHealthyRegionData(
+                detectionTable,
+                recognizedTable,
+                recognizedTable.DataStartRowIndex,
+                firstDataEnd,
+                headerKeywordMatcher))
+        {
+            // 区域扫描没有命中任何可信业务行时，FindRegionDataEnd 的保底值会等于
+            // dataStart，不能把原本覆盖整张工作表的闭区间静默压成 start-start。
+            // 保留工厂根据工作表元数据计算出的末行，并要求用户确认起始位置。
+            var preservedRegion = CreateRegion(
+                recognizedTable,
+                0,
+                recognizedTable.Headers,
+                recognizedTable.HeaderRowIndex,
+                recognizedTable.HeaderRowCount,
+                recognizedTable.DataStartRowIndex,
+                recognizedTable.DataEndRowIndex.Value);
+            preservedRegion = AddRegionIssue(
+                preservedRegion,
+                "InvalidDetectedDataStart",
+                "识别的数据起始行没有命中有效业务数据，已保留工作表原范围，请确认起始行");
+            var hasTemplateStructureChange = recognizedTable.Issues.Any(issue =>
+                string.Equals(issue.Code, "TemplateRegionStructureChanged", StringComparison.Ordinal));
+            if (recognizedTable.DataEndRowIndex.Value > firstDataEnd &&
+                (hasTemplateStructureChange ||
+                 Enumerable.Range(firstDataEnd + 1, recognizedTable.DataEndRowIndex.Value - firstDataEnd)
+                     .Where(rowIndex => rowIndex >= 0 && rowIndex < detectionTable.Rows.Count)
+                     .Any(rowIndex => LooksLikeRegionDataRow(
+                         detectionTable.Rows[rowIndex],
+                         recognizedTable,
+                         headerKeywordMatcher))))
+            {
+                preservedRegion = AddRegionIssue(
+                    preservedRegion,
+                    "UnassignedDataAfterGap",
+                    "空白带后仍存在疑似业务数据，已保留原范围，请确认区域边界");
+            }
+
+            return recognizedTable with
+            {
+                Decision = "NeedConfirm",
+                Regions = [preservedRegion]
+            };
+        }
+
         var firstRegion = CreateRegion(
                 recognizedTable,
                 0,
@@ -1796,6 +1842,14 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             1,
             Math.Max(1, detectionTable.Rows.Count));
         var maxHeaderRowCount = Math.Clamp(_options.MaxHeaderRowCount, 1, 20);
+        var structuralLeafHeaderRowIndex = FindStructuralHeaderToDataTransition(
+            detectionTable,
+            scanRowLimit);
+        if (structuralLeafHeaderRowIndex.HasValue)
+        {
+            return new HeaderProfile(structuralLeafHeaderRowIndex.Value, 1);
+        }
+
         var anchorRowIndex = _intelligenceService.DetectHeaderRowIndex(detectionTable, scanRowLimit);
         var repeatedLeafHeaderRowIndex = FindCompleteRepeatedLeafHeaderRow(
             detectionTable,
@@ -1810,6 +1864,277 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var headerRowIndex = ExpandHeaderStart(detectionTable, anchorRowIndex, maxHeaderRowCount, headerKeywordMatcher);
         var headerRowCount = DetectHeaderRowCount(detectionTable, headerRowIndex, maxHeaderRowCount, headerKeywordMatcher);
         return new HeaderProfile(headerRowIndex, headerRowCount);
+    }
+
+    private static int? FindStructuralHeaderToDataTransition(
+        TableData tableData,
+        int scanRowLimit)
+    {
+        if (tableData.Rows.Count < 2)
+        {
+            return null;
+        }
+
+        var columnCount = Math.Max(
+            tableData.ColumnCount,
+            tableData.Rows
+                .SelectMany(row => row.Cells)
+                .Select(cell => cell.ColumnIndex + 1)
+                .DefaultIfEmpty(0)
+                .Max());
+        var lastCandidateRowIndex = Math.Min(
+            tableData.Rows.Count - 3,
+            Math.Max(0, scanRowLimit - 1));
+
+        for (var rowIndex = 1; rowIndex <= lastCandidateRowIndex; rowIndex++)
+        {
+            var headerShape = AnalyzeStructuralRow(tableData.Rows[rowIndex], columnCount);
+            if (!LooksLikeStructuralLeafHeader(headerShape, columnCount))
+            {
+                continue;
+            }
+
+            if (!HasStructuralHeaderBoundaryEvidence(tableData, rowIndex - 1, columnCount))
+            {
+                continue;
+            }
+
+            if (!HasStrongGroupedHeaderContext(
+                    tableData.Rows[rowIndex - 1],
+                    tableData.Rows[rowIndex],
+                    headerShape))
+            {
+                continue;
+            }
+
+            var followingShapes = tableData.Rows
+                .Skip(rowIndex + 1)
+                .Take(2)
+                .Select(row => AnalyzeStructuralRow(row, columnCount))
+                .ToList();
+            if (!LooksLikeStableStructuralDataBand(headerShape, followingShapes))
+            {
+                continue;
+            }
+
+            // 结构证据足够时直接采用最早候选；不满足强结构则继续走现有
+            // 可配置字段规则和 AI 判定，避免用弱启发式猜测普通数据行。
+            return rowIndex;
+        }
+
+        return null;
+    }
+
+    private static bool HasStructuralHeaderBoundaryEvidence(
+        TableData tableData,
+        int groupedHeaderRowIndex,
+        int columnCount)
+    {
+        var hasHorizontalMerge = tableData.MergedCells.Any(merged =>
+            merged.IsHorizontalMerge &&
+            groupedHeaderRowIndex >= merged.StartRow &&
+            groupedHeaderRowIndex <= merged.EndRow);
+        if (hasHorizontalMerge)
+        {
+            return true;
+        }
+
+        if (groupedHeaderRowIndex <= 0)
+        {
+            return false;
+        }
+
+        var precedingShape = AnalyzeStructuralRow(
+            tableData.Rows[groupedHeaderRowIndex - 1],
+            columnCount);
+        return precedingShape.NonEmptyCount == 0 || precedingShape.FillRate <= 0.15;
+    }
+
+    private static bool HasStrongGroupedHeaderContext(
+        RowData parentRow,
+        RowData leafRow,
+        StructuralRowShape leafShape)
+    {
+        var parentGroups = FindAdjacentRepeatedValueRuns(parentRow);
+        if (parentGroups.Count < 2)
+        {
+            return false;
+        }
+
+        var groupedColumns = parentGroups
+            .SelectMany(group => Enumerable.Range(
+                group.StartColumnIndex,
+                group.EndColumnIndex - group.StartColumnIndex + 1))
+            .ToHashSet();
+        if (groupedColumns.Count < 4 ||
+            groupedColumns.Intersect(leafShape.PopulatedColumns).Count() /
+            (double)Math.Max(1, leafShape.NonEmptyCount) < 0.40)
+        {
+            return false;
+        }
+
+        var refinedGroupCount = parentGroups.Count(group =>
+            leafRow.Cells
+                .Where(cell =>
+                    cell.ColumnIndex >= group.StartColumnIndex &&
+                    cell.ColumnIndex <= group.EndColumnIndex)
+                .Select(cell => cell.Value?.Trim() ?? string.Empty)
+                .Where(value => value.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(2)
+                .Count() >= 2);
+        return refinedGroupCount >= 2;
+    }
+
+    private static IReadOnlyList<StructuralRepeatedValueRun> FindAdjacentRepeatedValueRuns(RowData row)
+    {
+        var orderedCells = row.Cells
+            .OrderBy(cell => cell.ColumnIndex)
+            .Select(cell => new
+            {
+                cell.ColumnIndex,
+                Value = cell.Value?.Trim() ?? string.Empty
+            })
+            .ToList();
+        var runs = new List<StructuralRepeatedValueRun>();
+        var startIndex = 0;
+        while (startIndex < orderedCells.Count)
+        {
+            var start = orderedCells[startIndex];
+            if (start.Value.Length == 0)
+            {
+                startIndex++;
+                continue;
+            }
+
+            var endIndex = startIndex;
+            while (endIndex + 1 < orderedCells.Count &&
+                   orderedCells[endIndex + 1].ColumnIndex ==
+                   orderedCells[endIndex].ColumnIndex + 1 &&
+                   string.Equals(
+                       orderedCells[endIndex + 1].Value,
+                       start.Value,
+                       StringComparison.OrdinalIgnoreCase))
+            {
+                endIndex++;
+            }
+
+            if (endIndex > startIndex)
+            {
+                runs.Add(new StructuralRepeatedValueRun(
+                    start.ColumnIndex,
+                    orderedCells[endIndex].ColumnIndex));
+            }
+
+            startIndex = endIndex + 1;
+        }
+
+        return runs;
+    }
+
+    private static StructuralRowShape AnalyzeStructuralRow(RowData row, int columnCount)
+    {
+        var populatedCells = row.Cells
+            .Select(cell => new
+            {
+                cell.ColumnIndex,
+                Value = cell.Value?.Trim() ?? string.Empty
+            })
+            .Where(cell => cell.Value.Length > 0)
+            .ToList();
+        if (populatedCells.Count == 0)
+        {
+            return StructuralRowShape.Empty;
+        }
+
+        var values = populatedCells.Select(cell => cell.Value).ToList();
+        var distinctValueCount = values
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        return new StructuralRowShape(
+            populatedCells.Count,
+            populatedCells.Select(cell => cell.ColumnIndex).ToHashSet(),
+            populatedCells.Count / (double)Math.Max(1, columnCount),
+            values.Count(value => value.Length <= 24) / (double)values.Count,
+            distinctValueCount / (double)values.Count,
+            values.Average(value => value.Length),
+            values.Max(value => value.Length),
+            values.Count(LooksLikeStructuralNumericValue));
+    }
+
+    private static bool LooksLikeStructuralLeafHeader(
+        StructuralRowShape shape,
+        int columnCount)
+    {
+        var minimumPopulatedCells = Math.Min(3, Math.Max(1, columnCount));
+        return shape.NonEmptyCount >= minimumPopulatedCells &&
+               shape.FillRate >= 0.30 &&
+               shape.ShortTextRatio >= 0.75 &&
+               shape.DistinctValueRatio >= 0.55 &&
+               shape.MaximumValueLength <= 32 &&
+               shape.NumericLikeCount <= Math.Max(1, shape.NonEmptyCount / 5);
+    }
+
+    private static bool LooksLikeStableStructuralDataBand(
+        StructuralRowShape headerShape,
+        IReadOnlyList<StructuralRowShape> followingShapes)
+    {
+        if (followingShapes.Count < 2 ||
+            followingShapes[0].NonEmptyCount < 2 ||
+            followingShapes[1].NonEmptyCount < 2)
+        {
+            return false;
+        }
+
+        var dataLikeRows = followingShapes
+            .Take(2)
+            .Where(shape =>
+                shape.NonEmptyCount >= 2 &&
+                (shape.MaximumValueLength >= Math.Max(18, headerShape.MaximumValueLength + 4) ||
+                 shape.AverageValueLength >= headerShape.AverageValueLength + 3) &&
+                (shape.MaximumValueLength >= 18 ||
+                 shape.NumericLikeCount > headerShape.NumericLikeCount))
+            .ToList();
+        if (dataLikeRows.Count != 2)
+        {
+            return false;
+        }
+
+        var first = dataLikeRows[0].PopulatedColumns;
+        var second = dataLikeRows[1].PopulatedColumns;
+        var intersection = first.Intersect(second).ToHashSet();
+        var unionCount = first.Union(second).Count();
+        if (unionCount == 0 ||
+            intersection.Count / (double)unionCount < 0.60)
+        {
+            return false;
+        }
+
+        return intersection.Count > 0 &&
+               intersection.Count(headerShape.PopulatedColumns.Contains) /
+               (double)intersection.Count >= 0.67;
+    }
+
+    private static bool LooksLikeStructuralNumericValue(string value)
+    {
+        var hasDigit = false;
+        foreach (var character in value)
+        {
+            if (char.IsDigit(character))
+            {
+                hasDigit = true;
+                continue;
+            }
+
+            if (!char.IsWhiteSpace(character) &&
+                character is not '-' and not '+' and not '.' and not ',' and
+                not '/' and not '\\' and not '%' and not '(' and not ')')
+            {
+                return false;
+            }
+        }
+
+        return hasDigit;
     }
 
     private static int? FindCompleteRepeatedLeafHeaderRow(
@@ -2161,11 +2486,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             : [ToLegacyConfirmRegion(command)];
         ValidateSubmittedRegions(submittedRegions);
         var tableContext = await GetConfirmedTableContextAsync(command, cancellationToken);
+        var isExcel = tableContext.FileType == UploadedFileType.ExcelXlsx;
         var confirmedRegions = new List<(SmartConfigurationConfirmRegion Region, IReadOnlyList<string> Headers)>();
         foreach (var region in submittedRegions)
         {
             var regionCommand = ToRegionCommand(command, region);
-            ValidateConfirmCoordinates(regionCommand);
+            ValidateConfirmCoordinates(regionCommand, enforceExcelLeafHeader: isExcel);
             ValidateDataEndRowIndex(regionCommand, tableContext.Table.RowCount);
             var regionHeaders = await ExtractConfirmedHeadersAsync(regionCommand, tableContext, cancellationToken);
             if (regionHeaders.Count > MaxConfirmedHeaderCount ||
@@ -2174,7 +2500,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 throw new ApplicationServiceException(400, "表头数量或文本长度超出安全限制");
             }
 
-            ValidateConfirmColumnIndexes(regionCommand, regionHeaders.Count);
+            ValidateConfirmColumnIndexes(
+                regionCommand,
+                regionHeaders.Count,
+                requireExcelFieldColumns: isExcel);
             confirmedRegions.Add((region, regionHeaders));
         }
 
@@ -2343,7 +2672,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             ? null
             : new SmartConfigurationLearnedColumn { Header = header, TargetField = targetField };
     }
-    private static void ValidateConfirmCoordinates(SmartConfigurationConfirmCommand command)
+    private static void ValidateConfirmCoordinates(
+        SmartConfigurationConfirmCommand command,
+        bool enforceExcelLeafHeader = false)
     {
         if (command.HeaderRowIndex < 0)
         {
@@ -2363,6 +2694,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         if (command.DataEndRowIndex.HasValue && command.DataEndRowIndex.Value < command.DataStartRowIndex)
         {
             throw new ApplicationServiceException(400, "数据结束行不能早于数据起始行");
+        }
+
+        if (enforceExcelLeafHeader && command.HeaderRowCount != 1)
+        {
+            throw new ApplicationServiceException(400, "Excel表头行数必须为1");
+        }
+
+        if (enforceExcelLeafHeader &&
+            command.HeaderRowIndex != command.DataStartRowIndex - 1)
+        {
+            throw new ApplicationServiceException(400, "Excel表头必须是数据起始行的上一行");
         }
 
     }
@@ -2432,9 +2774,26 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private static void ValidateConfirmColumnIndexes(
         SmartConfigurationConfirmCommand command,
-        int headerCount)
+        int headerCount,
+        bool requireExcelFieldColumns = false)
     {
         ValidateColumnIndex(command.SpecificationColumnIndex, headerCount, "规格列");
+        if (requireExcelFieldColumns)
+        {
+            if (command.IsSpecificationOnly)
+            {
+                ValidateOptionalColumnIndex(command.ProjectColumnIndex, headerCount, "项目列");
+            }
+            else
+            {
+                ValidateRequiredColumnIndex(command.ProjectColumnIndex, headerCount, "项目列");
+            }
+
+            ValidateRequiredColumnIndex(command.AcceptanceColumnIndex, headerCount, "验收列");
+            ValidateRequiredColumnIndex(command.RemarkColumnIndex, headerCount, "备注列");
+            return;
+        }
+
         ValidateOptionalColumnIndex(command.ProjectColumnIndex, headerCount, "项目列");
         ValidateOptionalColumnIndex(command.AcceptanceColumnIndex, headerCount, "验收列");
         ValidateOptionalColumnIndex(command.RemarkColumnIndex, headerCount, "备注列");
@@ -2512,7 +2871,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             throw new ApplicationServiceException(400, $"表格索引超出范围：{command.TableIndex}");
         }
 
-        return new ConfirmedTableContext(parser, absolutePath, table);
+        return new ConfirmedTableContext(parser, absolutePath, table, file.FileType);
     }
 
     private static void ValidateDataEndRowIndex(
@@ -2528,7 +2887,33 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private sealed record ConfirmedTableContext(
         IDocumentParser Parser,
         string AbsolutePath,
-        TableInfo Table);
+        TableInfo Table,
+        UploadedFileType FileType);
+
+    private sealed record StructuralRowShape(
+        int NonEmptyCount,
+        IReadOnlySet<int> PopulatedColumns,
+        double FillRate,
+        double ShortTextRatio,
+        double DistinctValueRatio,
+        double AverageValueLength,
+        int MaximumValueLength,
+        int NumericLikeCount)
+    {
+        public static StructuralRowShape Empty { get; } = new(
+            0,
+            new HashSet<int>(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0);
+    }
+
+    private sealed record StructuralRepeatedValueRun(
+        int StartColumnIndex,
+        int EndColumnIndex);
 
     private static IReadOnlyList<SmartConfigurationLearnedColumn> RebuildLearnedColumns(
         SmartConfigurationConfirmCommand command,
@@ -2567,6 +2952,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             ValidateColumnIndex(columnIndex.Value, headerCount, fieldName);
         }
+    }
+
+    private static void ValidateRequiredColumnIndex(int? columnIndex, int headerCount, string fieldName)
+    {
+        if (!columnIndex.HasValue)
+        {
+            throw new ApplicationServiceException(400, $"{fieldName}不能为空");
+        }
+
+        ValidateColumnIndex(columnIndex.Value, headerCount, fieldName);
     }
 
     private static void ValidateColumnIndex(int columnIndex, int headerCount, string fieldName)

@@ -18,6 +18,10 @@ import {
   syncDataImportConfigsToRecognizedTables,
   SMART_STEP_CONFIRM_PREVIEW
 } from "../dataImport.smartRecognition";
+import {
+  captureExcludedRowIdentities,
+  resolveExcludedCombinedIndexes
+} from "../dataImport.regions";
 import type { TableImportConfig } from "../dataImport.types";
 
 const SMART_CONFIRM_PREVIEW_ROWS = 50;
@@ -158,7 +162,8 @@ export function useDataImportSmartStructureRecognition({
   const applySmartRecognizedTables = async (
     tables = recognizedTables.value,
     sourceFile = uploadedFile.value,
-    flowVersion = smartFlowVersion
+    flowVersion = smartFlowVersion,
+    options: { preserveExcludedRows?: boolean } = {}
   ) => {
     if (!sourceFile) {
       ElMessage.warning("请先上传文件");
@@ -170,6 +175,25 @@ export function useDataImportSmartStructureRecognition({
     }
 
     const sourceFileId = sourceFile.fileId;
+    const preservedExcludedRows = new Map<
+      number,
+      { combinedIndexes: number[]; identities: string[] }
+    >();
+    if (options.preserveExcludedRows) {
+      for (const config of tableConfigs.value) {
+        const combinedIndexes = [
+          ...(excludedRowIndexMap.value[config.tableIndex] ?? [])
+        ];
+        if (combinedIndexes.length === 0) continue;
+        preservedExcludedRows.set(config.tableIndex, {
+          combinedIndexes,
+          identities: captureExcludedRowIdentities(
+            combinedIndexes,
+            config.excelPreviewRowLocations ?? []
+          )
+        });
+      }
+    }
 
     try {
       smartApplyError.value = "";
@@ -216,13 +240,35 @@ export function useDataImportSmartStructureRecognition({
       );
       activeTableIndex.value = configs[0]?.tableIndex ?? null;
       importPreviewSelectionKeys.value = [];
+      // 新配置尚未生成区域行坐标，不能把旧的合并数组下标带进部分预览。
+      // 否则部分预览升级为全量预览时，多区域剔除项会被错误压缩。
       excludedRowIndexMap.value = {};
       const previewLoaded = await ensurePreviewDataLoaded({
         sourceFileId,
-        previewRows: SMART_CONFIRM_PREVIEW_ROWS,
+        previewRows:
+          preservedExcludedRows.size > 0 ? 0 : SMART_CONFIRM_PREVIEW_ROWS,
         initialText: "正在生成导入预览...",
         completeText: "导入预览已生成，正在进入确认页..."
       });
+      if (options.preserveExcludedRows) {
+        excludedRowIndexMap.value = Object.fromEntries(
+          configs.flatMap(config => {
+            const preserved = preservedExcludedRows.get(config.tableIndex);
+            if (!preserved) return [];
+            const rowLocations = config.excelPreviewRowLocations ?? [];
+            const indexes =
+              preserved.identities.length > 0 && rowLocations.length > 0
+                ? resolveExcludedCombinedIndexes(
+                    preserved.identities,
+                    rowLocations
+                  )
+                : preserved.combinedIndexes;
+            return indexes.length > 0
+              ? [[config.tableIndex, indexes] as const]
+              : [];
+          })
+        );
+      }
       if (!previewLoaded && isCurrentSmartFlow(sourceFileId, flowVersion)) {
         smartApplyError.value =
           "智能结构已识别，但导入预览生成失败，可重试或使用手动处理";
@@ -349,7 +395,12 @@ export function useDataImportSmartStructureRecognition({
   };
 
   const applyCurrentSmartRecognizedTables = async () =>
-    await applySmartRecognizedTables(recognizedTables.value);
+    await applySmartRecognizedTables(
+      recognizedTables.value,
+      uploadedFile.value,
+      smartFlowVersion,
+      { preserveExcludedRows: true }
+    );
 
   const handleSmartTableImportSelectionChange = async (
     table: SmartConfigRecognizedTable,

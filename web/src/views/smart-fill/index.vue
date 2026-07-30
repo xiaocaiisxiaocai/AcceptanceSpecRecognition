@@ -1346,6 +1346,7 @@ const retryTableMetadata = () => {
           :tables="recognizedTables"
           :table-infos="allTables"
           :is-excel-file="isExcelFile"
+          :inline-excel-region-editor="isExcelFile"
           :selected-table-indexes="selectedTableIndexes"
           :selectable-table-indexes="smartFillSelectableTableIndexes"
           :selection-disabled-reasons="smartFillSelectionDisabledReasons"

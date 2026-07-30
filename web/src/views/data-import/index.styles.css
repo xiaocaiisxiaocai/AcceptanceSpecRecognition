@@ -112,9 +112,39 @@
 }
 
 .smart-confirm-step {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.smart-recognition-toolbar {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 40px;
+}
+
+.smart-recognition-toolbar.has-error {
+  position: static;
+  min-height: 0;
+}
+
+.smart-confirm-step :deep(.smart-structure-confirm-tabs .el-tabs__header) {
+  padding-right: 112px;
+}
+
+.smart-recognition-toolbar__error {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+  color: var(--app-danger);
+  overflow-wrap: anywhere;
 }
 
 .mapping-quick-actions {
@@ -264,6 +294,22 @@
     width: 100%;
     max-width: none;
     min-width: 0;
+  }
+}
+
+@media (width <= 768px) {
+  .smart-recognition-toolbar {
+    min-height: 44px;
+  }
+
+  .smart-recognition-toolbar.has-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .smart-recognition-toolbar :deep(.el-button) {
+    align-self: flex-end;
+    min-height: 44px;
   }
 }
 

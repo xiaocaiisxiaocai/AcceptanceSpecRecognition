@@ -84,7 +84,8 @@ export const getDataImportPreviewLoadState = (configs: TableImportConfig[]) => {
         return {
           loadedRows: state.loadedRows,
           totalRows: state.totalRows,
-          hasPartialPreview: true
+          hasPartialPreview: true,
+          hasPendingInitialPreview: true
         };
       }
 
@@ -95,13 +96,15 @@ export const getDataImportPreviewLoadState = (configs: TableImportConfig[]) => {
         totalRows,
         hasPartialPreview:
           state.hasPartialPreview ||
-          previewData.rows.length < previewData.totalRows
+          previewData.rows.length < previewData.totalRows,
+        hasPendingInitialPreview: state.hasPendingInitialPreview
       };
     },
     {
       loadedRows: 0,
       totalRows: 0,
-      hasPartialPreview: false
+      hasPartialPreview: false,
+      hasPendingInitialPreview: false
     }
   );
 };

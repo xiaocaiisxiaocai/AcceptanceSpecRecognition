@@ -439,6 +439,14 @@ describe("dataImport.smartRecognition", () => {
       tables: [recognizedTable({})],
       tableInfos: [tableInfo(0)]
     });
+
+    expect(getDataImportPreviewLoadState(configs)).toEqual({
+      loadedRows: 0,
+      totalRows: 0,
+      hasPartialPreview: true,
+      hasPendingInitialPreview: true
+    });
+
     configs[0].previewData = {
       tableIndex: 0,
       headers: ["项目", "规格"],
@@ -450,7 +458,8 @@ describe("dataImport.smartRecognition", () => {
     expect(getDataImportPreviewLoadState(configs)).toEqual({
       loadedRows: 1,
       totalRows: 8,
-      hasPartialPreview: true
+      hasPartialPreview: true,
+      hasPendingInitialPreview: false
     });
   });
   it("Excel 多区域识别结果保留每段绝对行列范围", () => {

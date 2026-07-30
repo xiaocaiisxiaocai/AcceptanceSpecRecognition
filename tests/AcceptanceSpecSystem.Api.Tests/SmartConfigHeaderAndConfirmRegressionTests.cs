@@ -15,10 +15,12 @@ namespace AcceptanceSpecSystem.Api.Tests;
 
 public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApplicationFactory>
 {
+    private readonly ApiWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
     public SmartConfigHeaderCandidateRegressionTests(ApiWebApplicationFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -308,46 +310,48 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
             _client,
             CreateVerticallyMergedLearnedRemarkCandidateExcelBytes(),
             "smart-recognize-learned-writable-remark.xlsx");
-        var confirmResponse = await _client.PostAsync(
-            "/api/smart-config/confirm",
-            ApiClientJson.ToJsonContent(new
+        var headers = new[] { "项目", "规格", "OK/NG", "Remark", "归档甲" };
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var now = DateTime.UtcNow;
+            db.DocumentTemplates.Add(new DocumentTemplate
             {
-                customerId,
-                fileId,
-                tableIndex = 0,
-                templateName = "已确认纵向合并备注模板",
-                headers = new[] { "项目", "规格", "OK/NG", "Remark", "归档甲" },
-                projectColumnIndex = 0,
-                specificationColumnIndex = 1,
-                acceptanceColumnIndex = 2,
-                remarkColumnIndex = (int?)null,
-                headerRowIndex = 0,
-                headerRowCount = 1,
-                dataStartRowIndex = 1,
-                dataEndRowIndex = 3,
-                isSpecificationOnly = false,
-                learnedColumns = Array.Empty<object>(),
-                regions = new[]
+                CustomerId = customerId,
+                TemplateName = "历史纵向合并备注模板",
+                HeadersFingerprint = Guid.NewGuid().ToString("N"),
+                HeadersJson = JsonSerializer.Serialize(headers),
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = 2,
+                RemarkColumnIndex = null,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1,
+                DataEndRowIndex = 3,
+                TableKind = "Acceptance",
+                Recommendation = "NeedConfirm",
+                CreatedAt = now,
+                UpdatedAt = now,
+                Regions =
                 {
-                    new
+                    new DocumentTemplateRegion
                     {
-                        regionId = "table-0-region-0",
-                        regionIndex = 0,
-                        headers = new[] { "项目", "规格", "OK/NG", "Remark", "归档甲" },
-                        projectColumnIndex = 0,
-                        specificationColumnIndex = 1,
-                        acceptanceColumnIndex = 2,
-                        remarkColumnIndex = (int?)null,
-                        headerRowIndex = 0,
-                        headerRowCount = 1,
-                        dataStartRowIndex = 1,
-                        dataEndRowIndex = 3,
-                        isSpecificationOnly = false
+                        RegionIndex = 0,
+                        HeadersJson = JsonSerializer.Serialize(headers),
+                        ProjectColumnIndex = 0,
+                        SpecificationColumnIndex = 1,
+                        AcceptanceColumnIndex = 2,
+                        RemarkColumnIndex = null,
+                        HeaderRowIndex = 0,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = 1,
+                        DataEndRowIndex = 3
                     }
                 }
-            }));
-        var confirmText = await confirmResponse.Content.ReadAsStringAsync();
-        confirmResponse.StatusCode.Should().Be(HttpStatusCode.OK, confirmText);
+            });
+            await db.SaveChangesAsync();
+        }
 
         var table = await RecognizeSingleTableAsync(fileId, customerId);
         var region = table.GetProperty("regions").EnumerateArray().Single();
@@ -410,6 +414,98 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         table.GetProperty("headerRowIndex").GetInt32().Should().Be(2);
         table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
         table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Recognize_WhenMetadataPrecedesTwoLevelHeader_ShouldUseLeafHeaderAndFullDataRange()
+    {
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            CreateMetadataAndTwoLevelHeaderExcelBytes(),
+            "smart-recognize-metadata-two-level-header.xlsx");
+
+        var table = await RecognizeSingleTableAsync(fileId);
+        var region = table.GetProperty("regions").EnumerateArray().Single();
+
+        table.GetProperty("headerRowIndex").GetInt32().Should().Be(4);
+        table.GetProperty("headerRowCount").GetInt32().Should().Be(1);
+        table.GetProperty("dataStartRowIndex").GetInt32().Should().Be(5);
+        table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(8);
+        region.GetProperty("headerRowIndex").GetInt32().Should().Be(4);
+        region.GetProperty("dataStartRowIndex").GetInt32().Should().Be(5);
+        region.GetProperty("dataEndRowIndex").GetInt32().Should().Be(8);
+    }
+
+    [Fact]
+    public void StructuralHeaderDetection_WhenLabelsAreUnknown_ShouldUseRowShapeOnly()
+    {
+        var tableData = new TableData
+        {
+            Rows =
+            [
+                CreateStructuralRow(0, "zenith", "zenith", "zenith", "zenith", "zenith", "zenith", "zenith", "zenith"),
+                CreateStructuralRow(1, "meta-x", "", "", "meta-y", "", "", "", "v-7"),
+                CreateStructuralRow(2, "", "", "", "", "", "", "", ""),
+                CreateStructuralRow(3, "amber", "amber", "birch", "birch", "coral", "coral", "dune", "dune"),
+                CreateStructuralRow(4, "atlas", "boreal", "cinder", "delta", "ember", "fjord", "glyph", "harbor"),
+                CreateStructuralRow(5, "A-01", "north", "1", "a deliberately long payload that represents row content", "x", "", "", ""),
+                CreateStructuralRow(6, "A-02", "south", "2", "another deliberately long payload representing row content", "y", "", "", ""),
+                CreateStructuralRow(7, "A-03", "west", "3", "a third deliberately long payload representing row content", "z", "", "", "")
+            ]
+        };
+
+        var detectedRowIndex = DetectStructuralHeaderRow(tableData);
+
+        detectedRowIndex.Should().Be(4);
+    }
+
+    [Fact]
+    public void StructuralHeaderDetection_WhenShortFirstDataRowPrecedesNumericRows_ShouldAbstain()
+    {
+        var tableData = new TableData
+        {
+            Rows =
+            [
+                CreateStructuralRow(0, "", "", ""),
+                CreateStructuralRow(1, "A", "B", "C"),
+                CreateStructuralRow(2, "10000", "20000", "30000"),
+                CreateStructuralRow(3, "10001", "20001", "30001")
+            ]
+        };
+
+        DetectStructuralHeaderRow(tableData).Should().BeNull();
+    }
+
+    [Fact]
+    public void StructuralHeaderDetection_WhenOnlyOneDataRowFollows_ShouldAbstain()
+    {
+        var tableData = new TableData
+        {
+            Rows =
+            [
+                CreateStructuralRow(0, "atlas", "boreal", "cinder", "delta"),
+                CreateStructuralRow(1, "A-01", "1", "a deliberately long payload representing row content", "x")
+            ]
+        };
+
+        DetectStructuralHeaderRow(tableData).Should().BeNull();
+    }
+
+    [Fact]
+    public void StructuralHeaderDetection_WhenOrdinaryRowsContainAdjacentRepeatedValues_ShouldAbstain()
+    {
+        var tableData = new TableData
+        {
+            Rows =
+            [
+                CreateStructuralRow(0, "批次甲", "批次甲", "工位一", "工位一", "白班", "白班", "线体A", "线体A"),
+                CreateStructuralRow(1, "A-01", "north", "1", "短说明", "x", "已确认", "张三", "一号"),
+                CreateStructuralRow(2, "A-02", "south", "2", "第二条非常详细且长度足够的普通业务说明内容用于记录现场情况", "y", "已确认", "李四", "2026-07-02"),
+                CreateStructuralRow(3, "A-03", "west", "3", "第三条非常详细且长度足够的普通业务说明内容用于记录现场情况", "z", "已确认", "王五", "2026-07-03")
+            ]
+        };
+
+        DetectStructuralHeaderRow(tableData).Should().BeNull();
     }
 
     [Fact]
@@ -760,6 +856,69 @@ public class SmartConfigHeaderCandidateRegressionTests : IClassFixture<ApiWebApp
         workbook.SaveAs(stream);
         return stream.ToArray();
     }
+
+    private static byte[] CreateMetadataAndTwoLevelHeaderExcelBytes()
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("設備需求表(自動化)");
+        worksheet.Range("B2:K2").Merge().Value = "設備需求表（自動化設備）";
+        worksheet.Cell("B3").Value = "设备名称：鐳射鑽孔下料機/SAA";
+        worksheet.Cell("F3").Value = "产品流向：进出口方案：";
+        worksheet.Cell("K3").Value = "版次:2510";
+
+        var groupedHeaders = new[]
+        {
+            "項次", "設備評估專案", "分類", "評估說明", "評估說明", "驗收方式",
+            "廠商確認", "廠商確認", "廠商確認", "AaltoSemi確認", "設備驗收", "設備驗收", "验收前佐助资料"
+        };
+        var leafHeaders = new[]
+        {
+            "項次", "設備評估專案", "分類", "評估說明", "評估說明", "驗收方式",
+            "可满足", "不涉及", "說明", "AaltoSemi確認", "點檢人", "佐證資料", "（張貼照片或文件）"
+        };
+        for (var index = 0; index < groupedHeaders.Length; index++)
+        {
+            worksheet.Cell(5, index + 2).Value = groupedHeaders[index];
+            worksheet.Cell(6, index + 2).Value = leafHeaders[index];
+        }
+
+        for (var row = 7; row <= 10; row++)
+        {
+            worksheet.Cell(row, 2).Value = "1-1";
+            worksheet.Cell(row, 3).Value = "符合规定";
+            worksheet.Cell(row, 4).Value = row == 10 ? "串线时序" : "产品质保";
+            worksheet.Cell(row, 5).Value = row - 6;
+            worksheet.Cell(row, 6).Value = $"设备规格说明 {row}，必须满足验收要求。";
+            worksheet.Cell(row, 7).Value = row % 2 == 0 ? "实际确认" : "保证函";
+            worksheet.Cell(row, 8).Value = "OK";
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static int? DetectStructuralHeaderRow(TableData tableData)
+    {
+        var detector = typeof(SmartConfigurationAppService).GetMethod(
+            "FindStructuralHeaderToDataTransition",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        detector.Should().NotBeNull();
+        return (int?)detector!.Invoke(null, [tableData, 20]);
+    }
+
+    private static RowData CreateStructuralRow(int rowIndex, params string[] values) => new()
+    {
+        Index = rowIndex,
+        Cells = values
+            .Select((value, columnIndex) => new CellData
+            {
+                RowIndex = rowIndex,
+                ColumnIndex = columnIndex,
+                Value = value
+            })
+            .ToList()
+    };
 }
 
 public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebApplicationFactory>
@@ -885,8 +1044,12 @@ public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebA
         var worksheet = workbook.AddWorksheet("验收表");
         worksheet.Cell(1, 1).Value = "项目";
         worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收";
+        worksheet.Cell(1, 4).Value = "备注";
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
@@ -910,6 +1073,8 @@ public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebA
                     headers = Array.Empty<string>(),
                     projectColumnIndex = 0,
                     specificationColumnIndex = 1,
+                    acceptanceColumnIndex = 2,
+                    remarkColumnIndex = 3,
                     headerRowIndex = 0,
                     headerRowCount = 1,
                     dataStartRowIndex = 1,
@@ -921,6 +1086,112 @@ public class SmartConfigConfirmValidationRegressionTests : IClassFixture<ApiWebA
 
         var responseText = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
+    }
+
+    [Theory]
+    [InlineData("project", "项目列不能为空")]
+    [InlineData("acceptance", "验收列不能为空")]
+    [InlineData("remark", "备注列不能为空")]
+    public async Task Confirm_WhenExcelRequiredFieldColumnIsMissing_ShouldReject(
+        string missingField,
+        string expectedMessage)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        worksheet.Cell(1, 1).Value = "项目";
+        worksheet.Cell(1, 2).Value = "规格";
+        worksheet.Cell(1, 3).Value = "验收";
+        worksheet.Cell(1, 4).Value = "备注";
+        worksheet.Cell(2, 1).Value = "外观";
+        worksheet.Cell(2, 2).Value = "无划伤";
+        worksheet.Cell(2, 3).Value = "OK";
+        worksheet.Cell(2, 4).Value = "抽检";
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            stream.ToArray(),
+            $"smart-confirm-missing-{missingField}-{Guid.NewGuid():N}.xlsx");
+        var customerId = await CreateCustomerAsync($"确认必选列-{missingField}-{Guid.NewGuid():N}");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId,
+            templateName = "必选列校验模板",
+            regions = new[]
+            {
+                new
+                {
+                    regionId = "region-0",
+                    regionIndex = 0,
+                    headers = Array.Empty<string>(),
+                    projectColumnIndex = missingField == "project" ? (int?)null : 0,
+                    specificationColumnIndex = (int?)1,
+                    acceptanceColumnIndex = missingField == "acceptance" ? (int?)null : 2,
+                    remarkColumnIndex = missingField == "remark" ? (int?)null : 3,
+                    headerRowIndex = 0,
+                    headerRowCount = 1,
+                    dataStartRowIndex = 1,
+                    dataEndRowIndex = (int?)1,
+                    isSpecificationOnly = false
+                }
+            }
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain(expectedMessage);
+    }
+
+    [Theory]
+    [InlineData(0, 2, 2, "Excel表头行数必须为1")]
+    [InlineData(0, 1, 2, "Excel表头必须是数据起始行的上一行")]
+    public async Task Confirm_WhenExcelHeaderIsNotLeafRowImmediatelyBeforeData_ShouldReject(
+        int headerRowIndex,
+        int headerRowCount,
+        int dataStartRowIndex,
+        string expectedMessage)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("验收表");
+        for (var row = 1; row <= 3; row++)
+        {
+            worksheet.Cell(row, 1).Value = row < 3 ? "项目" : "外观";
+            worksheet.Cell(row, 2).Value = row < 3 ? "规格" : "无划伤";
+            worksheet.Cell(row, 3).Value = row < 3 ? "验收" : "OK";
+            worksheet.Cell(row, 4).Value = row < 3 ? "备注" : "抽检";
+        }
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
+            _client,
+            stream.ToArray(),
+            $"smart-confirm-invalid-leaf-header-{Guid.NewGuid():N}.xlsx");
+        var customerId = await CreateCustomerAsync($"确认末级表头-{Guid.NewGuid():N}");
+
+        var response = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            tableIndex = 0,
+            customerId,
+            templateName = "末级表头校验模板",
+            headers = new[] { "项目", "规格", "验收", "备注" },
+            projectColumnIndex = 0,
+            specificationColumnIndex = 1,
+            acceptanceColumnIndex = 2,
+            remarkColumnIndex = 3,
+            headerRowIndex,
+            headerRowCount,
+            dataStartRowIndex,
+            dataEndRowIndex = 2,
+            isSpecificationOnly = false
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain(expectedMessage);
     }
 
     [Theory]

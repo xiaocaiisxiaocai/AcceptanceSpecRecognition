@@ -552,6 +552,42 @@ export const resolveSmartStructureRegionEndRowIndex = (
     ? Math.max(region.dataStartRowIndex, tableInfo.rowCount - 1)
     : region.dataStartRowIndex);
 
+export const normalizeSmartStructureRegionRows = <
+  T extends Pick<
+    SmartConfigRecognizedRegion,
+    | "headerRowIndex"
+    | "headerRowCount"
+    | "dataStartRowIndex"
+    | "dataEndRowIndex"
+  >
+>(
+  region: T
+): T => {
+  const minimumDataStartRowIndex =
+    region.headerRowIndex + Math.max(1, region.headerRowCount);
+  const dataStartRowIndex = Math.max(
+    region.dataStartRowIndex,
+    minimumDataStartRowIndex
+  );
+  const dataEndRowIndex =
+    region.dataEndRowIndex == null
+      ? region.dataEndRowIndex
+      : Math.max(region.dataEndRowIndex, dataStartRowIndex);
+
+  if (
+    dataStartRowIndex === region.dataStartRowIndex &&
+    dataEndRowIndex === region.dataEndRowIndex
+  ) {
+    return region;
+  }
+
+  return {
+    ...region,
+    dataStartRowIndex,
+    dataEndRowIndex
+  };
+};
+
 export const countSmartStructureRegionRows = (
   regions: Pick<
     SmartConfigRecognizedRegion,
@@ -858,23 +894,23 @@ export const buildSmartConfigConfirmRequest = (
     throw new Error("验收列不能为空");
   }
 
-  const regions = sourceRegions.map(region => ({
-    regionId: region.regionId,
-    regionIndex: region.regionIndex,
-    headers: region.headers,
-    projectColumnIndex: region.projectColumnIndex ?? undefined,
-    specificationColumnIndex: region.specificationColumnIndex!,
-    acceptanceColumnIndex: region.acceptanceColumnIndex ?? undefined,
-    remarkColumnIndex: region.remarkColumnIndex ?? undefined,
-    headerRowIndex: region.headerRowIndex,
-    headerRowCount: region.headerRowCount,
-    dataStartRowIndex: Math.max(
-      region.dataStartRowIndex,
-      region.headerRowIndex + Math.max(region.headerRowCount, 1)
-    ),
-    dataEndRowIndex: region.dataEndRowIndex ?? undefined,
-    isSpecificationOnly: region.isSpecificationOnly
-  }));
+  const regions = sourceRegions.map(sourceRegion => {
+    const region = normalizeSmartStructureRegionRows(sourceRegion);
+    return {
+      regionId: region.regionId,
+      regionIndex: region.regionIndex,
+      headers: region.headers,
+      projectColumnIndex: region.projectColumnIndex ?? undefined,
+      specificationColumnIndex: region.specificationColumnIndex!,
+      acceptanceColumnIndex: region.acceptanceColumnIndex ?? undefined,
+      remarkColumnIndex: region.remarkColumnIndex ?? undefined,
+      headerRowIndex: region.headerRowIndex,
+      headerRowCount: region.headerRowCount,
+      dataStartRowIndex: region.dataStartRowIndex,
+      dataEndRowIndex: region.dataEndRowIndex ?? undefined,
+      isSpecificationOnly: region.isSpecificationOnly
+    };
+  });
   const primary = regions[0];
   const learnedFields = sourceRegions.flatMap(region => region.fields ?? []);
 

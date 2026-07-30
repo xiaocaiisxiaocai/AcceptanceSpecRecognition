@@ -26,6 +26,7 @@ import {
   mergeSkippedPreviewCellValues,
   shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
+import { isAcceptanceAndRemarkBlank } from "../composables/useDataImportPreviewSelection";
 
 const props = withDefaults(
   defineProps<{
@@ -57,11 +58,15 @@ const props = withDefaults(
     llmSelection: AiServiceSelection;
     removedPreviewRowCount: number;
     selectedImportPreviewRowsCount: number;
+    irrelevantPreviewRowCount: number;
+    allIrrelevantPreviewRowsSelected: boolean;
+    someIrrelevantPreviewRowsSelected: boolean;
     importPreviewGroups: ImportPreviewGroup[];
     previewLoadState: {
       loadedRows: number;
       totalRows: number;
       hasPartialPreview: boolean;
+      hasPendingInitialPreview: boolean;
     };
     importing: boolean;
     importProgressText: string;
@@ -82,6 +87,7 @@ const emit = defineEmits<{
   openDifferenceConfirmDialog: [];
   removeSelectedPreviewRows: [];
   restoreRemovedPreviewRows: [];
+  selectIrrelevantRowsChange: [selected: boolean];
   importPreviewSelectionChange: [tableIndex: number, rows: ImportPreviewRow[]];
   removeSinglePreviewRow: [row: ImportPreviewRow];
   loadFullPreview: [];
@@ -93,6 +99,17 @@ const emit = defineEmits<{
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
 const showDuplicateAdvanced = ref(false);
+type PreviewSelectionTable = {
+  toggleRowSelection: (row: ImportPreviewRow, selected?: boolean) => void;
+};
+const importPreviewTableRefs = new Map<number, PreviewSelectionTable>();
+const setImportPreviewTableRef = (tableIndex: number, instance: unknown) => {
+  if (!instance) {
+    importPreviewTableRefs.delete(tableIndex);
+    return;
+  }
+  importPreviewTableRefs.set(tableIndex, instance as PreviewSelectionTable);
+};
 type SkippedSheetRow = SkippedRowsGroup["rows"][number] & {
   projectValue: string;
   specificationValue: string;
@@ -242,10 +259,40 @@ const handleCollapseChange = (
   const names = Array.isArray(activeNames) ? activeNames : [activeNames];
   if (
     names.includes("preview-list") &&
-    props.previewLoadState.hasPartialPreview
+    props.previewLoadState.hasPartialPreview &&
+    !props.previewLoadState.hasPendingInitialPreview
   ) {
     emit("loadFullPreview");
   }
+};
+
+watch(
+  () =>
+    [
+      props.previewLoadState.hasPartialPreview,
+      props.previewLoadState.hasPendingInitialPreview
+    ] as const,
+  ([hasPartialPreview, hasPendingInitialPreview]) => {
+    if (
+      hasPartialPreview &&
+      !hasPendingInitialPreview &&
+      activeCollapseNames.value.includes("preview-list")
+    ) {
+      emit("loadFullPreview");
+    }
+  }
+);
+
+const handleSelectIrrelevantRowsChange = (value: boolean | string | number) => {
+  const selected = value === true;
+  emit("selectIrrelevantRowsChange", selected);
+  props.importPreviewGroups.forEach(group => {
+    const table = importPreviewTableRefs.get(group.tableIndex);
+    if (!table) return;
+    group.rows
+      .filter(isAcceptanceAndRemarkBlank)
+      .forEach(row => table.toggleRowSelection(row, selected));
+  });
 };
 const hasSpecificationOnlyBackfillTables = computed(() =>
   props.tableConfigs.some(shouldBackfillProjectFromSpecification)
@@ -854,11 +901,29 @@ const importResultPresentation = computed(() => {
               </div>
             </div>
             <div class="import-preview-actions">
+              <el-tooltip content="验收列和备注列同时为空" placement="top">
+                <el-checkbox
+                  :model-value="allIrrelevantPreviewRowsSelected"
+                  :indeterminate="someIrrelevantPreviewRowsSelected"
+                  :disabled="
+                    previewLoadState.hasPartialPreview ||
+                    hasPendingDifferenceConfirmation ||
+                    irrelevantPreviewRowCount === 0
+                  "
+                  @change="handleSelectIrrelevantRowsChange"
+                >
+                  选中无关项
+                  <span v-if="irrelevantPreviewRowCount > 0">
+                    （{{ irrelevantPreviewRowCount }}）
+                  </span>
+                </el-checkbox>
+              </el-tooltip>
               <el-button
                 size="small"
                 type="danger"
                 plain
                 :disabled="
+                  previewLoadState.hasPartialPreview ||
                   hasPendingDifferenceConfirmation ||
                   selectedImportPreviewRowsCount === 0
                 "
@@ -902,6 +967,10 @@ const importResultPresentation = computed(() => {
                 <span class="group-count">保留 {{ group.rows.length }} 条</span>
               </div>
               <el-table
+                :ref="
+                  instance =>
+                    setImportPreviewTableRef(group.tableIndex, instance)
+                "
                 :data="group.rows"
                 border
                 size="small"
@@ -963,7 +1032,10 @@ const importResultPresentation = computed(() => {
                     <el-button
                       type="danger"
                       link
-                      :disabled="hasPendingDifferenceConfirmation"
+                      :disabled="
+                        previewLoadState.hasPartialPreview ||
+                        hasPendingDifferenceConfirmation
+                      "
                       @click="emit('removeSinglePreviewRow', row)"
                     >
                       移出
@@ -1786,6 +1858,10 @@ const importResultPresentation = computed(() => {
 
 .import-preview-actions {
   gap: 8px;
+}
+
+.import-preview-actions :deep(.el-checkbox) {
+  margin-right: 8px;
 }
 
 .import-preview-note {

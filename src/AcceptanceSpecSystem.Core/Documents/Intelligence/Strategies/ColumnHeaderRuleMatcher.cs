@@ -39,10 +39,12 @@ public static class ColumnHeaderRuleMatcher
             return ColumnHeaderRuleMatch.NoMatch;
         }
 
-        var text = normalizedHeader;
+        var text = rule.MatchMode == ColumnHeaderMatchMode.Regex
+            ? normalizedHeader
+            : ColumnHeaderTextCanonicalizer.Canonicalize(normalizedHeader);
         var pattern = rule.MatchMode == ColumnHeaderMatchMode.Regex
             ? rawPattern.Trim()
-            : NormalizeWhitespaceCore(rawPattern);
+            : ColumnHeaderTextCanonicalizer.Canonicalize(rawPattern);
         if (text.Length == 0 || pattern.Length == 0)
         {
             return ColumnHeaderRuleMatch.NoMatch;

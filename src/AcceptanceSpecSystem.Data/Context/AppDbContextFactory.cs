@@ -37,8 +37,15 @@ public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
                 "环境变量 ConnectionStrings__DefaultConnection 显式为空，设计时禁止错误回退到 appsettings.json。");
         }
 
-        var apiProjectDirectory = FindApiProjectDirectory();
-        var environmentName = ResolveEnvironmentName();
+        return ResolveConnectionStringFromDirectory(
+            FindApiProjectDirectory(),
+            ResolveEnvironmentName());
+    }
+
+    private static string ResolveConnectionStringFromDirectory(
+        string apiProjectDirectory,
+        string? environmentName)
+    {
         var baseConnectionString = TryReadConnectionString(Path.Combine(apiProjectDirectory, "appsettings.json"));
 
         if (!string.IsNullOrWhiteSpace(environmentName))

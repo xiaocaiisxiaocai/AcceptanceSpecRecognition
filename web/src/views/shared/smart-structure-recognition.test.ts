@@ -431,10 +431,16 @@ describe("smart-structure-recognition", () => {
   it("确认请求保证数据起始行位于全部表头之后", () => {
     const request = buildSmartConfigConfirmRequest(
       12,
-      table({ headerRowIndex: 7, headerRowCount: 2, dataStartRowIndex: 8 })
+      table({
+        headerRowIndex: 7,
+        headerRowCount: 2,
+        dataStartRowIndex: 8,
+        dataEndRowIndex: 8
+      })
     );
 
     expect(request.dataStartRowIndex).toBe(9);
+    expect(request.dataEndRowIndex).toBe(9);
   });
 
   it("缺少规格列时拒绝构建确认请求", () => {

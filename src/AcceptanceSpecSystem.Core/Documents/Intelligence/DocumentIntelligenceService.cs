@@ -209,7 +209,11 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             }
 
             var adjustedScore = rowScore.Score;
-            if (i > 0 && LooksLikeSpecificationDataRow(row))
+            var looksLikeSpecificationDataRow = LooksLikeSpecificationDataRow(
+                tableData,
+                row,
+                i);
+            if (i > 0 && looksLikeSpecificationDataRow)
             {
                 adjustedScore *= 0.65;
                 reasons.Add("疑似数据行降权");
@@ -222,7 +226,7 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
             }
 
             scores.Add((i, rowScore.Score, adjustedScore, rowScore.KeywordCount, string.Join(", ", reasons)));
-            hasSeenSpecificationDataRow |= LooksLikeSpecificationDataRow(row);
+            hasSeenSpecificationDataRow |= looksLikeSpecificationDataRow;
 
             _logger.LogDebug(
                 "行 {RowIndex} 表头分数: {Score:F2} ({Reasons})",
@@ -257,13 +261,30 @@ public sealed class DocumentIntelligenceService : IDocumentIntelligenceService
         return best.rowIndex;
     }
 
-    private static bool LooksLikeSpecificationDataRow(RowData row)
+    private static bool LooksLikeSpecificationDataRow(
+        TableData tableData,
+        RowData row,
+        int rowIndex)
     {
         var values = row.Cells
             .Select(cell => cell.Value?.Trim() ?? string.Empty)
             .Where(value => value.Length > 0)
             .ToList();
         if (values.Count == 0)
+        {
+            return false;
+        }
+
+        // 只有工作表结构明确记录了横向合并时，同值展开才可视为标题展示。
+        // 稀疏或全行同值本身仍可能是合法业务数据，不能仅凭内容形态排除。
+        var isExpandedHorizontalMerge = tableData.MergedCells.Any(merged =>
+            merged.IsHorizontalMerge &&
+            rowIndex >= merged.StartRow &&
+            rowIndex <= merged.EndRow);
+        if (isExpandedHorizontalMerge &&
+            ((values.Count == 1 && row.Cells.Count > 1) ||
+             (values.Count > 1 &&
+              values.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1)))
         {
             return false;
         }

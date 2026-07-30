@@ -17,7 +17,6 @@ import {
   type SmartStructureBatchConfirmProgress
 } from "./dataImport.confirmImport";
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
-import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
 import SmartStructureFieldConflictDialog from "@/views/shared/SmartStructureFieldConflictDialog.vue";
 import type {
@@ -32,6 +31,7 @@ import {
   type SmartStructureFieldConflictSelection
 } from "@/views/shared/smart-structure-field-conflicts";
 import {
+  applySmartConfigConfirmRequestToTable,
   canSelectSmartStructureTable,
   getSmartStructureImportReadinessReason,
   getSmartStructureImportSelectionDisabledReason,
@@ -141,7 +141,11 @@ const {
   importPreviewGroups,
   removedPreviewRowCount,
   selectedImportPreviewRowsCount,
+  irrelevantPreviewRowCount,
+  allIrrelevantPreviewRowsSelected,
+  someIrrelevantPreviewRowsSelected,
   handleImportPreviewSelectionChange,
+  handleSelectIrrelevantRowsChange,
   handleRemoveSinglePreviewRow,
   handleRemoveSelectedPreviewRows,
   handleRestoreRemovedPreviewRows,
@@ -261,10 +265,16 @@ const smartStructureSelectionDisabledReasons = computed(() =>
 );
 const smartStructureSelectionPendingReasons = computed(() =>
   Object.fromEntries(
-    recognizedTables.value.map(table => [
-      table.tableIndex,
-      getSmartStructureImportReadinessReason(table)
-    ])
+    recognizedTables.value.map(table => {
+      const draft = smartConfirmDrafts.value[table.tableIndex];
+      const effectiveTable = draft
+        ? applySmartConfigConfirmRequestToTable(table, draft)
+        : table;
+      return [
+        table.tableIndex,
+        getSmartStructureImportReadinessReason(effectiveTable)
+      ];
+    })
   )
 );
 const pendingSelectedSmartTableCount = computed(
@@ -530,29 +540,20 @@ const activeSmartStructureTableSelected = computed(
 );
 const activeSmartStructureReadinessReason = computed(() => {
   const table = activeSmartStructureTable.value;
-  return table ? getSmartStructureImportReadinessReason(table) : "";
-});
-const activeSmartStructureScopeTitle = computed(() =>
-  activeSmartStructureTableSelected.value &&
-  activeSmartStructureReadinessReason.value
-    ? "当前表已勾选，仍需配置"
-    : "当前表未参与本次导入"
-);
-const activeSmartStructureScopeDescription = computed(() => {
-  const table = activeSmartStructureTable.value;
   if (!table) return "";
 
-  if (
-    activeSmartStructureTableSelected.value &&
-    activeSmartStructureReadinessReason.value
-  ) {
-    return `${activeSmartStructureReadinessReason.value}。补齐并确认前不计入下方导入汇总，也不能开始导入。`;
-  }
-
-  const reason = getSmartStructureImportSelectionDisabledReason(table);
-  const reasonText = reason ? `${reason}。` : "";
-  return `${reasonText}下方“已配置 Sheet 合计”只统计其他已勾选且完成配置的 Sheet，不包含当前表。`;
+  const draft = smartConfirmDrafts.value[table.tableIndex];
+  const effectiveTable = draft
+    ? applySmartConfigConfirmRequestToTable(table, draft)
+    : table;
+  return getSmartStructureImportReadinessReason(effectiveTable);
 });
+const activeSmartStructureReadinessDescription = computed(() =>
+  activeSmartStructureTableSelected.value &&
+  activeSmartStructureReadinessReason.value
+    ? `${activeSmartStructureReadinessReason.value}。补齐并确认前不计入下方导入汇总，也不能开始导入。`
+    : ""
+);
 </script>
 
 <template>
@@ -762,17 +763,32 @@ const activeSmartStructureScopeDescription = computed(() => {
           v-show="!advancedMode && currentStep === 1"
           class="step-panel smart-confirm-step"
         >
-          <SmartStructureSummaryBanner
-            :tables="recognizedTables"
-            :loading="smartRecognizing"
-            :error="smartRecognitionError"
-            @retry="runSmartStructureRecognition"
-          />
+          <div
+            class="smart-recognition-toolbar"
+            :class="{ 'has-error': Boolean(smartRecognitionError) }"
+          >
+            <span
+              v-if="smartRecognitionError"
+              class="smart-recognition-toolbar__error"
+              role="alert"
+            >
+              {{ smartRecognitionError }}
+            </span>
+            <el-button
+              type="primary"
+              plain
+              :loading="smartRecognizing"
+              @click="runSmartStructureRecognition"
+            >
+              重新识别
+            </el-button>
+          </div>
           <SmartStructureConfirmTabs
             v-model:active-table-index="activeSmartStructureTab"
             :tables="recognizedTables"
             :table-infos="smartTableInfos"
             :is-excel-file="isExcelFile"
+            :inline-excel-region-editor="isExcelFile"
             :selected-table-indexes="selectedSmartTableIndexes"
             :selectable-table-indexes="smartStructureSelectableTableIndexes"
             :selection-disabled-reasons="smartStructureSelectionDisabledReasons"
@@ -791,14 +807,14 @@ const activeSmartStructureScopeDescription = computed(() => {
           <el-alert
             v-if="
               activeSmartStructureTable &&
-              (!activeSmartStructureTableSelected ||
-                activeSmartStructureReadinessReason)
+              activeSmartStructureTableSelected &&
+              activeSmartStructureReadinessReason
             "
-            :type="activeSmartStructureTableSelected ? 'warning' : 'info'"
+            type="warning"
             :closable="false"
             show-icon
-            :title="activeSmartStructureScopeTitle"
-            :description="activeSmartStructureScopeDescription"
+            title="当前表已勾选，仍需配置"
+            :description="activeSmartStructureReadinessDescription"
             class="smart-import-scope-alert"
           />
           <DataImportConfirmPanel
@@ -837,6 +853,13 @@ const activeSmartStructureScopeDescription = computed(() => {
             :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
+            :irrelevant-preview-row-count="irrelevantPreviewRowCount"
+            :all-irrelevant-preview-rows-selected="
+              allIrrelevantPreviewRowsSelected
+            "
+            :some-irrelevant-preview-rows-selected="
+              someIrrelevantPreviewRowsSelected
+            "
             :import-preview-groups="importPreviewGroups"
             :importing="importing || batchConfirmImportRunning"
             :import-progress-text="smartBatchProgressText"
@@ -851,6 +874,7 @@ const activeSmartStructureScopeDescription = computed(() => {
             @open-difference-confirm-dialog="openDifferenceConfirmDialog"
             @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
             @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+            @select-irrelevant-rows-change="handleSelectIrrelevantRowsChange"
             @import-preview-selection-change="
               handleImportPreviewSelectionChange
             "
@@ -902,6 +926,13 @@ const activeSmartStructureScopeDescription = computed(() => {
             :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
+            :irrelevant-preview-row-count="irrelevantPreviewRowCount"
+            :all-irrelevant-preview-rows-selected="
+              allIrrelevantPreviewRowsSelected
+            "
+            :some-irrelevant-preview-rows-selected="
+              someIrrelevantPreviewRowsSelected
+            "
             :import-preview-groups="importPreviewGroups"
             :importing="importing"
             :import-progress-text="importProgressText"
@@ -912,6 +943,7 @@ const activeSmartStructureScopeDescription = computed(() => {
             @open-difference-confirm-dialog="openDifferenceConfirmDialog"
             @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
             @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+            @select-irrelevant-rows-change="handleSelectIrrelevantRowsChange"
             @import-preview-selection-change="
               handleImportPreviewSelectionChange
             "

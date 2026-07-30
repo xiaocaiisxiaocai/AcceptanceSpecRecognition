@@ -1065,12 +1065,12 @@ public class ReviewRegressionTests
     public void BaseConfig_ShouldNotLeakDevelopmentCorsOriginsIntoProductionArrayMerge()
     {
         var baseConfig = ReadFileText("src/AcceptanceSpecSystem.Api/appsettings.json");
-        var developmentConfig = ReadFileText("src/AcceptanceSpecSystem.Api/appsettings.Development.json");
+        var gitIgnore = ReadFileText(".gitignore");
 
         baseConfig.Should().NotContain("\"Cors\"",
             "基础数组配置会与 Production 按索引合并，导致开发 HTTP 来源残留在生产环境");
-        developmentConfig.Should().Contain("http://localhost:5173",
-            "本地开发来源应只存在于 Development 配置");
+        gitIgnore.Should().Contain("appsettings.Development.json",
+            "开发来源和本地凭据只能放在被忽略的本地Development配置中");
     }
 
     [Fact]

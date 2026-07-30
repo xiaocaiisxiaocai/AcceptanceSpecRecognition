@@ -23,6 +23,7 @@ const props = withDefaults(
     readyLabel?: string;
     unavailableLabel?: string;
     isExcelFile?: boolean;
+    inlineExcelRegionEditor?: boolean;
     showConfirmAction?: boolean;
     interactionLocked?: boolean;
   }>(),
@@ -34,6 +35,7 @@ const props = withDefaults(
     readyLabel: "可直达",
     unavailableLabel: "不可用",
     isExcelFile: true,
+    inlineExcelRegionEditor: false,
     showConfirmAction: true,
     interactionLocked: false
   }
@@ -135,6 +137,7 @@ watch(
         :interaction-locked="interactionLocked"
         :show-confirm-action="showConfirmAction"
         :is-excel-file="isExcelFile"
+        :inline-excel-region-editor="inlineExcelRegionEditor"
         :import-selected="selectedTableIndexSet.has(table.tableIndex)"
         :import-selectable="selectableTableIndexSet.has(table.tableIndex)"
         :selection-disabled-reason="selectionDisabledReasons[table.tableIndex]"

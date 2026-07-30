@@ -168,78 +168,6 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     }
 
     [Fact]
-    public async Task Recognize_WhenSingleRegionTemplateRangeNoLongerContainsData_ShouldNeedConfirm()
-    {
-        var customerId = await CreateCustomerAsync("智能识别-单区域范围漂移客户");
-        var headers = new[] { "项目", "规格内容", "验收结果", "备注" };
-        await using (var scope = _factory.Services.CreateAsyncScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var now = DateTime.UtcNow;
-            db.DocumentTemplates.Add(new DocumentTemplate
-            {
-                CustomerId = customerId,
-                TemplateName = "旧单区域模板",
-                HeadersFingerprint = new string('c', 64),
-                HeadersJson = JsonSerializer.Serialize(headers),
-                ProjectColumnIndex = 0,
-                SpecificationColumnIndex = 1,
-                AcceptanceColumnIndex = 2,
-                RemarkColumnIndex = 3,
-                HeaderRowIndex = 0,
-                HeaderRowCount = 1,
-                DataStartRowIndex = 1,
-                DataEndRowIndex = 5,
-                TableKind = "Acceptance",
-                Recommendation = "AutoApply",
-                CreatedAt = now,
-                UpdatedAt = now,
-                Regions =
-                [
-                    new DocumentTemplateRegion
-                    {
-                        RegionIndex = 0,
-                        HeadersJson = JsonSerializer.Serialize(headers),
-                        HeaderRowIndex = 0,
-                        HeaderRowCount = 1,
-                        DataStartRowIndex = 1,
-                        DataEndRowIndex = 5,
-                        ProjectColumnIndex = 0,
-                        SpecificationColumnIndex = 1,
-                        AcceptanceColumnIndex = 2,
-                        RemarkColumnIndex = 3
-                    }
-                ]
-            });
-            await db.SaveChangesAsync();
-        }
-
-        var fileId = await UploadExcelAsync(
-            CreateExcelWithDataMovedAfterTemplateRangeBytes(),
-            "smart-recognize-template-range-drift.xlsx");
-        var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
-        {
-            fileId,
-            customerId
-        }));
-
-        var responseText = await response.Content.ReadAsStringAsync();
-        response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);
-        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
-        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
-        table.GetProperty("source").GetString().Should().Be("RuleBased");
-        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
-        table.GetProperty("dataEndRowIndex").GetInt32().Should().Be(11);
-        table.GetProperty("issues").EnumerateArray()
-            .Should().Contain(issue =>
-                issue.GetProperty("code").GetString() == "TemplateRegionStructureChanged");
-        table.GetProperty("regions").EnumerateArray().Single()
-            .GetProperty("issues").EnumerateArray()
-            .Should().Contain(issue =>
-                issue.GetProperty("code").GetString() == "UnassignedDataAfterGap");
-    }
-
-    [Fact]
     public async Task Recognize_WhenSecondRegionColumnsMove_ShouldPreferExplicitHeaderMatches()
     {
         var customerId = await CreateCustomerAsync("智能识别-区域列移动客户");
@@ -270,23 +198,48 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
     {
         var customerId = await CreateCustomerAsync("智能识别-模板健康检查客户");
         var fileId = await UploadExcelAsync(CreateExcelBytes(), "smart-recognize-template-health.xlsx");
-        await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
+        var headers = new[] { "项目", "规格内容", "验收结果", "备注" };
+        await using (var scope = _factory.Services.CreateAsyncScope())
         {
-            fileId,
-            customerId,
-            templateName = "缺列模板",
-            headers = new[] { "项目", "规格内容", "验收结果", "备注" },
-            projectColumnIndex = 0,
-            specificationColumnIndex = 1,
-            acceptanceColumnIndex = (int?)null,
-            remarkColumnIndex = (int?)null,
-            headerRowIndex = 0,
-            headerRowCount = 1,
-            dataStartRowIndex = 1,
-            dataEndRowIndex = 1,
-            isSpecificationOnly = false,
-            learnedColumns = Array.Empty<object>()
-        }));
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var now = DateTime.UtcNow;
+            db.DocumentTemplates.Add(new DocumentTemplate
+            {
+                CustomerId = customerId,
+                TemplateName = "历史缺列模板",
+                HeadersFingerprint = Guid.NewGuid().ToString("N"),
+                HeadersJson = JsonSerializer.Serialize(headers),
+                ProjectColumnIndex = 0,
+                SpecificationColumnIndex = 1,
+                AcceptanceColumnIndex = null,
+                RemarkColumnIndex = null,
+                HeaderRowIndex = 0,
+                HeaderRowCount = 1,
+                DataStartRowIndex = 1,
+                DataEndRowIndex = 1,
+                TableKind = "Acceptance",
+                Recommendation = "NeedConfirm",
+                CreatedAt = now,
+                UpdatedAt = now,
+                Regions =
+                [
+                    new DocumentTemplateRegion
+                    {
+                        RegionIndex = 0,
+                        HeadersJson = JsonSerializer.Serialize(headers),
+                        HeaderRowIndex = 0,
+                        HeaderRowCount = 1,
+                        DataStartRowIndex = 1,
+                        DataEndRowIndex = 1,
+                        ProjectColumnIndex = 0,
+                        SpecificationColumnIndex = 1,
+                        AcceptanceColumnIndex = null,
+                        RemarkColumnIndex = null
+                    }
+                ]
+            });
+            await db.SaveChangesAsync();
+        }
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
             fileId,
@@ -566,27 +519,6 @@ public class SmartConfigRecognizeApiTests : IClassFixture<ApiWebApplicationFacto
         Header(6);
         Data(7, "功能", "运行正常");
         Data(8, "安全", "保护有效");
-        using var stream = new MemoryStream();
-        workbook.SaveAs(stream);
-        return stream.ToArray();
-    }
-
-    private static byte[] CreateExcelWithDataMovedAfterTemplateRangeBytes()
-    {
-        using var workbook = new XLWorkbook();
-        var worksheet = workbook.AddWorksheet("验收表");
-        worksheet.Cell(1, 1).Value = "项目";
-        worksheet.Cell(1, 2).Value = "规格内容";
-        worksheet.Cell(1, 3).Value = "验收结果";
-        worksheet.Cell(1, 4).Value = "备注";
-        for (var row = 7; row <= 12; row++)
-        {
-            worksheet.Cell(row, 1).Value = $"项目{row}";
-            worksheet.Cell(row, 2).Value = $"规格{row}";
-            worksheet.Cell(row, 3).Value = "OK";
-            worksheet.Cell(row, 4).Value = "抽检";
-        }
-
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();

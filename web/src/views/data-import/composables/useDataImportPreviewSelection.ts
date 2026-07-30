@@ -19,6 +19,12 @@ type UseDataImportPreviewSelectionOptions = {
   tableConfigs: Ref<TableImportConfig[]>;
 };
 
+const isBlankPreviewValue = (value: string) => value.trim().length === 0;
+
+export const isAcceptanceAndRemarkBlank = (
+  row: Pick<ImportPreviewRow, "acceptance" | "remark">
+) => isBlankPreviewValue(row.acceptance) && isBlankPreviewValue(row.remark);
+
 export function useDataImportPreviewSelection(
   options: UseDataImportPreviewSelectionOptions
 ) {
@@ -150,6 +156,40 @@ export function useDataImportPreviewSelection(
     () => importPreviewSelectionKeys.value.length
   );
 
+  const blankAcceptanceRemarkRows = computed(() =>
+    importPreviewGroups.value.flatMap(group =>
+      group.rows.filter(isAcceptanceAndRemarkBlank)
+    )
+  );
+
+  const irrelevantPreviewRowCount = computed(
+    () => blankAcceptanceRemarkRows.value.length
+  );
+
+  const selectedImportPreviewRowKeySet = computed(
+    () => new Set(importPreviewSelectionKeys.value)
+  );
+
+  const selectedIrrelevantPreviewRowCount = computed(
+    () =>
+      blankAcceptanceRemarkRows.value.filter(row =>
+        selectedImportPreviewRowKeySet.value.has(row.key)
+      ).length
+  );
+
+  const allIrrelevantPreviewRowsSelected = computed(
+    () =>
+      irrelevantPreviewRowCount.value > 0 &&
+      selectedIrrelevantPreviewRowCount.value ===
+        irrelevantPreviewRowCount.value
+  );
+
+  const someIrrelevantPreviewRowsSelected = computed(
+    () =>
+      selectedIrrelevantPreviewRowCount.value > 0 &&
+      !allIrrelevantPreviewRowsSelected.value
+  );
+
   const handleImportPreviewSelectionChange = (
     tableIndex: number,
     rows: ImportPreviewRow[]
@@ -160,6 +200,28 @@ export function useDataImportPreviewSelection(
     importPreviewSelectionKeys.value = [
       ...remainingKeys,
       ...rows.map(row => row.key)
+    ];
+  };
+
+  const handleSelectIrrelevantRowsChange = (selected: boolean) => {
+    const irrelevantRowKeys = new Set(
+      blankAcceptanceRemarkRows.value.map(row => row.key)
+    );
+
+    if (!selected) {
+      importPreviewSelectionKeys.value =
+        importPreviewSelectionKeys.value.filter(
+          key => !irrelevantRowKeys.has(key)
+        );
+      return;
+    }
+
+    const selectedKeys = new Set(importPreviewSelectionKeys.value);
+    importPreviewSelectionKeys.value = [
+      ...importPreviewSelectionKeys.value,
+      ...blankAcceptanceRemarkRows.value
+        .map(row => row.key)
+        .filter(key => !selectedKeys.has(key))
     ];
   };
 
@@ -259,7 +321,11 @@ export function useDataImportPreviewSelection(
     importPreviewGroups,
     removedPreviewRowCount,
     selectedImportPreviewRowsCount,
+    irrelevantPreviewRowCount,
+    allIrrelevantPreviewRowsSelected,
+    someIrrelevantPreviewRowsSelected,
     handleImportPreviewSelectionChange,
+    handleSelectIrrelevantRowsChange,
     handleRemoveSinglePreviewRow,
     handleRemoveSelectedPreviewRows,
     handleRestoreRemovedPreviewRows,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { TableInfo } from "@/api/document";
 import type {
   SmartConfigConfirmRequest,
@@ -8,7 +8,9 @@ import type {
   SmartConfigRecognizedRegion,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
+import SmartStructureExcelRegionEditor from "./SmartStructureExcelRegionEditor.vue";
 import SmartStructureRangeEditorDrawer from "./SmartStructureRangeEditorDrawer.vue";
+import { normalizeSmartStructureInlineExcelRegion } from "./smart-structure-region-draft";
 import {
   buildSmartConfigConfirmRequest,
   canConfirmSmartStructureTable,
@@ -40,6 +42,7 @@ const props = withDefaults(
     selectionDisabledReason?: string;
     selectionPendingReason?: string;
     isExcelFile?: boolean;
+    inlineExcelRegionEditor?: boolean;
     confirmActionLabel?: string;
     showConfirmAction?: boolean;
     interactionLocked?: boolean;
@@ -47,6 +50,7 @@ const props = withDefaults(
   {
     confirmationLocked: false,
     isExcelFile: true,
+    inlineExcelRegionEditor: false,
     confirmActionLabel: "确认并学习",
     showConfirmAction: true,
     interactionLocked: false
@@ -61,43 +65,155 @@ const emit = defineEmits<{
 }>();
 
 const rangeEditorVisible = ref(false);
+const inlineEditorVisible = ref(false);
+const inlineDrawerRef = ref<HTMLElement | null>(null);
+const inlineDrawerTriggerRef = ref<HTMLElement | null>(null);
+const inlineEditorValidationError = ref("");
+const inlineEditorResetVersion = ref(0);
 const editableRegions = ref<SmartConfigRecognizedRegion[]>([]);
+let bodyOverflowBeforeInlineDrawer: string | null = null;
+const useInlineExcelEditor = computed(
+  () => props.inlineExcelRegionEditor && props.isExcelFile
+);
 const controlsLocked = computed(() =>
   Boolean(props.readonly || props.confirmationLocked || props.interactionLocked)
 );
 
+const restoreInlineDrawerEnvironment = (restoreFocus = true) => {
+  const trigger = inlineDrawerTriggerRef.value;
+  inlineDrawerTriggerRef.value = null;
+
+  if (typeof document !== "undefined") {
+    if (bodyOverflowBeforeInlineDrawer != null) {
+      document.body.style.overflow = bodyOverflowBeforeInlineDrawer;
+      bodyOverflowBeforeInlineDrawer = null;
+    }
+  }
+
+  if (restoreFocus && trigger?.isConnected && !trigger.matches(":disabled")) {
+    void nextTick(() => trigger.focus());
+  }
+};
+
+const openInlineEditor = () => {
+  if (
+    typeof document !== "undefined" &&
+    document.activeElement instanceof HTMLElement
+  ) {
+    inlineDrawerTriggerRef.value = document.activeElement;
+  }
+  inlineEditorVisible.value = true;
+};
+
+const closeInlineEditor = () => {
+  inlineEditorVisible.value = false;
+};
+
+const handleInlineDrawerKeydown = (event: KeyboardEvent) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeInlineEditor();
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const drawer = inlineDrawerRef.value;
+  if (!drawer) return;
+  const focusableElements = Array.from(
+    drawer.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter(
+    element =>
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.getClientRects().length > 0
+  );
+
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    drawer.focus();
+    return;
+  }
+
+  const first = focusableElements[0];
+  const last = focusableElements[focusableElements.length - 1];
+  const activeElement = document.activeElement;
+  const focusOutsideDrawer =
+    activeElement === drawer || !drawer.contains(activeElement);
+  if (event.shiftKey && (activeElement === first || focusOutsideDrawer)) {
+    event.preventDefault();
+    last.focus();
+  } else if (
+    !event.shiftKey &&
+    (activeElement === last || focusOutsideDrawer)
+  ) {
+    event.preventDefault();
+    first.focus();
+  }
+};
+
+const getRecognizedRegions = (): SmartConfigRecognizedRegion[] =>
+  props.table.regions?.length
+    ? props.table.regions
+    : [
+        {
+          regionId: `table-${props.table.tableIndex}-region-0`,
+          regionIndex: 0,
+          headers: props.table.headers,
+          headerRowIndex: props.table.headerRowIndex,
+          headerRowCount: props.table.headerRowCount,
+          dataStartRowIndex: props.table.dataStartRowIndex,
+          dataEndRowIndex: props.table.dataEndRowIndex,
+          projectColumnIndex: props.table.projectColumnIndex,
+          specificationColumnIndex: props.table.specificationColumnIndex,
+          acceptanceColumnIndex: props.table.acceptanceColumnIndex,
+          remarkColumnIndex: props.table.remarkColumnIndex,
+          isSpecificationOnly: props.table.isSpecificationOnly,
+          confidence: props.table.confidence,
+          source: props.table.source,
+          decision: props.table.decision,
+          fields: props.table.fields
+        }
+      ];
+
+const normalizeRegionForEditor = (region: SmartConfigRecognizedRegion) =>
+  useInlineExcelEditor.value
+    ? normalizeSmartStructureInlineExcelRegion(region)
+    : region;
+
 const resetState = () => {
-  editableRegions.value = (
-    props.table.regions?.length
-      ? props.table.regions
-      : [
-          {
-            regionId: `table-${props.table.tableIndex}-region-0`,
-            regionIndex: 0,
-            headers: props.table.headers,
-            headerRowIndex: props.table.headerRowIndex,
-            headerRowCount: props.table.headerRowCount,
-            dataStartRowIndex: props.table.dataStartRowIndex,
-            dataEndRowIndex: props.table.dataEndRowIndex,
-            projectColumnIndex: props.table.projectColumnIndex,
-            specificationColumnIndex: props.table.specificationColumnIndex,
-            acceptanceColumnIndex: props.table.acceptanceColumnIndex,
-            remarkColumnIndex: props.table.remarkColumnIndex,
-            isSpecificationOnly: props.table.isSpecificationOnly,
-            confidence: props.table.confidence,
-            source: props.table.source,
-            decision: props.table.decision,
-            fields: props.table.fields
-          }
-        ]
-  ).map(region => ({ ...region, headers: [...region.headers] }));
+  editableRegions.value = getRecognizedRegions().map(region => {
+    const effectiveRegion = normalizeRegionForEditor(region);
+    return { ...effectiveRegion, headers: [...effectiveRegion.headers] };
+  });
   rangeEditorVisible.value = false;
+  inlineEditorResetVersion.value += 1;
+  inlineEditorVisible.value = false;
+  inlineEditorValidationError.value = "";
 };
 
 watch(() => props.table, resetState, { immediate: true });
 watch(controlsLocked, locked => {
-  if (locked) rangeEditorVisible.value = false;
+  if (!locked) return;
+  rangeEditorVisible.value = false;
+  inlineEditorVisible.value = false;
 });
+watch(inlineEditorVisible, visible => {
+  if (visible) {
+    if (
+      typeof document !== "undefined" &&
+      bodyOverflowBeforeInlineDrawer == null
+    ) {
+      bodyOverflowBeforeInlineDrawer = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+    }
+    void nextTick(() => inlineDrawerRef.value?.focus());
+    return;
+  }
+  restoreInlineDrawerEnvironment();
+});
+onBeforeUnmount(() => restoreInlineDrawerEnvironment(false));
 
 const decisionTag = computed(() =>
   getSmartStructureDecisionTag(props.table.decision)
@@ -111,6 +227,9 @@ const tableKindLabel = computed(() =>
 
 const tableTitle = computed(
   () => props.table.tableName || `表格 ${props.table.tableIndex + 1}`
+);
+const inlineDrawerTitleId = computed(
+  () => `smart-structure-inline-drawer-title-${props.table.tableIndex}`
 );
 
 const toExcelColumnLabel = (columnNumber: number) => {
@@ -130,6 +249,9 @@ const formatColumnCoordinate = (index: number) =>
     : `第 ${index + 1} 列`;
 
 const activeRegions = computed(() => editableRegions.value);
+const requestRegions = computed(() =>
+  activeRegions.value.map(normalizeRegionForEditor)
+);
 
 const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
   if (regions.length === 0) return;
@@ -137,6 +259,46 @@ const handleRangesSave = (regions: SmartConfigRecognizedRegion[]) => {
     ...region,
     headers: [...region.headers]
   }));
+};
+
+const handleInlineValidationChange = (error: string) => {
+  inlineEditorValidationError.value = error;
+};
+
+const toggleRangeEditor = () => {
+  if (useInlineExcelEditor.value) {
+    openInlineEditor();
+    return;
+  }
+  rangeEditorVisible.value = true;
+};
+
+const showRangeEditor = () => {
+  if (useInlineExcelEditor.value) {
+    openInlineEditor();
+    return;
+  }
+  rangeEditorVisible.value = true;
+};
+
+const resetInlineEditor = async () => {
+  try {
+    await ElMessageBox.confirm(
+      "将恢复当前 Sheet 的 AI/规则识别结果，并覆盖尚未确认的人工调整。",
+      "重置结构配置",
+      {
+        confirmButtonText: "确认重置",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+  } catch {
+    return;
+  }
+  resetState();
+  inlineEditorVisible.value = true;
+  await nextTick();
+  inlineDrawerRef.value?.focus();
 };
 
 const buildColumnRangeSummary = (
@@ -275,8 +437,10 @@ const allRegionsConfirmable = computed(() =>
   )
 );
 
-const structureValidationError = computed(() =>
-  validateSmartStructureRegions(activeRegions.value, props.tableInfo)
+const structureValidationError = computed(
+  () =>
+    inlineEditorValidationError.value ||
+    validateSmartStructureRegions(activeRegions.value, props.tableInfo)
 );
 
 const importSwitchText = computed(() =>
@@ -379,8 +543,8 @@ const showRecognitionEvidence = computed(
     allIssues.value.length > 0 ||
     semanticRecallSuggestions.value.length > 0
 );
-const showAdvancedFallback = computed(() =>
-  needsManualStructureFallback(props.table)
+const showAdvancedFallback = computed(
+  () => !useInlineExcelEditor.value && needsManualStructureFallback(props.table)
 );
 
 const compactRegionStructure = (region: {
@@ -406,14 +570,12 @@ const compactRegionStructure = (region: {
 });
 
 const originalRegionStructures = computed(() =>
-  (props.table.regions?.length ? props.table.regions : [props.table]).map(
-    compactRegionStructure
-  )
+  getRecognizedRegions().map(compactRegionStructure)
 );
 
 const regionsHaveChanges = computed(
   () =>
-    JSON.stringify(activeRegions.value.map(compactRegionStructure)) !==
+    JSON.stringify(requestRegions.value.map(compactRegionStructure)) !==
     JSON.stringify(originalRegionStructures.value)
 );
 
@@ -445,14 +607,20 @@ const confirmDisabledReasonId = computed(
 );
 
 const buildDraftRequest = (): SmartConfigConfirmRequest | null => {
-  if (!props.customerId || !allRegionsConfirmable.value) return null;
+  if (
+    !props.customerId ||
+    !allRegionsConfirmable.value ||
+    structureValidationError.value
+  ) {
+    return null;
+  }
 
   try {
     return buildSmartConfigConfirmRequest(
       props.customerId,
       {
         ...props.table,
-        regions: activeRegions.value
+        regions: requestRegions.value
       },
       {
         fileId: props.fileId,
@@ -470,7 +638,8 @@ watch(
     () => props.fileId,
     () => props.table,
     activeRegions,
-    hasStructureChanges
+    hasStructureChanges,
+    structureValidationError
   ],
   () => emit("draft-change", buildDraftRequest()),
   { deep: true, immediate: true }
@@ -492,7 +661,7 @@ const emitConfirm = () => {
       props.customerId,
       {
         ...props.table,
-        regions: activeRegions.value
+        regions: requestRegions.value
       },
       {
         fileId: props.fileId,
@@ -583,7 +752,7 @@ const emitConfirm = () => {
             size="small"
             :disabled="controlsLocked"
             :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
-            @click="rangeEditorVisible = true"
+            @click="toggleRangeEditor"
           >
             调整范围
           </el-button>
@@ -601,14 +770,11 @@ const emitConfirm = () => {
               v-for="range in field.ranges"
               :key="range.key"
               class="range-interval"
-              :aria-label="`${range.column}${range.startRow} 到 ${range.column}${range.endRow}`"
+              :aria-label="`${range.column}${range.startRow}:${range.column}${range.endRow}`"
             >
               <span class="range-interval-value"
-                >{{ range.column }}{{ range.startRow }}</span
-              >
-              <span class="range-interval-line" aria-hidden="true" />
-              <span class="range-interval-value"
-                >{{ range.column }}{{ range.endRow }}</span
+                >{{ range.column }}{{ range.startRow }}:{{ range.column
+                }}{{ range.endRow }}</span
               >
             </div>
             <span v-if="field.ranges.length === 0" class="range-empty">{{
@@ -618,6 +784,62 @@ const emitConfirm = () => {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="useInlineExcelEditor"
+        v-show="inlineEditorVisible"
+        class="smart-structure-inline-drawer-layer"
+      >
+        <div
+          class="smart-structure-inline-drawer-mask"
+          aria-hidden="true"
+          @click="closeInlineEditor"
+          @wheel.prevent
+          @touchmove.prevent
+        />
+        <aside
+          ref="inlineDrawerRef"
+          class="smart-structure-inline-drawer"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="inlineDrawerTitleId"
+          tabindex="-1"
+          @click.stop
+          @keydown="handleInlineDrawerKeydown"
+        >
+          <header class="smart-structure-inline-drawer__header">
+            <div class="smart-structure-inline-drawer__heading">
+              <strong :id="inlineDrawerTitleId">调整范围</strong>
+              <span>{{ tableTitle }}</span>
+            </div>
+            <el-button
+              type="primary"
+              plain
+              size="small"
+              aria-label="关闭调整范围抽屉"
+              @click="closeInlineEditor"
+            >
+              关闭
+            </el-button>
+          </header>
+          <div class="smart-structure-inline-drawer__body">
+            <SmartStructureExcelRegionEditor
+              :model-value="activeRegions"
+              :table="table"
+              :table-info="tableInfo"
+              :file-id="fileId"
+              :disabled="controlsLocked"
+              :drawer-open="inlineEditorVisible"
+              :reset-version="inlineEditorResetVersion"
+              @update:model-value="handleRangesSave"
+              @validation-change="handleInlineValidationChange"
+              @reset="resetInlineEditor"
+            />
+          </div>
+        </aside>
+      </div>
+    </Teleport>
 
     <div v-if="showAdvancedFallback || showConfirmAction" class="card-actions">
       <el-button
@@ -682,7 +904,7 @@ const emitConfirm = () => {
         type="primary"
         :disabled="controlsLocked"
         :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
-        @click="rangeEditorVisible = true"
+        @click="showRangeEditor"
       >
         调整范围
       </el-button>
@@ -755,6 +977,7 @@ const emitConfirm = () => {
     </div>
 
     <SmartStructureRangeEditorDrawer
+      v-if="!useInlineExcelEditor"
       v-model="rangeEditorVisible"
       :table="table"
       :table-info="tableInfo"
@@ -893,28 +1116,25 @@ const emitConfirm = () => {
 }
 
 .range-values {
-  display: grid;
-  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .range-interval {
-  display: grid;
-  justify-items: center;
-  min-width: 28px;
+  min-width: 0;
 }
 
 .range-interval-value {
+  display: inline-flex;
+  padding: 2px 7px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
   font-weight: 700;
   color: var(--app-primary);
-}
-
-.range-interval-line {
-  width: 1px;
-  height: 18px;
-  margin: 3px 0;
-  background: var(--app-text-secondary);
+  background: var(--app-primary-light);
+  border: 1px solid color-mix(in srgb, var(--app-primary) 18%, transparent);
+  border-radius: 4px;
 }
 
 .range-empty {
@@ -1013,6 +1233,73 @@ const emitConfirm = () => {
   justify-content: flex-end;
 }
 
+.smart-structure-inline-drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1900;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.smart-structure-inline-drawer-mask {
+  position: absolute;
+  inset: 0;
+  background: rgb(15 23 42 / 38%);
+  backdrop-filter: blur(1px);
+}
+
+.smart-structure-inline-drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, 92vw);
+  height: 100%;
+  outline: none;
+  background: var(--app-bg-card);
+  box-shadow: var(--app-shadow-overlay);
+}
+
+.smart-structure-inline-drawer__header {
+  display: flex;
+  flex: none;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.smart-structure-inline-drawer__heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.smart-structure-inline-drawer__heading strong {
+  font-size: 16px;
+  color: var(--app-text-primary);
+}
+
+.smart-structure-inline-drawer__heading span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+
+.smart-structure-inline-drawer__body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.smart-structure-inline-drawer__body :deep(.excel-region-editor) {
+  margin: 0;
+}
+
 @media (width <= 768px) {
   .card-header,
   .card-actions,
@@ -1064,6 +1351,10 @@ const emitConfirm = () => {
   .structure-recovery-alert :deep(.el-button) {
     width: 100%;
     margin-left: 0;
+  }
+
+  .smart-structure-inline-drawer {
+    width: 100vw;
   }
 }
 </style>

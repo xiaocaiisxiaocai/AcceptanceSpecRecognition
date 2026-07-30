@@ -62,6 +62,20 @@ const rangeEditorSource = readFileSync(
   ),
   "utf8"
 );
+const excelRegionEditorSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/shared/SmartStructureExcelRegionEditor.vue"
+  ),
+  "utf8"
+);
+const excelHeaderPreviewSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/shared/smart-structure-region-header-preview.ts"
+  ),
+  "utf8"
+);
 const fieldConflictDialogSource = readFileSync(
   resolve(
     process.cwd(),
@@ -131,6 +145,8 @@ test("AI 疑似重复检查应使用业务文案、响应式双列和渐进披�
 
 test("待导入清单应使用数量概览和移出语义，避免重复标题与删除歧义", () => {
   assert.match(confirmPanelSource, /class="preview-metric primary"/);
+  assert.match(confirmPanelSource, /选中无关项/);
+  assert.match(confirmPanelSource, /验收列和备注列同时为空/);
   assert.match(confirmPanelSource, /移出所选/);
   assert.match(confirmPanelSource, /移出仅影响本次导入，不会修改原文件/);
   assert.doesNotMatch(confirmPanelSource, /批量删除/);
@@ -140,9 +156,17 @@ test("待导入清单应使用数量概览和移出语义，避免重复标题�
 test("展开待导入清单时应自动补拉完整预览并复用并发请求", () => {
   assert.match(
     confirmPanelSource,
-    /names\.includes\("preview-list"\)[\s\S]*previewLoadState\.hasPartialPreview[\s\S]*emit\("loadFullPreview"\)/
+    /names\.includes\("preview-list"\)[\s\S]*previewLoadState\.hasPartialPreview[\s\S]*!props\.previewLoadState\.hasPendingInitialPreview[\s\S]*emit\("loadFullPreview"\)/
   );
   assert.match(confirmPanelSource, /@change="handleCollapseChange"/);
+  assert.match(
+    confirmPanelSource,
+    /watch\([\s\S]*props\.previewLoadState\.hasPendingInitialPreview[\s\S]*hasPartialPreview[\s\S]*!hasPendingInitialPreview[\s\S]*activeCollapseNames\.value\.includes\("preview-list"\)[\s\S]*emit\("loadFullPreview"\)/
+  );
+  assert.match(
+    confirmPanelSource,
+    /previewLoadState\.hasPartialPreview[\s\S]*irrelevantPreviewRowCount === 0/
+  );
   assert.equal(
     dataImportSource.match(/@load-full-preview="ensureFullPreviewDataLoaded"/g)
       ?.length,
@@ -315,20 +339,16 @@ test("智能结构确认卡片的字段范围应在桌面端四列单行展示",
   );
 });
 
-test("智能结构确认卡片应在纵向区间端点显示完整动态坐标", () => {
+test("智能结构确认卡片默认应以 B2:B4 形式显示完整 A1 范围", () => {
   assert.match(
     confirmCardSource,
     /column:\s*formatColumnCoordinate\(columnIndex\)/
   );
   assert.match(
     confirmCardSource,
-    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.startRow\s*\}\}/
+    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.startRow\s*\}\}:\{\{\s*range\.column\s*\}\}\{\{\s*range\.endRow\s*\}\}/
   );
-  assert.match(confirmCardSource, /class="range-interval-line"/);
-  assert.match(
-    confirmCardSource,
-    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.endRow\s*\}\}/
-  );
+  assert.doesNotMatch(confirmCardSource, /class="range-interval-line"/);
   assert.doesNotMatch(confirmCardSource, /field\.columnLabel/);
   assert.doesNotMatch(
     confirmCardSource,
@@ -393,12 +413,40 @@ test("移动端应为固定操作栏预留完整空间并提供至少 44px 触�
   );
 });
 
+test("智能确认页应移除识别摘要统计，只保留紧凑的重新识别按钮", () => {
+  const smartConfirmStepSource = dataImportSource.slice(
+    dataImportSource.indexOf("<!-- 智能流程步骤2: 确认结构与预览 -->"),
+    dataImportSource.indexOf("<!-- 智能流程步骤3 / 高级模式步骤5: 完成 -->")
+  );
+
+  assert.doesNotMatch(smartConfirmStepSource, /<SmartStructureSummaryBanner/);
+  assert.match(
+    smartConfirmStepSource,
+    /class="smart-recognition-toolbar"[\s\S]*<el-button[\s\S]*:loading="smartRecognizing"[\s\S]*@click="runSmartStructureRecognition"[\s\S]*重新识别[\s\S]*<\/el-button>/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.smart-confirm-step\s*\{[\s\S]*position:\s*relative/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.smart-recognition-toolbar\s*\{[\s\S]*position:\s*absolute[\s\S]*justify-content:\s*flex-end/
+  );
+  assert.match(
+    dataImportStyleSource,
+    /\.smart-confirm-step\s+:deep\(\.smart-structure-confirm-tabs \.el-tabs__header\)\s*\{[\s\S]*padding-right:/
+  );
+});
+
 test("识别失败应保留错误信息并提供重新识别入口", () => {
   assert.match(recognitionComposableSource, /const recognitionError = ref/);
   assert.match(recognitionComposableSource, /recognitionError\.value =/);
   assert.match(summaryBannerSource, /error\?: string/);
   assert.match(summaryBannerSource, /summary\.total > 0 \|\| error/);
-  assert.match(dataImportSource, /:error="smartRecognitionError"/);
+  assert.match(
+    dataImportSource,
+    /v-if="smartRecognitionError"[\s\S]*role="alert"[\s\S]*\{\{ smartRecognitionError \}\}/
+  );
   assert.match(
     dataImportSource,
     /<DataImportStepUpload[\s\S]*:smart-recognition-error="smartEntryError"[\s\S]*@retry="runSmartStructureRecognition"/
@@ -585,7 +633,7 @@ test("待确认表应可手动勾选，并区分已勾选与已配置汇总", ()
   assert.match(confirmCardSource, /selectionPendingReason\?: string/);
   assert.match(confirmCardSource, /暂不可导入/);
   assert.match(confirmCardSource, /已勾选，待配置/);
-  assert.match(dataImportSource, /当前表未参与本次导入/);
+  assert.doesNotMatch(dataImportSource, /当前表未参与本次导入/);
   assert.match(dataImportSource, /当前表已勾选，仍需配置/);
   assert.match(dataImportSource, /:pending-selected-sheet-count=/);
   assert.match(
@@ -627,7 +675,7 @@ test("任一结构确认进行中应锁定所有结构编辑入口", () => {
   assert.match(confirmCardSource, /:disabled="controlsLocked"/);
   assert.match(
     confirmCardSource,
-    /if \(locked\) rangeEditorVisible\.value = false/
+    /if \(!locked\) return;[\s\S]*rangeEditorVisible\.value = false;[\s\S]*inlineEditorVisible\.value = false;/
   );
 });
 
@@ -654,7 +702,7 @@ test("待确认卡片应展示区域级问题，避免只显示状态而不说�
   assert.match(confirmCardSource, /文件结构与历史模板不一致，需要重新确认/);
   assert.match(confirmCardSource, /role="alert"/);
   assert.match(confirmCardSource, /v-for="detail in structureRecoveryDetails"/);
-  assert.match(confirmCardSource, /@click="rangeEditorVisible = true"/);
+  assert.match(confirmCardSource, /@click="showRangeEditor"/);
   assert.match(confirmCardSource, /const visibleIssues = computed/);
   assert.match(confirmCardSource, /v-for="issue in visibleIssues"/);
 });
@@ -736,6 +784,340 @@ test("智能确认卡应保留 A1 范围并移除重复高级行列表单", () =
     confirmCardSource,
     /v-model="state\.isSpecificationOnly"/
   );
+});
+
+test("数据导入 Excel 确认页应启用同一草稿的内联行列与 A1 编辑器", () => {
+  assert.match(dataImportSource, /:inline-excel-region-editor="isExcelFile"/);
+  assert.match(
+    dataImportSource,
+    /applySmartConfigConfirmRequestToTable\(table, draft\)[\s\S]*getSmartStructureImportReadinessReason\(effectiveTable\)/
+  );
+  assert.match(
+    dataImportSource,
+    /const activeSmartStructureReadinessReason = computed\(\(\) => \{[\s\S]*smartConfirmDrafts\.value\[table\.tableIndex\][\s\S]*applySmartConfigConfirmRequestToTable\(table, draft\)[\s\S]*getSmartStructureImportReadinessReason\(effectiveTable\)/
+  );
+  assert.match(confirmTabsSource, /inlineExcelRegionEditor\?: boolean/);
+  assert.match(
+    confirmTabsSource,
+    /:inline-excel-region-editor="inlineExcelRegionEditor"/
+  );
+  assert.match(confirmCardSource, /import SmartStructureExcelRegionEditor/);
+  assert.match(
+    confirmCardSource,
+    /useInlineExcelEditor\.value[\s\S]*normalizeSmartStructureInlineExcelRegion\(region\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /const requestRegions = computed\(\(\) =>[\s\S]*activeRegions\.value\.map\(normalizeRegionForEditor\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /getRecognizedRegions\(\)[\s\S]*\.map\(normalizeRegionForEditor\)[\s\S]*\.map\(compactRegionStructure\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /v-if="useInlineExcelEditor"[\s\S]*:model-value="activeRegions"/
+  );
+  assert.match(confirmCardSource, /<Teleport to="body">/);
+  assert.match(
+    confirmCardSource,
+    /v-show="inlineEditorVisible"[\s\S]*role="dialog"[\s\S]*SmartStructureExcelRegionEditor/
+  );
+  assert.match(confirmCardSource, /inlineEditorVisible\.value = false/);
+  assert.doesNotMatch(
+    confirmCardSource,
+    /inlineEditorVisible\.value = !inlineEditorVisible\.value/
+  );
+  assert.match(confirmCardSource, /@update:model-value="handleRangesSave"/);
+  assert.match(
+    confirmCardSource,
+    /!allRegionsConfirmable\.value \|\|[\s\S]*structureValidationError\.value/
+  );
+  assert.match(
+    confirmCardSource,
+    /hasStructureChanges,[\s\S]*structureValidationError[\s\S]*emit\("draft-change", buildDraftRequest\(\)\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /<SmartStructureRangeEditorDrawer[\s\S]*v-if="!useInlineExcelEditor"/
+  );
+});
+
+test("Excel 单表头归一化必须计入结构变更，避免 AutoApply 跳过新草稿", () => {
+  assert.match(
+    confirmCardSource,
+    /const originalRegionStructures = computed\(\(\) =>[\s\S]*getRecognizedRegions\(\)[\s\S]*\.map\(compactRegionStructure\)/
+  );
+  const originalStructuresStart = confirmCardSource.indexOf(
+    "const originalRegionStructures"
+  );
+  const changesStart = confirmCardSource.indexOf(
+    "const regionsHaveChanges",
+    originalStructuresStart
+  );
+  const originalStructuresSource = confirmCardSource.slice(
+    originalStructuresStart,
+    changesStart
+  );
+  assert.doesNotMatch(originalStructuresSource, /normalizeRegionForEditor/);
+  assert.match(
+    dataImportSource,
+    /table\.decision !== "AutoApply" \|\|[\s\S]*Boolean\(request\?\.userModifiedStructure\)/
+  );
+});
+
+test("右侧抽屉应圈定焦点、恢复触发按钮并锁定背景滚动", () => {
+  assert.match(confirmCardSource, /onBeforeUnmount/);
+  assert.match(confirmCardSource, /const handleInlineDrawerKeydown/);
+  assert.match(confirmCardSource, /event\.key !== "Tab"/);
+  assert.match(confirmCardSource, /inlineDrawerTriggerRef/);
+  assert.match(confirmCardSource, /document\.body\.style\.overflow = "hidden"/);
+  assert.match(confirmCardSource, /restoreInlineDrawerEnvironment/);
+  assert.match(confirmCardSource, /@keydown="handleInlineDrawerKeydown"/);
+  assert.match(confirmCardSource, /@touchmove\.prevent/);
+  assert.match(
+    confirmCardSource,
+    /resetState\(\);[\s\S]*inlineEditorVisible\.value = true;[\s\S]*await nextTick\(\);[\s\S]*inlineDrawerRef\.value\?\.focus\(\)/
+  );
+  assert.match(
+    confirmCardSource,
+    /\.smart-structure-inline-drawer__body\s*\{[\s\S]*overscroll-behavior:\s*contain/
+  );
+});
+
+test("内联 Excel 区域编辑器只编辑数据行，并展示列映射、A1 与显式仅规格开关", () => {
+  assert.doesNotMatch(excelRegionEditorSource, />表头起始行</);
+  assert.doesNotMatch(excelRegionEditorSource, />表头行数</);
+  assert.match(excelRegionEditorSource, />数据起始行</);
+  assert.match(excelRegionEditorSource, />数据结束行</);
+  assert.match(excelRegionEditorSource, /表头固定取数据起始行的上一行/);
+  assert.match(
+    excelRegionEditorSource,
+    /field: "project"[\s\S]{0,80}label: "项目"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /field: "specification"[\s\S]{0,80}label: "规格"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /field: "acceptance"[\s\S]{0,80}label: "验收"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /field: "remark"[\s\S]{0,80}label: "备注"[\s\S]{0,100}required: true/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /:aria-label="`\$\{definition\.label\}起始单元格`"[\s\S]*:aria-label="`\$\{definition\.label\}结束单元格`"/
+  );
+  assert.match(excelRegionEditorSource, /仅规格表（没有独立项目列）/);
+  assert.match(excelRegionEditorSource, /setSmartStructureSpecificationOnly/);
+  assert.match(excelRegionEditorSource, /smart-structure-column-select-popper/);
+  assert.match(
+    excelRegionEditorSource,
+    /<span>数据起始行<\/span>[\s\S]*:min="rowInputLimits\(draft\)\.dataStartMinimum"[\s\S]*:max="rowInputLimits\(draft\)\.dataStartMaximum"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<span>数据结束行<\/span>[\s\S]*:min="rowInputLimits\(draft\)\.dataEndMinimum"[\s\S]*:max="rowInputLimits\(draft\)\.dataEndMaximum"/
+  );
+});
+
+test("Excel 范围抽屉默认按四列两行显示端点和起止单元格内容，其他配置展开后才可使用", () => {
+  assert.doesNotMatch(excelRegionEditorSource, />字段范围</);
+  assert.doesNotMatch(
+    excelRegionEditorSource,
+    /分别填写项目、规格、验收和备注的起止单元格/
+  );
+  assert.match(excelRegionEditorSource, /const detailsExpanded = ref\(false\)/);
+  assert.match(excelRegionEditorSource, /drawerOpen\?: boolean/);
+  assert.match(
+    excelRegionEditorSource,
+    /watch\([\s\S]*\(\) => props\.drawerOpen[\s\S]*detailsExpanded\.value = false/
+  );
+  const resetVersionAccessorStart = excelRegionEditorSource.indexOf(
+    "() => props.resetVersion"
+  );
+  const resetVersionWatchStart = excelRegionEditorSource.lastIndexOf(
+    "watch(",
+    resetVersionAccessorStart
+  );
+  const drawerOpenWatchStart = excelRegionEditorSource.indexOf(
+    "() => props.drawerOpen",
+    resetVersionWatchStart
+  );
+  const resetVersionWatchSource = excelRegionEditorSource.slice(
+    resetVersionWatchStart,
+    drawerOpenWatchStart
+  );
+  assert.match(resetVersionWatchSource, /detailsExpanded\.value = false/);
+  assert.match(resetVersionWatchSource, /resetFromModel\(\)/);
+  assert.match(
+    excelRegionEditorSource,
+    /:aria-expanded="detailsExpanded"[\s\S]*展开更多配置/
+  );
+  assert.match(excelRegionEditorSource, /:aria-controls="detailsControlIds"/);
+  assert.match(excelRegionEditorSource, /const detailsControlIds = computed\(/);
+  assert.match(excelRegionEditorSource, /details-toolbar/);
+  assert.match(excelRegionEditorSource, /details-region/);
+  assert.doesNotMatch(excelRegionEditorSource, /details-add/);
+  assert.match(
+    confirmCardSource,
+    /<SmartStructureExcelRegionEditor[\s\S]*:drawer-open="inlineEditorVisible"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<span\s+v-if="detailsExpanded"\s+class="excel-region-card__rows"/
+  );
+
+  const a1GridStart = excelRegionEditorSource.indexOf(
+    'class="excel-region-a1-grid"'
+  );
+  const detailsStart = excelRegionEditorSource.indexOf(
+    'class="excel-region-details"'
+  );
+  assert.notEqual(a1GridStart, -1);
+  assert.notEqual(detailsStart, -1);
+  assert.ok(a1GridStart < detailsStart);
+
+  const compactA1Source = excelRegionEditorSource.slice(
+    a1GridStart,
+    detailsStart
+  );
+  assert.match(
+    compactA1Source,
+    /v-for="definition in fieldDefinitions"[\s\S]*class="excel-region-a1-field"[\s\S]*class="excel-region-endpoint-row is-start"[\s\S]*class="excel-region-start-cell-value"[\s\S]*class="excel-region-endpoint-row is-end"/
+  );
+  assert.doesNotMatch(compactA1Source, /\{\{ definition\.label \}\}范围/);
+  assert.match(
+    compactA1Source,
+    /:placeholder="getA1EndpointPlaceholder\(definition, 'start'\)"[\s\S]*:placeholder="getA1EndpointPlaceholder\(definition, 'end'\)"/
+  );
+  assert.match(
+    compactA1Source,
+    /a1EndpointBuffers\[draft\.regionId\]\?\.\[definition\.field\]\?\.start[\s\S]*handleA1EndpointInput\([\s\S]*'start'[\s\S]*a1EndpointBuffers\[draft\.regionId\]\?\.\[definition\.field\]\?\.end[\s\S]*handleA1EndpointInput\([\s\S]*'end'/
+  );
+  assert.match(
+    compactA1Source,
+    /getStartCellContent\(draft, definition\.field\)/
+  );
+  assert.match(
+    compactA1Source,
+    /class="excel-region-endpoint-row is-end"[\s\S]*class="excel-region-end-cell-value"[\s\S]*getEndCellContent\(draft, definition\.field\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /const handleColumnChange[\s\S]*getColumnValue\(next, field\) !== currentColumn[\s\S]*scheduleHeaderLoad\(next\.regionId\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /const handleA1EndpointInput[\s\S]*getColumnValue\(result\.draft, field\) !== previousColumn[\s\S]*scheduleHeaderLoad\(result\.draft\.regionId\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /result\.draft\.dataEndRow !== draft\.dataEndRow/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /field === "dataStartRow" \|\| field === "dataEndRow"[\s\S]*scheduleHeaderLoad\(next\.regionId\)/
+  );
+  assert.match(
+    compactA1Source,
+    /:aria-errormessage="[\s\S]*getA1EndpointErrorId\([\s\S]*'start'[\s\S]*getA1EndpointErrorId\([\s\S]*'end'/
+  );
+  assert.doesNotMatch(compactA1Source, /<el-select/);
+  assert.doesNotMatch(compactA1Source, />数据起始行</);
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-a1-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-endpoint-row\.is-start\s*\{[\s\S]*grid-template-columns:\s*minmax\([^;]+;/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-endpoint-row\.is-end\s*\{[\s\S]*grid-template-columns:\s*minmax\([^;]+;/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-start-cell-value,\s*\.excel-region-end-cell-value\s*\{[\s\S]*text-overflow:\s*ellipsis/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /class="excel-region-editor__summary-actions"[\s\S]*@click="addRegion"[\s\S]*添加数据区域[\s\S]*:aria-expanded="detailsExpanded"/
+  );
+
+  const detailsSource = excelRegionEditorSource.slice(detailsStart);
+  assert.match(detailsSource, />数据起始行</);
+  assert.match(detailsSource, />数据结束行</);
+  assert.match(detailsSource, /<el-select/);
+  assert.match(detailsSource, /仅规格表（没有独立项目列）/);
+  assert.match(detailsSource, /复制[\s\S]*删除/);
+  assert.doesNotMatch(detailsSource, /添加数据区域/);
+});
+
+test("内联 Excel 编辑器应按数据起始行上一行刷新单行表头且不向上搜索", () => {
+  assert.match(
+    excelRegionEditorSource,
+    /createSmartStructureHeaderPreviewLoader/
+  );
+  assert.match(excelRegionEditorSource, /scheduleHeaderLoad/);
+  const validationStart = excelRegionEditorSource.indexOf(
+    "const firstValidationError"
+  );
+  const validationEnd = excelRegionEditorSource.indexOf(
+    "watch(firstValidationError"
+  );
+  assert.ok(validationStart >= 0 && validationEnd > validationStart);
+  const blockingValidationSource = excelRegionEditorSource.slice(
+    validationStart,
+    validationEnd
+  );
+  assert.match(
+    blockingValidationSource,
+    /resolveSmartStructureExcelBlockingValidationError/
+  );
+  assert.doesNotMatch(
+    blockingValidationSource,
+    /headerLoading|headerErrors/,
+    "端点内容预览属于只读提示，加载中或读取失败都不应阻断确认"
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /field === "dataStartRow"[\s\S]*scheduleHeaderLoad\(next\.regionId\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /refreshA1EndpointBuffers\(drafts\.value\);[\s\S]*scheduleHeaderLoad\(draft\.regionId\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /result\.draft\.dataStartRow !== draft\.dataStartRow[\s\S]*scheduleHeaderLoad\(result\.draft\.regionId\)/
+  );
+  assert.match(
+    excelHeaderPreviewSource,
+    /headerRowIndex:\s*input\.dataStartRow - input\.baseRow - 1,[\s\S]*headerRowCount:\s*1/
+  );
+  assert.doesNotMatch(
+    excelRegionEditorSource,
+    /findNearestSmartStructureHeaderRowIndex/
+  );
+  assert.doesNotMatch(excelRegionEditorSource, /searchEndRow/);
+});
+
+test("数据导入与智能填充 Excel 确认页应复用同一内联区域编辑器", () => {
+  const smartFillSource = readFileSync(
+    resolve(process.cwd(), "web/src/views/smart-fill/index.vue"),
+    "utf8"
+  );
+
+  assert.match(
+    confirmCardSource,
+    /useInlineExcelEditor\.value[\s\S]*normalizeSmartStructureInlineExcelRegion/
+  );
+  assert.match(smartFillSource, /:inline-excel-region-editor="isExcelFile"/);
 });
 
 test("高级预览应在写入共享配置前拒绝旧配置响应", () => {
