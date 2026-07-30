@@ -1321,9 +1321,17 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
     public async Task Confirm_WhenHeaderCoordinatesWereModified_ShouldRefreshHeadersAndReuseTemplate()
     {
         var customerId = await CreateCustomerAsync($"确认表头刷新-{Guid.NewGuid():N}");
+        var headerToken = Guid.NewGuid().ToString("N");
+        var correctedHeaders = new[]
+        {
+            $"修正项目{headerToken}",
+            $"修正规格{headerToken}",
+            $"修正验收{headerToken}",
+            $"修正备注{headerToken}"
+        };
         var fileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
             _client,
-            CreateHeaderCorrectionExcelBytes(),
+            CreateHeaderCorrectionExcelBytes(correctedHeaders),
             "smart-confirm-refresh-headers.xlsx");
 
         var confirmResponse = await _client.PostAsync("/api/smart-config/confirm", ApiClientJson.ToJsonContent(new
@@ -1358,19 +1366,19 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var template = await db.DocumentTemplates.SingleAsync(item => item.CustomerId == customerId);
             JsonSerializer.Deserialize<string[]>(template.HeadersJson)
-                .Should().Equal("新项目", "新规格", "新验收", "新备注");
+                .Should().Equal(correctedHeaders);
 
             var learnedPatterns = await db.ColumnMappingRules
                 .Where(rule => rule.CustomerId == customerId && rule.Source == ColumnMappingRuleSource.Learned)
                 .OrderBy(rule => rule.TargetField)
                 .Select(rule => rule.Pattern)
                 .ToListAsync();
-            learnedPatterns.Should().Equal("新项目", "新规格", "新验收", "新备注");
+            learnedPatterns.Should().Equal(correctedHeaders);
         }
 
         var reuseFileId = await SmartConfigRecognizeTestFiles.UploadExcelAsync(
             _client,
-            CreateCleanCorrectedHeaderExcelBytes(),
+            CreateCleanCorrectedHeaderExcelBytes(correctedHeaders),
             "smart-confirm-reuse-refreshed-template.xlsx");
         var recognizeResponse = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
         {
@@ -1383,19 +1391,27 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
         table.GetProperty("source").GetString().Should().Be("Template");
         table.GetProperty("headers").EnumerateArray().Select(item => item.GetString())
-            .Should().Equal("新项目", "新规格", "新验收", "新备注");
+            .Should().Equal(correctedHeaders);
     }
 
     [Fact]
     public async Task Confirm_WhenWordHeaderCoordinatesWereModified_ShouldRefreshHeadersAndLearnedRules()
     {
         var customerId = await CreateCustomerAsync($"确认Word表头刷新-{Guid.NewGuid():N}");
+        var headerToken = Guid.NewGuid().ToString("N");
+        var correctedHeaders = new[]
+        {
+            $"Word项目{headerToken}",
+            $"Word规格{headerToken}",
+            $"Word验收{headerToken}",
+            $"Word备注{headerToken}"
+        };
         var fileId = await SmartConfigRecognizeTestFiles.UploadWordAsync(
             _client,
             SmartConfigRecognizeTestFiles.CreateWordBytes(
             [
                 ["旧项目", "旧规格", "旧验收", "旧备注"],
-                ["新项目", "新规格", "新验收", "新备注"],
+                correctedHeaders,
                 ["外观", "无划伤", "OK", "抽检"]
             ]),
             "smart-confirm-refresh-word-headers.docx");
@@ -1431,13 +1447,13 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var template = await db.DocumentTemplates.SingleAsync(item => item.CustomerId == customerId);
         JsonSerializer.Deserialize<string[]>(template.HeadersJson)
-            .Should().Equal("新项目", "新规格", "新验收", "新备注");
+            .Should().Equal(correctedHeaders);
         var learnedPatterns = await db.ColumnMappingRules
             .Where(rule => rule.CustomerId == customerId && rule.Source == ColumnMappingRuleSource.Learned)
             .OrderBy(rule => rule.TargetField)
             .Select(rule => rule.Pattern)
             .ToListAsync();
-        learnedPatterns.Should().Equal("新项目", "新规格", "新验收", "新备注");
+        learnedPatterns.Should().Equal(correctedHeaders);
     }
 
     private async Task<int> CreateCustomerAsync(string name)
@@ -1448,7 +1464,7 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
         return json.Data.GetProperty("id").GetInt32();
     }
 
-    private static byte[] CreateHeaderCorrectionExcelBytes()
+    private static byte[] CreateHeaderCorrectionExcelBytes(IReadOnlyList<string> correctedHeaders)
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("验收表");
@@ -1456,10 +1472,10 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
         worksheet.Cell(1, 2).Value = "旧规格";
         worksheet.Cell(1, 3).Value = "旧验收";
         worksheet.Cell(1, 4).Value = "旧备注";
-        worksheet.Cell(2, 1).Value = "新项目";
-        worksheet.Cell(2, 2).Value = "新规格";
-        worksheet.Cell(2, 3).Value = "新验收";
-        worksheet.Cell(2, 4).Value = "新备注";
+        worksheet.Cell(2, 1).Value = correctedHeaders[0];
+        worksheet.Cell(2, 2).Value = correctedHeaders[1];
+        worksheet.Cell(2, 3).Value = correctedHeaders[2];
+        worksheet.Cell(2, 4).Value = correctedHeaders[3];
         worksheet.Cell(3, 1).Value = "外观";
         worksheet.Cell(3, 2).Value = "无划伤";
         worksheet.Cell(3, 3).Value = "OK";
@@ -1470,14 +1486,14 @@ public class SmartConfigConfirmHeaderRefreshRegressionTests : IClassFixture<ApiW
         return stream.ToArray();
     }
 
-    private static byte[] CreateCleanCorrectedHeaderExcelBytes()
+    private static byte[] CreateCleanCorrectedHeaderExcelBytes(IReadOnlyList<string> correctedHeaders)
     {
         using var workbook = new XLWorkbook();
         var worksheet = workbook.AddWorksheet("验收表");
-        worksheet.Cell(1, 1).Value = "新项目";
-        worksheet.Cell(1, 2).Value = "新规格";
-        worksheet.Cell(1, 3).Value = "新验收";
-        worksheet.Cell(1, 4).Value = "新备注";
+        worksheet.Cell(1, 1).Value = correctedHeaders[0];
+        worksheet.Cell(1, 2).Value = correctedHeaders[1];
+        worksheet.Cell(1, 3).Value = correctedHeaders[2];
+        worksheet.Cell(1, 4).Value = correctedHeaders[3];
         worksheet.Cell(2, 1).Value = "外观";
         worksheet.Cell(2, 2).Value = "无划伤";
         worksheet.Cell(2, 3).Value = "OK";

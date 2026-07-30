@@ -5,8 +5,8 @@ using AcceptanceSpecSystem.Core.TextProcessing.Services;
 namespace AcceptanceSpecSystem.Core.Documents.Intelligence.Strategies;
 
 /// <summary>
-/// 为列头规则学习、匹配和结构模板指纹提供同一套稳定文本身份。
-/// 原始文本仍用于界面展示；这里只用于比较与去重。
+/// 为列头规则匹配提供跨简繁体和空白差异的稳定文本身份。
+/// 原始文本仍用于界面展示；这里只用于规则比较。
 /// </summary>
 public static class ColumnHeaderTextCanonicalizer
 {

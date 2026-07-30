@@ -101,6 +101,7 @@ secrets.json
 .claude/backups/
 .claude/logs/
 .superpowers/
+/.tmp/
 .tmpbuild/
 artifacts/
 .artifacts/

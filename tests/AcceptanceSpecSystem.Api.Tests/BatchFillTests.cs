@@ -273,7 +273,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         GetCellText(filledBytes, 1, 1, 2).Should().Be("FILL-B");
         GetCellText(filledBytes, 1, 1, 3).Should().Be("REM-B");
 
-        await AssertLearnedColumnMappingRulesAsync(customerId, new[]
+        await AssertEffectiveColumnMappingRulesAsync(customerId, new[]
         {
             ("项目", ColumnMappingTargetField.Project),
             ("规格", ColumnMappingTargetField.Specification),
@@ -627,7 +627,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         return json.Data.GetProperty("id").GetInt32();
     }
 
-    private async Task AssertLearnedColumnMappingRulesAsync(
+    private async Task AssertEffectiveColumnMappingRulesAsync(
         int customerId,
         IEnumerable<(string Pattern, ColumnMappingTargetField TargetField)> expectedRules)
     {
@@ -635,16 +635,31 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         foreach (var (pattern, targetField) in expectedRules)
         {
-            var rule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+            var normalizedPattern = ColumnMappingRule.NormalizePattern(pattern);
+            var globalRule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
+                item.CustomerId == null &&
+                item.NormalizedPattern == normalizedPattern &&
+                item.TargetField == targetField &&
+                item.Enabled);
+            var customerRule = await db.ColumnMappingRules.SingleOrDefaultAsync(item =>
                 item.CustomerId == customerId &&
-                item.Pattern == pattern &&
+                item.NormalizedPattern == normalizedPattern &&
                 item.TargetField == targetField);
 
-            rule.Should().NotBeNull();
-            rule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
-            rule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
-            rule.Priority.Should().BeGreaterThanOrEqualTo(100);
-            rule.Enabled.Should().BeTrue();
+            if (globalRule != null)
+            {
+                globalRule.MatchMode.Should().BeOneOf(
+                    ColumnMappingMatchMode.Equals,
+                    ColumnMappingMatchMode.Contains);
+                customerRule.Should().BeNull("全局规则已经覆盖时不应保留重复的客户学习规则");
+                continue;
+            }
+
+            customerRule.Should().NotBeNull();
+            customerRule!.Source.Should().Be(ColumnMappingRuleSource.Learned);
+            customerRule.MatchMode.Should().Be(ColumnMappingMatchMode.Equals);
+            customerRule.Priority.Should().BeGreaterThanOrEqualTo(100);
+            customerRule.Enabled.Should().BeTrue();
         }
     }
 

@@ -64,12 +64,12 @@ public class SmartConfigRecognizeLearningRuleApiTests : IClassFixture<ApiWebAppl
     public async Task Recognize_WithEqualsRule_ShouldNotMatchLongerHeader()
     {
         var customerId = await CreateCustomerAsync("精确规则语义客户");
-        await CreateColumnRuleAsync(customerId, "检查对象", targetField: 1, matchMode: 2);
+        await CreateColumnRuleAsync(customerId, "甲类专栏", targetField: 1, matchMode: 2);
         await CreateColumnRuleAsync(customerId, "管制条件", targetField: 2, matchMode: 2);
         await CreateColumnRuleAsync(customerId, "供应商回复", targetField: 3, matchMode: 2);
         await CreateColumnRuleAsync(customerId, "补充说明", targetField: 4, matchMode: 2);
         var fileId = await UploadExcelAsync(
-            CreateLearningRuleExcelBytes("检查对象说明"),
+            CreateLearningRuleExcelBytes("甲类专栏扩展"),
             "smart-recognize-equals-rule.xlsx");
 
         var response = await _client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
