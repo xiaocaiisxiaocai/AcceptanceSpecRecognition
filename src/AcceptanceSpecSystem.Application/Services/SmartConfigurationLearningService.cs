@@ -18,13 +18,34 @@ public sealed class SmartConfigurationLearningService
         _options = options.Value;
     }
 
-    public async Task<SmartConfigurationLearningResult> ApplyLearningAsync(
+    public Task<SmartConfigurationLearningResult> ApplyLearningAsync(
         int customerId,
         string? tableName,
         string? tableKind,
         string? recommendation,
         IReadOnlyList<SmartConfigurationLearnedColumn> learnedColumns,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        ApplyLearningCoreAsync(
+            customerId,
+            learnedColumns,
+            cancellationToken,
+            operationLocksAlreadyHeld: false);
+
+    internal Task<SmartConfigurationLearningResult> ApplyLearningWithLocksHeldAsync(
+        int customerId,
+        IReadOnlyList<SmartConfigurationLearnedColumn> learnedColumns,
+        CancellationToken cancellationToken) =>
+        ApplyLearningCoreAsync(
+            customerId,
+            learnedColumns,
+            cancellationToken,
+            operationLocksAlreadyHeld: true);
+
+    private async Task<SmartConfigurationLearningResult> ApplyLearningCoreAsync(
+        int customerId,
+        IReadOnlyList<SmartConfigurationLearnedColumn> learnedColumns,
+        CancellationToken cancellationToken,
+        bool operationLocksAlreadyHeld)
     {
         var learnedRuleCount = 0;
         var promotedGlobalRuleCount = 0;
@@ -36,19 +57,36 @@ public sealed class SmartConfigurationLearningService
                 continue;
             }
 
-            if (await UpsertCustomerLearnedRuleAsync(
+            var normalizedPattern = ColumnMappingRule.NormalizePattern(pattern);
+            SmartConfigurationColumnLearningResult columnResult;
+            if (operationLocksAlreadyHeld)
+            {
+                columnResult = await ApplyColumnLearningAsync(
                     customerId,
                     pattern,
+                    normalizedPattern,
                     learnedColumn.TargetField,
-                    cancellationToken))
+                    cancellationToken);
+            }
+            else
+            {
+                await using var patternLock = await _unitOfWork.AcquireOperationLockAsync(
+                    BuildOperationLockKey(normalizedPattern),
+                    cancellationToken);
+                columnResult = await ApplyColumnLearningAsync(
+                    customerId,
+                    pattern,
+                    normalizedPattern,
+                    learnedColumn.TargetField,
+                    cancellationToken);
+            }
+
+            if (columnResult.LearnedRuleCreated)
             {
                 learnedRuleCount++;
             }
 
-            if (await PromoteGlobalRuleIfReadyAsync(
-                    pattern,
-                    learnedColumn.TargetField,
-                    cancellationToken))
+            if (columnResult.GlobalRulePromoted)
             {
                 promotedGlobalRuleCount++;
             }
@@ -58,6 +96,96 @@ public sealed class SmartConfigurationLearningService
             learnedRuleCount,
             promotedGlobalRuleCount);
     }
+
+    internal async Task<IAsyncDisposable> AcquireOperationLocksAsync(
+        IReadOnlyList<SmartConfigurationLearnedColumn> learnedColumns,
+        CancellationToken cancellationToken)
+    {
+        var normalizedPatterns = learnedColumns
+            .Select(column => ColumnMappingRule.NormalizePattern(column.Header))
+            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(pattern => pattern, StringComparer.Ordinal)
+            .ToList();
+        var leases = new List<IAsyncDisposable>(normalizedPatterns.Count);
+        try
+        {
+            foreach (var normalizedPattern in normalizedPatterns)
+            {
+                leases.Add(await _unitOfWork.AcquireOperationLockAsync(
+                    BuildOperationLockKey(normalizedPattern),
+                    cancellationToken));
+            }
+
+            return new CompositeOperationLockLease(leases);
+        }
+        catch
+        {
+            for (var index = leases.Count - 1; index >= 0; index--)
+            {
+                try
+                {
+                    await leases[index].DisposeAsync();
+                }
+                catch
+                {
+                    // 获取后续锁失败时保留原始异常，同时尽力释放已取得的锁。
+                }
+            }
+
+            throw;
+        }
+    }
+
+    private async Task<SmartConfigurationColumnLearningResult> ApplyColumnLearningAsync(
+        int customerId,
+        string pattern,
+        string normalizedPattern,
+        ColumnMappingTargetField targetField,
+        CancellationToken cancellationToken)
+    {
+        if (await HasCoveringGlobalRuleAsync(
+                normalizedPattern,
+                targetField,
+                cancellationToken))
+        {
+            await RemoveRedundantCustomerLearnedRulesAsync(
+                normalizedPattern,
+                targetField,
+                cancellationToken);
+            return new SmartConfigurationColumnLearningResult(false, false);
+        }
+
+        var learnedRuleCreated = await UpsertCustomerLearnedRuleAsync(
+            customerId,
+            pattern,
+            targetField,
+            cancellationToken);
+        var globalRulePromoted = await PromoteGlobalRuleIfReadyAsync(
+            pattern,
+            targetField,
+            cancellationToken);
+
+        // 唯一索引仍是跨实例并发提升的最终裁决者。无论本请求是否为赢家，
+        // 只要现在已有可安全覆盖的全局规则，就在同一匹配词锁内收敛客户副本。
+        if (await HasCoveringGlobalRuleAsync(
+                normalizedPattern,
+                targetField,
+                cancellationToken))
+        {
+            await RemoveRedundantCustomerLearnedRulesAsync(
+                normalizedPattern,
+                targetField,
+                cancellationToken);
+        }
+
+        return new SmartConfigurationColumnLearningResult(
+            learnedRuleCreated,
+            globalRulePromoted);
+    }
+
+    private static string BuildOperationLockKey(string normalizedPattern) =>
+        $"column-mapping-learning:{normalizedPattern}";
 
     private async Task<bool> UpsertCustomerLearnedRuleAsync(
         int customerId,
@@ -123,6 +251,43 @@ public sealed class SmartConfigurationLearningService
 
             return false;
         }
+    }
+
+    private Task<bool> HasCoveringGlobalRuleAsync(
+        string normalizedPattern,
+        ColumnMappingTargetField targetField,
+        CancellationToken cancellationToken) =>
+        _unitOfWork.ColumnMappingRules.Query()
+            .AnyAsync(rule =>
+                rule.CustomerId == null &&
+                rule.Enabled &&
+                rule.TargetField == targetField &&
+                rule.NormalizedPattern == normalizedPattern &&
+                (rule.MatchMode == ColumnMappingMatchMode.Equals ||
+                 rule.MatchMode == ColumnMappingMatchMode.Contains),
+                cancellationToken);
+
+    private async Task RemoveRedundantCustomerLearnedRulesAsync(
+        string normalizedPattern,
+        ColumnMappingTargetField targetField,
+        CancellationToken cancellationToken)
+    {
+        var redundantRules = await _unitOfWork.ColumnMappingRules.Query(asNoTracking: false)
+            .Where(rule =>
+                rule.CustomerId != null &&
+                rule.Enabled &&
+                rule.Source == ColumnMappingRuleSource.Learned &&
+                rule.MatchMode == ColumnMappingMatchMode.Equals &&
+                rule.TargetField == targetField &&
+                rule.NormalizedPattern == normalizedPattern)
+            .ToListAsync(cancellationToken);
+        if (redundantRules.Count == 0)
+        {
+            return;
+        }
+
+        _unitOfWork.ColumnMappingRules.RemoveRange(redundantRules);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<bool> PromoteGlobalRuleIfReadyAsync(
@@ -197,7 +362,48 @@ public sealed class SmartConfigurationLearningService
                 rule.TargetField == targetField &&
                 rule.NormalizedPattern == normalizedPattern,
                 cancellationToken);
+
+    private sealed class CompositeOperationLockLease : IAsyncDisposable
+    {
+        private List<IAsyncDisposable>? _leases;
+
+        public CompositeOperationLockLease(List<IAsyncDisposable> leases)
+        {
+            _leases = leases;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            var leases = Interlocked.Exchange(ref _leases, null);
+            if (leases is null)
+            {
+                return;
+            }
+
+            Exception? firstException = null;
+            for (var index = leases.Count - 1; index >= 0; index--)
+            {
+                try
+                {
+                    await leases[index].DisposeAsync();
+                }
+                catch (Exception exception)
+                {
+                    firstException ??= exception;
+                }
+            }
+
+            if (firstException is not null)
+            {
+                throw firstException;
+            }
+        }
+    }
 }
+
+internal sealed record SmartConfigurationColumnLearningResult(
+    bool LearnedRuleCreated,
+    bool GlobalRulePromoted);
 
 public sealed record SmartConfigurationLearningResult(
     int LearnedRuleCount,

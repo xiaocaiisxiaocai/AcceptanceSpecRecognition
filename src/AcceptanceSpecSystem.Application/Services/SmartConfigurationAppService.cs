@@ -2205,6 +2205,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             await using var templateOperationLock = await _unitOfWork.AcquireOperationLockAsync(
                 $"document-template:{command.CustomerId}",
                 cancellationToken);
+            await using var learningOperationLocks = await _learningService.AcquireOperationLocksAsync(
+                effectiveLearnedColumns,
+                cancellationToken);
             await _unitOfWork.BeginTransactionAsync(cancellationToken);
             try
             {
@@ -2233,11 +2236,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     templateRegions,
                     operationLockAlreadyHeld: true);
 
-                var learningResult = await _learningService.ApplyLearningAsync(
+                var learningResult = await _learningService.ApplyLearningWithLocksHeldAsync(
                     command.CustomerId,
-                    command.TemplateName,
-                    command.TableKind,
-                    command.Recommendation,
                     effectiveLearnedColumns,
                     cancellationToken);
 
