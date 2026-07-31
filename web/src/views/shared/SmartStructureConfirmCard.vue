@@ -1117,8 +1117,9 @@ const emitConfirm = () => {
 
 .range-values {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
+  align-items: flex-start;
 }
 
 .range-interval {
