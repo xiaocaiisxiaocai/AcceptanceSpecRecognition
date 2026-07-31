@@ -754,7 +754,9 @@ export function useDataImportPage(
     }
   };
 
-  const loadFullPreviewData = async () => {
+  type FullPreviewLoadResult = "success" | "retry" | "failed";
+
+  const loadFullPreviewData = async (): Promise<FullPreviewLoadResult> => {
     const pendingConfigs = tableConfigs.value.filter(
       cfg =>
         !cfg.previewData ||
@@ -762,7 +764,7 @@ export function useDataImportPage(
     );
 
     if (pendingConfigs.length === 0) {
-      return true;
+      return "success";
     }
 
     const loading = ElLoading.service({
@@ -779,10 +781,14 @@ export function useDataImportPage(
         );
         cfg.previewData = await loadPreviewData(cfg, 0);
       }
-      return true;
+      return "success";
     } catch (error) {
-      ElMessage.error(getRequestErrorMessage(error, "加载导入预览失败"));
-      return false;
+      const message = getRequestErrorMessage(error, "加载导入预览失败");
+      if (message.includes("预览配置已更新")) {
+        return "retry";
+      }
+      ElMessage.error(message);
+      return "failed";
     } finally {
       loading.close();
     }
@@ -794,7 +800,17 @@ export function useDataImportPage(
       return fullPreviewLoadPromise;
     }
 
-    fullPreviewLoadPromise = loadFullPreviewData();
+    fullPreviewLoadPromise = (async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const result = await loadFullPreviewData();
+        if (result === "success") return true;
+        if (result === "failed") return false;
+        await Promise.resolve();
+      }
+
+      ElMessage.warning("预览配置仍在更新，请稍后重试");
+      return false;
+    })();
     try {
       return await fullPreviewLoadPromise;
     } finally {
@@ -818,6 +834,7 @@ export function useDataImportPage(
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,
+    previewSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     prepareAdvancedTableConfig,
     syncAdvancedConfigsToRecognizedTables,
@@ -1502,6 +1519,7 @@ export function useDataImportPage(
     llmSelection,
     importPreviewGroups,
     removedPreviewRowCount,
+    importPreviewSelectionKeys,
     selectedImportPreviewRowsCount,
     irrelevantPreviewRowCount,
     allIrrelevantPreviewRowsSelected,
@@ -1518,6 +1536,7 @@ export function useDataImportPage(
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,
+    previewSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     enterAdvancedMode,
     exitAdvancedMode,

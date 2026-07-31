@@ -103,5 +103,17 @@ describe("useDataImportPreviewSelection", () => {
 
     expect(state.allIrrelevantPreviewRowsSelected.value).toBe(false);
     expect(state.importPreviewSelectionKeys.value).toEqual([rows[2].key]);
+
+    state.handleImportPreviewSelectionChange(0, [rows[0]], [rows[0], rows[1]]);
+    expect(state.importPreviewSelectionKeys.value).toEqual([
+      rows[2].key,
+      rows[0].key
+    ]);
+
+    state.handleImportPreviewSelectionChange(0, [rows[3]], [rows[2], rows[3]]);
+    expect(state.importPreviewSelectionKeys.value).toEqual([
+      rows[0].key,
+      rows[3].key
+    ]);
   });
 });

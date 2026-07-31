@@ -26,7 +26,7 @@ import {
   mergeSkippedPreviewCellValues,
   shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
-import { isAcceptanceAndRemarkBlank } from "../composables/useDataImportPreviewSelection";
+import DataImportPreviewPanel from "./DataImportPreviewPanel.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -57,6 +57,7 @@ const props = withDefaults(
     embeddingSelection: AiServiceSelection;
     llmSelection: AiServiceSelection;
     removedPreviewRowCount: number;
+    selectedImportPreviewRowKeys: string[];
     selectedImportPreviewRowsCount: number;
     irrelevantPreviewRowCount: number;
     allIrrelevantPreviewRowsSelected: boolean;
@@ -75,10 +76,12 @@ const props = withDefaults(
     skippedRowsGroups: SkippedRowsGroup[];
     showImportAction?: boolean;
     allowEmptyPreviewAction?: boolean;
+    showPreviewList?: boolean;
   }>(),
   {
     showImportAction: true,
-    allowEmptyPreviewAction: false
+    allowEmptyPreviewAction: false,
+    showPreviewList: true
   }
 );
 
@@ -88,7 +91,11 @@ const emit = defineEmits<{
   removeSelectedPreviewRows: [];
   restoreRemovedPreviewRows: [];
   selectIrrelevantRowsChange: [selected: boolean];
-  importPreviewSelectionChange: [tableIndex: number, rows: ImportPreviewRow[]];
+  importPreviewSelectionChange: [
+    tableIndex: number,
+    rows: ImportPreviewRow[],
+    visibleRows?: ImportPreviewRow[]
+  ];
   removeSinglePreviewRow: [row: ImportPreviewRow];
   loadFullPreview: [];
   import: [];
@@ -99,17 +106,6 @@ const emit = defineEmits<{
 const duplicateAiConfig = computed(() => props.importDuplicateAiConfig);
 const activeCollapseNames = ref<string[]>([]);
 const showDuplicateAdvanced = ref(false);
-type PreviewSelectionTable = {
-  toggleRowSelection: (row: ImportPreviewRow, selected?: boolean) => void;
-};
-const importPreviewTableRefs = new Map<number, PreviewSelectionTable>();
-const setImportPreviewTableRef = (tableIndex: number, instance: unknown) => {
-  if (!instance) {
-    importPreviewTableRefs.delete(tableIndex);
-    return;
-  }
-  importPreviewTableRefs.set(tableIndex, instance as PreviewSelectionTable);
-};
 type SkippedSheetRow = SkippedRowsGroup["rows"][number] & {
   projectValue: string;
   specificationValue: string;
@@ -283,17 +279,6 @@ watch(
   }
 );
 
-const handleSelectIrrelevantRowsChange = (value: boolean | string | number) => {
-  const selected = value === true;
-  emit("selectIrrelevantRowsChange", selected);
-  props.importPreviewGroups.forEach(group => {
-    const table = importPreviewTableRefs.get(group.tableIndex);
-    if (!table) return;
-    group.rows
-      .filter(isAcceptanceAndRemarkBlank)
-      .forEach(row => table.toggleRowSelection(row, selected));
-  });
-};
 const hasSpecificationOnlyBackfillTables = computed(() =>
   props.tableConfigs.some(shouldBackfillProjectFromSpecification)
 );
@@ -869,7 +854,7 @@ const importResultPresentation = computed(() => {
         </div>
       </el-collapse-item>
 
-      <el-collapse-item name="preview-list">
+      <el-collapse-item v-if="showPreviewList" name="preview-list">
         <template #title>
           <div class="collapse-title">
             <span class="collapse-title__main">待导入清单</span>
@@ -881,175 +866,42 @@ const importResultPresentation = computed(() => {
             </span>
           </div>
         </template>
-        <div class="import-preview-panel">
-          <div class="import-preview-toolbar">
-            <div class="import-preview-summary">
-              <div class="preview-metric primary">
-                <strong>{{ previewDataCount }}</strong>
-                <span>待导入</span>
-              </div>
-              <div class="preview-metric">
-                <strong>{{ previewLoadState.loadedRows }}</strong>
-                <span>当前显示</span>
-              </div>
-              <div
-                v-if="removedPreviewRowCount > 0"
-                class="preview-metric warning"
-              >
-                <strong>{{ removedPreviewRowCount }}</strong>
-                <span>已移出</span>
-              </div>
-            </div>
-            <div class="import-preview-actions">
-              <el-tooltip content="验收列和备注列同时为空" placement="top">
-                <el-checkbox
-                  :model-value="allIrrelevantPreviewRowsSelected"
-                  :indeterminate="someIrrelevantPreviewRowsSelected"
-                  :disabled="
-                    previewLoadState.hasPartialPreview ||
-                    hasPendingDifferenceConfirmation ||
-                    irrelevantPreviewRowCount === 0
-                  "
-                  @change="handleSelectIrrelevantRowsChange"
-                >
-                  选中无关项
-                  <span v-if="irrelevantPreviewRowCount > 0">
-                    （{{ irrelevantPreviewRowCount }}）
-                  </span>
-                </el-checkbox>
-              </el-tooltip>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                :disabled="
-                  previewLoadState.hasPartialPreview ||
-                  hasPendingDifferenceConfirmation ||
-                  selectedImportPreviewRowsCount === 0
-                "
-                @click="emit('removeSelectedPreviewRows')"
-              >
-                移出所选（{{ selectedImportPreviewRowsCount }}）
-              </el-button>
-              <el-button
-                size="small"
-                :disabled="
-                  hasPendingDifferenceConfirmation ||
-                  removedPreviewRowCount === 0
-                "
-                @click="emit('restoreRemovedPreviewRows')"
-              >
-                恢复移出项
-              </el-button>
-            </div>
-          </div>
-
-          <div class="import-preview-note">
-            <el-icon><InfoFilled /></el-icon>
-            <span>
-              移出仅影响本次导入，不会修改原文件。
-              <template v-if="previewLoadState.hasPartialPreview">
-                当前为前
-                {{ previewLoadState.loadedRows }}
-                条预览，导入前会自动补齐完整数据。
-              </template>
-            </span>
-          </div>
-
-          <div v-if="previewDataCount > 0" class="import-preview-groups">
-            <div
-              v-for="group in importPreviewGroups"
-              :key="`import-preview-${group.tableIndex}`"
-              class="import-preview-group"
-            >
-              <div class="import-preview-group__header">
-                <span>{{ group.label }}</span>
-                <span class="group-count">保留 {{ group.rows.length }} 条</span>
-              </div>
-              <el-table
-                :ref="
-                  instance =>
-                    setImportPreviewTableRef(group.tableIndex, instance)
-                "
-                :data="group.rows"
-                border
-                size="small"
-                row-key="key"
-                reserve-selection
-                @selection-change="
-                  rows =>
-                    emit('importPreviewSelectionChange', group.tableIndex, rows)
-                "
-              >
-                <el-table-column type="selection" width="48" />
-                <el-table-column
-                  prop="displayRowNumber"
-                  label="行号"
-                  width="80"
-                />
-                <el-table-column
-                  prop="project"
-                  label="项目"
-                  min-width="140"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    {{ row.project || "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  prop="specification"
-                  label="规格"
-                  min-width="260"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    {{ row.specification || "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  prop="acceptance"
-                  label="验收"
-                  min-width="160"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    {{ row.acceptance || "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column
-                  prop="remark"
-                  label="备注"
-                  min-width="160"
-                  show-overflow-tooltip
-                >
-                  <template #default="{ row }">
-                    {{ row.remark || "-" }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="100" fixed="right">
-                  <template #default="{ row }">
-                    <el-button
-                      type="danger"
-                      link
-                      :disabled="
-                        previewLoadState.hasPartialPreview ||
-                        hasPendingDifferenceConfirmation
-                      "
-                      @click="emit('removeSinglePreviewRow', row)"
-                    >
-                      移出
-                    </el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-          </div>
-          <el-empty
-            v-else
-            description="当前没有待导入数据，可恢复已删除数据或返回上一步调整配置。"
-          />
-        </div>
+        <DataImportPreviewPanel
+          :preview-data-count="previewDataCount"
+          :preview-load-state="previewLoadState"
+          :removed-preview-row-count="removedPreviewRowCount"
+          :selected-import-preview-row-keys="selectedImportPreviewRowKeys"
+          :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
+          :irrelevant-preview-row-count="irrelevantPreviewRowCount"
+          :all-irrelevant-preview-rows-selected="
+            allIrrelevantPreviewRowsSelected
+          "
+          :some-irrelevant-preview-rows-selected="
+            someIrrelevantPreviewRowsSelected
+          "
+          :import-preview-groups="importPreviewGroups"
+          :has-pending-difference-confirmation="
+            hasPendingDifferenceConfirmation
+          "
+          @remove-selected-preview-rows="emit('removeSelectedPreviewRows')"
+          @restore-removed-preview-rows="emit('restoreRemovedPreviewRows')"
+          @select-irrelevant-rows-change="
+            selected => emit('selectIrrelevantRowsChange', selected)
+          "
+          @import-preview-selection-change="
+            (tableIndex, rows, visibleRows) =>
+              emit(
+                'importPreviewSelectionChange',
+                tableIndex,
+                rows,
+                visibleRows
+              )
+          "
+          @remove-single-preview-row="
+            row => emit('removeSinglePreviewRow', row)
+          "
+          @load-full-preview="emit('loadFullPreview')"
+        />
       </el-collapse-item>
     </el-collapse>
   </div>
@@ -1794,134 +1646,6 @@ const importResultPresentation = computed(() => {
   color: var(--app-text-secondary);
 }
 
-.import-preview-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.import-preview-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 14px;
-  background: var(--el-fill-color-extra-light);
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-}
-
-.import-preview-summary,
-.import-preview-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.import-preview-summary {
-  gap: 0;
-}
-
-.preview-metric {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-  padding: 0 14px;
-  color: var(--app-text-secondary);
-  border-left: 1px solid var(--app-border);
-}
-
-.preview-metric:first-child {
-  padding-left: 0;
-  border-left: 0;
-}
-
-.preview-metric strong {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--app-text-primary);
-  letter-spacing: -0.03em;
-}
-
-.preview-metric span {
-  font-size: 12px;
-}
-
-.preview-metric.primary strong {
-  color: var(--app-primary);
-}
-
-.preview-metric.warning strong {
-  color: var(--app-warning);
-}
-
-.import-preview-actions {
-  gap: 8px;
-}
-
-.import-preview-actions :deep(.el-checkbox) {
-  margin-right: 8px;
-}
-
-.import-preview-note {
-  display: flex;
-  gap: 7px;
-  align-items: flex-start;
-  padding: 0 2px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--app-text-secondary);
-}
-
-.import-preview-note .el-icon {
-  flex: 0 0 auto;
-  margin-top: 3px;
-  color: var(--el-color-info);
-}
-
-.import-preview-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.import-preview-group {
-  overflow: hidden;
-  background: var(--app-bg-card);
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-}
-
-.import-preview-group__header {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text-primary);
-  background: var(--el-fill-color-extra-light);
-  border-bottom: 1px solid var(--app-border);
-}
-
-.group-count {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--app-text-secondary);
-}
-
-.import-preview-group :deep(.el-table) {
-  --el-table-border-color: var(--app-border);
-
-  border: 0;
-}
-
-.import-preview-group :deep(.el-table__inner-wrapper::before) {
-  display: none;
-}
-
 @media (width <= 900px) {
   .result-overview {
     grid-template-columns: 1fr;
@@ -1959,21 +1683,6 @@ const importResultPresentation = computed(() => {
   .duplicate-ai-panel__header,
   .llm-toggle {
     align-items: flex-start;
-  }
-
-  .import-preview-toolbar {
-    align-items: stretch;
-  }
-
-  .import-preview-summary,
-  .import-preview-actions {
-    width: 100%;
-  }
-
-  .import-preview-actions :deep(.el-button) {
-    flex: 1;
-    min-height: 40px;
-    margin-left: 0;
   }
 }
 
@@ -2056,10 +1765,6 @@ const importResultPresentation = computed(() => {
   .duplicate-ai-summary__services {
     width: 100%;
     text-align: left;
-  }
-
-  .preview-metric {
-    padding: 0 10px;
   }
 }
 

@@ -192,10 +192,16 @@ export function useDataImportPreviewSelection(
 
   const handleImportPreviewSelectionChange = (
     tableIndex: number,
-    rows: ImportPreviewRow[]
+    rows: ImportPreviewRow[],
+    visibleRows?: ImportPreviewRow[]
   ) => {
-    const remainingKeys = importPreviewSelectionKeys.value.filter(
-      key => !key.startsWith(`${tableIndex}:`)
+    const visibleRowKeys = visibleRows
+      ? new Set(visibleRows.map(row => row.key))
+      : null;
+    const remainingKeys = importPreviewSelectionKeys.value.filter(key =>
+      visibleRowKeys
+        ? !visibleRowKeys.has(key)
+        : !key.startsWith(`${tableIndex}:`)
     );
     importPreviewSelectionKeys.value = [
       ...remainingKeys,

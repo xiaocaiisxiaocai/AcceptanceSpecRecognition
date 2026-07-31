@@ -118,6 +118,37 @@
   gap: 14px;
 }
 
+.smart-confirm-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.smart-confirm-workspace__configuration {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.smart-confirm-workspace__preview {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  min-width: 0;
+  /* 预留步骤区顶部、底部操作栏、页脚及安全间距，滚动只发生在右栏内部。 */
+  height: min(720px, calc(100dvh - 316px));
+  padding: 12px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: var(--app-bg-card);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
 .smart-recognition-toolbar {
   position: absolute;
   top: 24px;
@@ -145,6 +176,18 @@
   line-height: 1.5;
   color: var(--app-danger);
   overflow-wrap: anywhere;
+}
+
+@media (width <= 1280px) {
+  .smart-confirm-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .smart-confirm-workspace__preview {
+    position: static;
+    height: auto;
+    overflow: visible;
+  }
 }
 
 .mapping-quick-actions {

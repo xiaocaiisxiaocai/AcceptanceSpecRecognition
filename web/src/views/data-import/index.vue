@@ -4,6 +4,7 @@ import { ElMessage } from "element-plus";
 import TablePreview from "./components/TablePreview.vue";
 import ColumnMapping from "./components/ColumnMapping.vue";
 import DataImportConfirmPanel from "./components/DataImportConfirmPanel.vue";
+import DataImportPreviewPanel from "./components/DataImportPreviewPanel.vue";
 import DataImportDifferenceConfirmDialog from "./components/DataImportDifferenceConfirmDialog.vue";
 import DataImportStepConfirm from "./components/DataImportStepConfirm.vue";
 import DataImportStepMapping from "./components/DataImportStepMapping.vue";
@@ -49,6 +50,9 @@ const fieldConflictDialogVisible = ref(false);
 const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
 const dataImportFieldConflictContext = ref<"initial" | "batch" | null>(null);
 let pendingInitialFieldConflictTables: SmartConfigRecognizedTable[] = [];
+let smartDraftPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+let smartDraftPreviewRunning = false;
+let smartDraftPreviewQueued = false;
 let pendingInitialFieldConflictResolver:
   | ((tables: SmartConfigRecognizedTable[] | null) => void)
   | null = null;
@@ -82,7 +86,13 @@ const resolveDataImportFieldConflicts = (
   });
 };
 
-onBeforeUnmount(() => finishPendingInitialFieldConflict(null));
+onBeforeUnmount(() => {
+  if (smartDraftPreviewTimer) {
+    clearTimeout(smartDraftPreviewTimer);
+    smartDraftPreviewTimer = null;
+  }
+  finishPendingInitialFieldConflict(null);
+});
 
 const {
   MAPPING_PREVIEW_ROWS,
@@ -140,6 +150,7 @@ const {
   llmSelection,
   importPreviewGroups,
   removedPreviewRowCount,
+  importPreviewSelectionKeys,
   selectedImportPreviewRowsCount,
   irrelevantPreviewRowCount,
   allIrrelevantPreviewRowsSelected,
@@ -156,6 +167,7 @@ const {
   runSmartStructureRecognition,
   handleSmartStructureConfirm,
   applyCurrentSmartRecognizedTables,
+  previewSmartRecognizedTables,
   handleSmartTableImportSelectionChange,
   enterAdvancedMode,
   exitAdvancedMode,
@@ -235,6 +247,11 @@ const batchConfirmProgress = ref<{
 watch(
   () => uploadedFile.value?.fileId,
   () => {
+    if (smartDraftPreviewTimer) {
+      clearTimeout(smartDraftPreviewTimer);
+      smartDraftPreviewTimer = null;
+    }
+    smartDraftPreviewQueued = false;
     finishPendingInitialFieldConflict(null);
     smartConfirmDrafts.value = {};
     fieldConflictDialogVisible.value = false;
@@ -317,6 +334,38 @@ const handleSmartStructureDraftChange = (
     ...smartConfirmDrafts.value,
     [table.tableIndex]: request
   };
+  if (!request?.userModifiedStructure) return;
+
+  if (smartDraftPreviewTimer) {
+    clearTimeout(smartDraftPreviewTimer);
+  }
+  smartDraftPreviewTimer = setTimeout(() => {
+    smartDraftPreviewTimer = null;
+    void refreshSmartDraftPreview();
+  }, 250);
+};
+
+const buildSmartDraftPreviewTables = () =>
+  recognizedTables.value.map(table => {
+    const draft = smartConfirmDrafts.value[table.tableIndex];
+    return draft ? applySmartConfigConfirmRequestToTable(table, draft) : table;
+  });
+
+const refreshSmartDraftPreview = async () => {
+  if (smartDraftPreviewRunning) {
+    smartDraftPreviewQueued = true;
+    return;
+  }
+
+  smartDraftPreviewRunning = true;
+  try {
+    do {
+      smartDraftPreviewQueued = false;
+      await previewSmartRecognizedTables(buildSmartDraftPreviewTables());
+    } while (smartDraftPreviewQueued);
+  } finally {
+    smartDraftPreviewRunning = false;
+  }
 };
 const smartBatchImportButtonText = computed(() =>
   !batchConfirmImportRunning.value
@@ -763,125 +812,180 @@ const activeSmartStructureReadinessDescription = computed(() =>
           v-show="!advancedMode && currentStep === 1"
           class="step-panel smart-confirm-step"
         >
-          <div
-            class="smart-recognition-toolbar"
-            :class="{ 'has-error': Boolean(smartRecognitionError) }"
-          >
-            <span
-              v-if="smartRecognitionError"
-              class="smart-recognition-toolbar__error"
-              role="alert"
-            >
-              {{ smartRecognitionError }}
-            </span>
-            <el-button
-              type="primary"
-              plain
-              :loading="smartRecognizing"
-              @click="runSmartStructureRecognition"
-            >
-              重新识别
-            </el-button>
+          <div class="smart-confirm-workspace">
+            <div class="smart-confirm-workspace__configuration">
+              <div
+                class="smart-recognition-toolbar"
+                :class="{ 'has-error': Boolean(smartRecognitionError) }"
+              >
+                <span
+                  v-if="smartRecognitionError"
+                  class="smart-recognition-toolbar__error"
+                  role="alert"
+                >
+                  {{ smartRecognitionError }}
+                </span>
+                <el-button
+                  type="primary"
+                  plain
+                  :loading="smartRecognizing"
+                  @click="runSmartStructureRecognition"
+                >
+                  重新识别
+                </el-button>
+              </div>
+              <SmartStructureConfirmTabs
+                v-model:active-table-index="activeSmartStructureTab"
+                :tables="recognizedTables"
+                :table-infos="smartTableInfos"
+                :is-excel-file="isExcelFile"
+                :inline-excel-region-editor="isExcelFile"
+                :selected-table-indexes="selectedSmartTableIndexes"
+                :selectable-table-indexes="smartStructureSelectableTableIndexes"
+                :selection-disabled-reasons="
+                  smartStructureSelectionDisabledReasons
+                "
+                :selection-pending-reasons="
+                  smartStructureSelectionPendingReasons
+                "
+                :file-id="uploadedFile?.fileId"
+                :customer-id="selectedCustomerId"
+                :confirming-table-index="effectiveSmartConfirmingTableIndex"
+                :show-confirm-action="false"
+                :interaction-locked="batchConfirmImportRunning || importing"
+                ready-label="可导入"
+                unavailable-label="跳过"
+                @draft-change="handleSmartStructureDraftChange"
+                @advanced="
+                  table => enterAdvancedMode('mapping', table.tableIndex)
+                "
+                @update:table-selected="handleSmartTableImportSelectionChange"
+              />
+              <el-alert
+                v-if="
+                  activeSmartStructureTable &&
+                  activeSmartStructureTableSelected &&
+                  activeSmartStructureReadinessReason
+                "
+                type="warning"
+                :closable="false"
+                show-icon
+                title="当前表已勾选，仍需配置"
+                :description="activeSmartStructureReadinessDescription"
+                class="smart-import-scope-alert"
+              />
+              <DataImportConfirmPanel
+                :import-result="importResult"
+                :is-excel-file="isExcelFile"
+                :can-upload-source-file="canUploadSourceFile"
+                :can-import-any="canImportAny"
+                :can-import-current-file="canImportCurrentFile"
+                :current-import-permission-message="
+                  currentImportPermissionMessage
+                "
+                :has-pending-difference-confirmation="
+                  hasPendingDifferenceConfirmation
+                "
+                :pending-differences-count="pendingDifferences.length"
+                :has-committed-import-progress="hasCommittedImportProgress"
+                :committed-success-count="
+                  committedImportAggregate?.successCount || 0
+                "
+                :committed-skipped-count="
+                  committedImportAggregate?.skippedCount || 0
+                "
+                :committed-failed-count="
+                  committedImportAggregate?.failedCount || 0
+                "
+                :uploaded-file-name="uploadedFile?.fileName"
+                :table-configs="tableConfigs"
+                :selected-sheet-count="selectedSmartTableIndexes.length"
+                :pending-selected-sheet-count="pendingSelectedSmartTableCount"
+                :customers="customers"
+                :processes="processes"
+                :selected-customer-id="selectedCustomerId"
+                :selected-process-id="selectedProcessId"
+                :selected-machine-model-name="selectedMachineModelName"
+                :preview-data-count="previewDataCount"
+                :preview-load-state="previewLoadState"
+                :import-duplicate-ai-config="importDuplicateAiConfig"
+                :loading-ai-services="loadingAiServices"
+                :embedding-selection="embeddingSelection"
+                :llm-selection="llmSelection"
+                :removed-preview-row-count="removedPreviewRowCount"
+                :selected-import-preview-row-keys="importPreviewSelectionKeys"
+                :selected-import-preview-rows-count="
+                  selectedImportPreviewRowsCount
+                "
+                :irrelevant-preview-row-count="irrelevantPreviewRowCount"
+                :all-irrelevant-preview-rows-selected="
+                  allIrrelevantPreviewRowsSelected
+                "
+                :some-irrelevant-preview-rows-selected="
+                  someIrrelevantPreviewRowsSelected
+                "
+                :import-preview-groups="importPreviewGroups"
+                :importing="importing || batchConfirmImportRunning"
+                :import-progress-text="smartBatchProgressText"
+                :import-progress-description="smartBatchProgressDescription"
+                :import-primary-button-text="smartBatchImportButtonText"
+                :skipped-rows-groups="skippedRowsGroups"
+                :show-import-action="false"
+                :show-preview-list="false"
+                :allow-empty-preview-action="
+                  selectedSmartTablesRequiringConfirmationCount > 0
+                "
+                @restart="handleRestart"
+                @open-difference-confirm-dialog="openDifferenceConfirmDialog"
+                @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
+                @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+                @select-irrelevant-rows-change="
+                  handleSelectIrrelevantRowsChange
+                "
+                @import-preview-selection-change="
+                  handleImportPreviewSelectionChange
+                "
+                @remove-single-preview-row="handleRemoveSinglePreviewRow"
+                @load-full-preview="ensureFullPreviewDataLoaded"
+                @import="handleSmartStructureBatchConfirmImport"
+              />
+            </div>
+
+            <aside class="smart-confirm-workspace__preview">
+              <DataImportPreviewPanel
+                :preview-data-count="previewDataCount"
+                :preview-load-state="previewLoadState"
+                :removed-preview-row-count="removedPreviewRowCount"
+                :selected-import-preview-row-keys="importPreviewSelectionKeys"
+                :selected-import-preview-rows-count="
+                  selectedImportPreviewRowsCount
+                "
+                :irrelevant-preview-row-count="irrelevantPreviewRowCount"
+                :all-irrelevant-preview-rows-selected="
+                  allIrrelevantPreviewRowsSelected
+                "
+                :some-irrelevant-preview-rows-selected="
+                  someIrrelevantPreviewRowsSelected
+                "
+                :import-preview-groups="importPreviewGroups"
+                :has-pending-difference-confirmation="
+                  hasPendingDifferenceConfirmation
+                "
+                show-heading
+                auto-load-full
+                @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
+                @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
+                @select-irrelevant-rows-change="
+                  handleSelectIrrelevantRowsChange
+                "
+                @import-preview-selection-change="
+                  handleImportPreviewSelectionChange
+                "
+                @remove-single-preview-row="handleRemoveSinglePreviewRow"
+                @load-full-preview="ensureFullPreviewDataLoaded"
+              />
+            </aside>
           </div>
-          <SmartStructureConfirmTabs
-            v-model:active-table-index="activeSmartStructureTab"
-            :tables="recognizedTables"
-            :table-infos="smartTableInfos"
-            :is-excel-file="isExcelFile"
-            :inline-excel-region-editor="isExcelFile"
-            :selected-table-indexes="selectedSmartTableIndexes"
-            :selectable-table-indexes="smartStructureSelectableTableIndexes"
-            :selection-disabled-reasons="smartStructureSelectionDisabledReasons"
-            :selection-pending-reasons="smartStructureSelectionPendingReasons"
-            :file-id="uploadedFile?.fileId"
-            :customer-id="selectedCustomerId"
-            :confirming-table-index="effectiveSmartConfirmingTableIndex"
-            :show-confirm-action="false"
-            :interaction-locked="batchConfirmImportRunning || importing"
-            ready-label="可导入"
-            unavailable-label="跳过"
-            @draft-change="handleSmartStructureDraftChange"
-            @advanced="table => enterAdvancedMode('mapping', table.tableIndex)"
-            @update:table-selected="handleSmartTableImportSelectionChange"
-          />
-          <el-alert
-            v-if="
-              activeSmartStructureTable &&
-              activeSmartStructureTableSelected &&
-              activeSmartStructureReadinessReason
-            "
-            type="warning"
-            :closable="false"
-            show-icon
-            title="当前表已勾选，仍需配置"
-            :description="activeSmartStructureReadinessDescription"
-            class="smart-import-scope-alert"
-          />
-          <DataImportConfirmPanel
-            :import-result="importResult"
-            :is-excel-file="isExcelFile"
-            :can-upload-source-file="canUploadSourceFile"
-            :can-import-any="canImportAny"
-            :can-import-current-file="canImportCurrentFile"
-            :current-import-permission-message="currentImportPermissionMessage"
-            :has-pending-difference-confirmation="
-              hasPendingDifferenceConfirmation
-            "
-            :pending-differences-count="pendingDifferences.length"
-            :has-committed-import-progress="hasCommittedImportProgress"
-            :committed-success-count="
-              committedImportAggregate?.successCount || 0
-            "
-            :committed-skipped-count="
-              committedImportAggregate?.skippedCount || 0
-            "
-            :committed-failed-count="committedImportAggregate?.failedCount || 0"
-            :uploaded-file-name="uploadedFile?.fileName"
-            :table-configs="tableConfigs"
-            :selected-sheet-count="selectedSmartTableIndexes.length"
-            :pending-selected-sheet-count="pendingSelectedSmartTableCount"
-            :customers="customers"
-            :processes="processes"
-            :selected-customer-id="selectedCustomerId"
-            :selected-process-id="selectedProcessId"
-            :selected-machine-model-name="selectedMachineModelName"
-            :preview-data-count="previewDataCount"
-            :preview-load-state="previewLoadState"
-            :import-duplicate-ai-config="importDuplicateAiConfig"
-            :loading-ai-services="loadingAiServices"
-            :embedding-selection="embeddingSelection"
-            :llm-selection="llmSelection"
-            :removed-preview-row-count="removedPreviewRowCount"
-            :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
-            :irrelevant-preview-row-count="irrelevantPreviewRowCount"
-            :all-irrelevant-preview-rows-selected="
-              allIrrelevantPreviewRowsSelected
-            "
-            :some-irrelevant-preview-rows-selected="
-              someIrrelevantPreviewRowsSelected
-            "
-            :import-preview-groups="importPreviewGroups"
-            :importing="importing || batchConfirmImportRunning"
-            :import-progress-text="smartBatchProgressText"
-            :import-progress-description="smartBatchProgressDescription"
-            :import-primary-button-text="smartBatchImportButtonText"
-            :skipped-rows-groups="skippedRowsGroups"
-            :show-import-action="false"
-            :allow-empty-preview-action="
-              selectedSmartTablesRequiringConfirmationCount > 0
-            "
-            @restart="handleRestart"
-            @open-difference-confirm-dialog="openDifferenceConfirmDialog"
-            @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
-            @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
-            @select-irrelevant-rows-change="handleSelectIrrelevantRowsChange"
-            @import-preview-selection-change="
-              handleImportPreviewSelectionChange
-            "
-            @remove-single-preview-row="handleRemoveSinglePreviewRow"
-            @load-full-preview="ensureFullPreviewDataLoaded"
-            @import="handleSmartStructureBatchConfirmImport"
-          />
         </div>
 
         <!-- 智能流程步骤3 / 高级模式步骤5: 完成 -->
@@ -925,6 +1029,7 @@ const activeSmartStructureReadinessDescription = computed(() =>
             :embedding-selection="embeddingSelection"
             :llm-selection="llmSelection"
             :removed-preview-row-count="removedPreviewRowCount"
+            :selected-import-preview-row-keys="importPreviewSelectionKeys"
             :selected-import-preview-rows-count="selectedImportPreviewRowsCount"
             :irrelevant-preview-row-count="irrelevantPreviewRowCount"
             :all-irrelevant-preview-rows-selected="

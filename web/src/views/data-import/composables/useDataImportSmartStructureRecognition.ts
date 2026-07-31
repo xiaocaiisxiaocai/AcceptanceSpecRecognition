@@ -402,6 +402,16 @@ export function useDataImportSmartStructureRecognition({
       { preserveExcludedRows: true }
     );
 
+  const previewSmartRecognizedTables = async (
+    tables: SmartConfigRecognizedTable[]
+  ) =>
+    await applySmartRecognizedTables(
+      tables,
+      uploadedFile.value,
+      smartFlowVersion,
+      { preserveExcludedRows: true }
+    );
+
   const handleSmartTableImportSelectionChange = async (
     table: SmartConfigRecognizedTable,
     checked: boolean
@@ -489,6 +499,7 @@ export function useDataImportSmartStructureRecognition({
     runSmartStructureRecognition,
     handleSmartStructureConfirm,
     applyCurrentSmartRecognizedTables,
+    previewSmartRecognizedTables,
     handleSmartTableImportSelectionChange,
     prepareAdvancedTableConfig,
     syncAdvancedConfigsToRecognizedTables,
