@@ -1216,11 +1216,34 @@ test("数据导入字段候选冲突应在正式预览生成前处理", () => {
   );
   assert.match(
     dataImportSource,
-    /handleFieldConflictConfirm[\s\S]*dataImportFieldConflictContext\.value === "initial"[\s\S]*finishPendingInitialFieldConflict\(nextTables\)/
+    /handleFieldConflictConfirm[\s\S]*const context = dataImportFieldConflictContext\.value;[\s\S]*if \(context === "initial"\)[\s\S]*finishPendingInitialFieldConflict\(nextTables\)/
   );
   assert.match(
     dataImportSource,
-    /onBeforeUnmount\(\(\) => finishPendingInitialFieldConflict\(null\)\)/
+    /onBeforeUnmount\(\(\) => \{[\s\S]*finishPendingInitialFieldConflict\(null\);[\s\S]*\}\);/
+  );
+});
+
+test("暂不处理字段候选冲突后应继续生成预览并允许重新选择", () => {
+  assert.match(
+    dataImportSource,
+    /const handleFieldConflictCancel = \(\) => \{[\s\S]*dataImportFieldConflictContext\.value === "initial"[\s\S]*finishPendingInitialFieldConflict\(\s*pendingInitialFieldConflictTables\s*\)/
+  );
+  assert.match(
+    dataImportSource,
+    /const unresolvedFieldConflicts = computed\([\s\S]*collectSmartStructureFieldConflicts\([\s\S]*recognizedTables\.value,[\s\S]*selectedSmartTableIndexes\.value/
+  );
+  assert.match(
+    dataImportSource,
+    /const reopenFieldConflictDialog = \(\) => \{[\s\S]*dataImportFieldConflictContext\.value = "preview";[\s\S]*fieldConflictDialogVisible\.value = true;/
+  );
+  assert.match(
+    dataImportSource,
+    /v-if="unresolvedFieldConflicts\.length > 0"[\s\S]*@click="reopenFieldConflictDialog"[\s\S]*重新选择数据列/
+  );
+  assert.match(
+    dataImportSource,
+    /if \(context === "preview"\)[\s\S]*previewSmartRecognizedTables\(nextTables\)/
   );
 });
 

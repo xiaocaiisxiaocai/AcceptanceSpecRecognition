@@ -48,7 +48,9 @@ defineOptions({
 
 const fieldConflictDialogVisible = ref(false);
 const pendingFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
-const dataImportFieldConflictContext = ref<"initial" | "batch" | null>(null);
+const dataImportFieldConflictContext = ref<
+  "initial" | "preview" | "batch" | null
+>(null);
 let pendingInitialFieldConflictTables: SmartConfigRecognizedTable[] = [];
 let smartDraftPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 let smartDraftPreviewRunning = false;
@@ -294,6 +296,12 @@ const smartStructureSelectionPendingReasons = computed(() =>
     })
   )
 );
+const unresolvedFieldConflicts = computed(() =>
+  collectSmartStructureFieldConflicts(
+    recognizedTables.value,
+    selectedSmartTableIndexes.value
+  )
+);
 const pendingSelectedSmartTableCount = computed(
   () =>
     recognizedTables.value.filter(table => {
@@ -518,9 +526,14 @@ const handleSmartStructureBatchConfirmImport = async () => {
 
   await executeSmartStructureBatchConfirmImport();
 };
+const reopenFieldConflictDialog = () => {
+  pendingFieldConflicts.value = unresolvedFieldConflicts.value;
+  dataImportFieldConflictContext.value = "preview";
+  fieldConflictDialogVisible.value = true;
+};
 const handleFieldConflictCancel = () => {
   if (dataImportFieldConflictContext.value === "initial") {
-    finishPendingInitialFieldConflict(null);
+    finishPendingInitialFieldConflict(pendingInitialFieldConflictTables);
   }
   fieldConflictDialogVisible.value = false;
   pendingFieldConflicts.value = [];
@@ -529,14 +542,15 @@ const handleFieldConflictCancel = () => {
 const handleFieldConflictConfirm = async (
   selections: SmartStructureFieldConflictSelection[]
 ) => {
+  const context = dataImportFieldConflictContext.value;
   const currentTables =
-    dataImportFieldConflictContext.value === "initial"
+    context === "initial"
       ? pendingInitialFieldConflictTables
       : recognizedTables.value;
   const nextTables = currentTables.map(table =>
     applySmartStructureFieldSelectionsToTable(table, selections)
   );
-  if (dataImportFieldConflictContext.value === "initial") {
+  if (context === "initial") {
     fieldConflictDialogVisible.value = false;
     pendingFieldConflicts.value = [];
     dataImportFieldConflictContext.value = null;
@@ -560,6 +574,10 @@ const handleFieldConflictConfirm = async (
   pendingFieldConflicts.value = [];
   dataImportFieldConflictContext.value = null;
   await nextTick();
+  if (context === "preview") {
+    await previewSmartRecognizedTables(nextTables);
+    return;
+  }
   await executeSmartStructureBatchConfirmImport();
 };
 const showManualFallback = computed(
@@ -813,7 +831,12 @@ const activeSmartStructureReadinessDescription = computed(() =>
           class="step-panel smart-confirm-step"
         >
           <div class="smart-confirm-workspace">
-            <div class="smart-confirm-workspace__configuration">
+            <div
+              class="smart-confirm-workspace__configuration"
+              :class="{
+                'has-field-conflicts': unresolvedFieldConflicts.length > 0
+              }"
+            >
               <div
                 class="smart-recognition-toolbar"
                 :class="{ 'has-error': Boolean(smartRecognitionError) }"
@@ -825,6 +848,13 @@ const activeSmartStructureReadinessDescription = computed(() =>
                 >
                   {{ smartRecognitionError }}
                 </span>
+                <el-button
+                  v-if="unresolvedFieldConflicts.length > 0"
+                  type="primary"
+                  @click="reopenFieldConflictDialog"
+                >
+                  重新选择数据列
+                </el-button>
                 <el-button
                   type="primary"
                   plain

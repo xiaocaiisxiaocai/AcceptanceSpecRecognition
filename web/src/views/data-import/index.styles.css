@@ -170,6 +170,11 @@
   padding-right: 112px;
 }
 
+.smart-confirm-workspace__configuration.has-field-conflicts
+  :deep(.smart-structure-confirm-tabs .el-tabs__header) {
+  padding-right: 240px;
+}
+
 .smart-recognition-toolbar__error {
   flex: 1;
   min-width: 0;
