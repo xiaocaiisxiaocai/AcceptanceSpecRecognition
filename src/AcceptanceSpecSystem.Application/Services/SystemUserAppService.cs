@@ -7,47 +7,53 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
+public sealed record SystemUserActorContext(
+    int UserId,
+    int CompanyId,
+    string Username,
+    string RoleCode)
+{
+    public bool IsAdmin => string.Equals(RoleCode, "admin", StringComparison.OrdinalIgnoreCase);
+}
+
 public interface ISystemUserAppService
 {
     Task<PagedData<SystemUserDto>> GetListAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int page,
         int pageSize,
         string? keyword,
         bool? isActive,
         CancellationToken cancellationToken = default);
 
-    Task<SystemUserDto?> GetByIdAsync(int companyId, int id, CancellationToken cancellationToken = default);
+    Task<SystemUserDto?> GetByIdAsync(SystemUserActorContext actor, int id, CancellationToken cancellationToken = default);
 
     Task<SystemUserDto> CreateAsync(
-        int companyId,
+        SystemUserActorContext actor,
         CreateSystemUserRequest request,
         CancellationToken cancellationToken = default);
 
     Task<SystemUserDto> UpdateAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         UpdateSystemUserRequest request,
-        string currentUsername,
         CancellationToken cancellationToken = default);
 
     Task<SystemUserDto> UpdateStatusAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         UpdateSystemUserStatusRequest request,
-        string currentUsername,
         CancellationToken cancellationToken = default);
 
     Task ResetPasswordAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         ResetSystemUserPasswordRequest request,
         CancellationToken cancellationToken = default);
 
     Task DeleteAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
-        string currentUsername,
         CancellationToken cancellationToken = default);
 
     Task<int?> ResolveCurrentCompanyIdAsync(int? claimedCompanyId, CancellationToken cancellationToken = default);
@@ -81,20 +87,56 @@ public sealed class SystemUserAppService : ISystemUserAppService
     }
 
     public async Task<PagedData<SystemUserDto>> GetListAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int page,
         int pageSize,
         string? keyword,
         bool? isActive,
         CancellationToken cancellationToken = default)
     {
-        var (items, total) = await _unitOfWork.SystemUsers.GetPagedAsync(
-            page,
-            pageSize,
-            companyId,
-            keyword,
-            isActive,
-            cancellationToken);
+        var now = DateTime.UtcNow;
+        var query = _dbContext.SystemUsers
+            .AsNoTracking()
+            .Where(user => user.CompanyId == actor.CompanyId);
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var normalizedKeyword = keyword.Trim();
+            query = query.Where(user =>
+                user.Username.Contains(normalizedKeyword) ||
+                user.Nickname.Contains(normalizedKeyword));
+        }
+        if (isActive.HasValue)
+            query = query.Where(user => user.IsActive == isActive.Value);
+
+        if (!actor.IsAdmin)
+        {
+            var manageableOrgUnitIds = await GetManageableOrgUnitIdsAsync(actor, cancellationToken);
+            query = query.Where(user =>
+                !user.UserRoles.Any(link =>
+                    link.Role.IsActive &&
+                    link.Role.Code == "admin" &&
+                    (!link.StartAt.HasValue || link.StartAt <= now) &&
+                    (!link.EndAt.HasValue || link.EndAt >= now)) &&
+                user.UserOrgUnits.Any(link =>
+                    manageableOrgUnitIds.Contains(link.OrgUnitId) &&
+                    link.OrgUnit.IsActive &&
+                    (!link.StartAt.HasValue || link.StartAt <= now) &&
+                    (!link.EndAt.HasValue || link.EndAt >= now)));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query
+            .AsSplitQuery()
+            .Include(user => user.UserRoles)
+                .ThenInclude(link => link.Role)
+                    .ThenInclude(role => role.RolePermissions)
+                        .ThenInclude(link => link.Permission)
+            .Include(user => user.UserOrgUnits)
+                .ThenInclude(link => link.OrgUnit)
+            .OrderByDescending(user => user.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
 
         return new PagedData<SystemUserDto>
         {
@@ -106,19 +148,21 @@ public sealed class SystemUserAppService : ISystemUserAppService
     }
 
     public async Task<SystemUserDto?> GetByIdAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         CancellationToken cancellationToken = default)
     {
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
-        if (user == null || user.CompanyId != companyId)
+        if (user == null || user.CompanyId != actor.CompanyId)
+            return null;
+        if (!await CanManageTargetAsync(actor, user, cancellationToken))
             return null;
 
         return ToDto(user);
     }
 
     public async Task<SystemUserDto> CreateAsync(
-        int companyId,
+        SystemUserActorContext actor,
         CreateSystemUserRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -139,21 +183,23 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "角色不能为空");
 
         var role = await _dbContext.AuthRoles
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode, cancellationToken);
+            .FirstOrDefaultAsync(r => r.CompanyId == actor.CompanyId && r.IsActive && r.Code == roleCode, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
+        EnsureRoleAssignable(actor, role.Code);
 
         ValidateRoleInterval(request.RoleStartAt, request.RoleEndAt);
         ValidateOrgInterval(request.OrgStartAt, request.OrgEndAt);
 
-        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(actor.CompanyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
             throw new ApplicationServiceException(400, "组织节点不存在、已停用或不属于当前公司");
+        await EnsureOrgUnitManageableAsync(actor, assignedOrgUnitId.Value, cancellationToken);
 
         var now = DateTime.UtcNow;
         var user = new SystemUser
         {
-            CompanyId = companyId,
+            CompanyId = actor.CompanyId,
             Username = normalizedUsername,
             PasswordHash = _authPasswordService.HashPassword(request.Password),
             Nickname = NormalizeNickname(request.Nickname, normalizedUsername),
@@ -184,38 +230,39 @@ public sealed class SystemUserAppService : ISystemUserAppService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建系统用户成功: {Username}", user.Username);
-        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
+        return (await GetByIdAsync(actor, user.Id, cancellationToken))!;
     }
 
     public async Task<SystemUserDto> UpdateAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         UpdateSystemUserRequest request,
-        string currentUsername,
         CancellationToken cancellationToken = default)
     {
         await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
-            BuildAdminBoundaryLockKey(companyId),
+            BuildAdminBoundaryLockKey(actor.CompanyId),
             cancellationToken);
 
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
-        if (user == null || user.CompanyId != companyId)
+        if (user == null || user.CompanyId != actor.CompanyId)
             throw new ApplicationServiceException(400, "用户不存在");
+        await EnsureCanManageTargetAsync(actor, user, cancellationToken);
 
         var roleCode = NormalizeCode(request.RoleCode);
         if (string.IsNullOrWhiteSpace(roleCode))
             throw new ApplicationServiceException(400, "角色不能为空");
 
         var role = await _dbContext.AuthRoles
-            .FirstOrDefaultAsync(r => r.CompanyId == companyId && r.IsActive && r.Code == roleCode, cancellationToken);
+            .FirstOrDefaultAsync(r => r.CompanyId == actor.CompanyId && r.IsActive && r.Code == roleCode, cancellationToken);
         if (role == null)
             throw new ApplicationServiceException(400, "存在无效角色编码");
+        EnsureRoleAssignable(actor, role.Code);
 
         ValidateRoleInterval(request.RoleStartAt, request.RoleEndAt);
         ValidateOrgInterval(request.OrgStartAt, request.OrgEndAt);
 
         if (!await ValidateAdminBoundaryAsync(
-                companyId,
+                actor.CompanyId,
                 user,
                 request.IsActive,
                 roleCode,
@@ -226,14 +273,15 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
         if (!request.IsActive &&
-            string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
+            user.Id == actor.UserId)
         {
             throw new ApplicationServiceException(400, "不能停用当前登录账号");
         }
 
-        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(companyId, request.OrgUnitId, cancellationToken);
+        var assignedOrgUnitId = await ResolveOrgUnitIdAsync(actor.CompanyId, request.OrgUnitId, cancellationToken);
         if (!assignedOrgUnitId.HasValue)
             throw new ApplicationServiceException(400, "组织节点不存在、已停用或不属于当前公司");
+        await EnsureOrgUnitManageableAsync(actor, assignedOrgUnitId.Value, cancellationToken);
 
         user.Nickname = NormalizeNickname(request.Nickname, user.Username);
         user.Avatar = NormalizeOptional(request.Avatar);
@@ -267,26 +315,26 @@ public sealed class SystemUserAppService : ISystemUserAppService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await _refreshSessions.RevokeUserSessionsAsync(user.Id, "security-context-changed", cancellationToken);
 
-        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
+        return (await GetByIdAsync(actor, user.Id, cancellationToken))!;
     }
 
     public async Task<SystemUserDto> UpdateStatusAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         UpdateSystemUserStatusRequest request,
-        string currentUsername,
         CancellationToken cancellationToken = default)
     {
         await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
-            BuildAdminBoundaryLockKey(companyId),
+            BuildAdminBoundaryLockKey(actor.CompanyId),
             cancellationToken);
 
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
-        if (user == null || user.CompanyId != companyId)
+        if (user == null || user.CompanyId != actor.CompanyId)
             throw new ApplicationServiceException(400, "用户不存在");
+        await EnsureCanManageTargetAsync(actor, user, cancellationToken);
 
         if (!await ValidateAdminBoundaryAsync(
-                companyId,
+                actor.CompanyId,
                 user,
                 request.IsActive,
                 GetEffectiveRoleCode(user),
@@ -297,7 +345,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
         if (!request.IsActive &&
-            string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
+            user.Id == actor.UserId)
         {
             throw new ApplicationServiceException(400, "不能停用当前登录账号");
         }
@@ -310,18 +358,19 @@ public sealed class SystemUserAppService : ISystemUserAppService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await _refreshSessions.RevokeUserSessionsAsync(user.Id, "account-status-changed", cancellationToken);
 
-        return (await GetByIdAsync(companyId, user.Id, cancellationToken))!;
+        return (await GetByIdAsync(actor, user.Id, cancellationToken))!;
     }
 
     public async Task ResetPasswordAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
         ResetSystemUserPasswordRequest request,
         CancellationToken cancellationToken = default)
     {
-        var user = await _unitOfWork.SystemUsers.GetByIdAsync(id, cancellationToken);
-        if (user == null || user.CompanyId != companyId)
+        var user = await LoadUserWithAccessAsync(id, cancellationToken);
+        if (user == null || user.CompanyId != actor.CompanyId)
             throw new ApplicationServiceException(400, "用户不存在");
+        await EnsureCanManageTargetAsync(actor, user, cancellationToken);
 
         ValidateNewPassword(request.NewPassword, "新密码");
 
@@ -337,23 +386,23 @@ public sealed class SystemUserAppService : ISystemUserAppService
     }
 
     public async Task DeleteAsync(
-        int companyId,
+        SystemUserActorContext actor,
         int id,
-        string currentUsername,
         CancellationToken cancellationToken = default)
     {
         await using var adminBoundaryLock = await _unitOfWork.AcquireOperationLockAsync(
-            BuildAdminBoundaryLockKey(companyId),
+            BuildAdminBoundaryLockKey(actor.CompanyId),
             cancellationToken);
 
         var user = await LoadUserWithAccessAsync(id, cancellationToken);
-        if (user == null || user.CompanyId != companyId)
+        if (user == null || user.CompanyId != actor.CompanyId)
             throw new ApplicationServiceException(400, "用户不存在");
+        await EnsureCanManageTargetAsync(actor, user, cancellationToken);
 
-        if (!await ValidateAdminBoundaryAsync(companyId, user, false, null, null, null, "删除用户", cancellationToken))
+        if (!await ValidateAdminBoundaryAsync(actor.CompanyId, user, false, null, null, null, "删除用户", cancellationToken))
             throw new ApplicationServiceException(400, "系统至少需要保留一个启用状态的 admin 用户，且管理员覆盖区间必须连续");
 
-        if (string.Equals(user.Username, currentUsername, StringComparison.OrdinalIgnoreCase))
+        if (user.Id == actor.UserId)
             throw new ApplicationServiceException(400, "不能删除当前登录账号");
 
         _unitOfWork.SystemUsers.Remove(user);
@@ -407,6 +456,96 @@ public sealed class SystemUserAppService : ISystemUserAppService
                 org.IsActive)
             .Select(org => (int?)org.Id)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<HashSet<int>> GetManageableOrgUnitIdsAsync(
+        SystemUserActorContext actor,
+        CancellationToken cancellationToken)
+    {
+        if (actor.IsAdmin)
+        {
+            var allOrgUnitIds = await _dbContext.OrgUnits
+                .AsNoTracking()
+                .Where(org => org.CompanyId == actor.CompanyId && org.IsActive)
+                .Select(org => org.Id)
+                .ToListAsync(cancellationToken);
+            return allOrgUnitIds.ToHashSet();
+        }
+
+        var now = DateTime.UtcNow;
+        var activeLinks = await _dbContext.AuthUserOrgUnits
+            .AsNoTracking()
+            .Include(link => link.OrgUnit)
+            .Where(link =>
+                link.UserId == actor.UserId &&
+                link.OrgUnit.CompanyId == actor.CompanyId &&
+                link.OrgUnit.IsActive &&
+                (!link.StartAt.HasValue || link.StartAt <= now) &&
+                (!link.EndAt.HasValue || link.EndAt >= now))
+            .ToListAsync(cancellationToken);
+        var current = AuthUserOrgUnitSingleOrgPolicy.SelectOrgUnitToKeep(activeLinks);
+        if (current == null)
+            return [];
+
+        var manageableOrgUnitIds = await _dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org =>
+                org.CompanyId == actor.CompanyId &&
+                org.IsActive &&
+                org.Path.StartsWith(current.OrgUnit.Path))
+            .Select(org => org.Id)
+            .ToListAsync(cancellationToken);
+        return manageableOrgUnitIds.ToHashSet();
+    }
+
+    private async Task EnsureOrgUnitManageableAsync(
+        SystemUserActorContext actor,
+        int orgUnitId,
+        CancellationToken cancellationToken)
+    {
+        if (actor.IsAdmin)
+            return;
+
+        var manageable = await GetManageableOrgUnitIdsAsync(actor, cancellationToken);
+        if (!manageable.Contains(orgUnitId))
+            throw new ApplicationServiceException(403, "普通用户只能管理所属部门的用户");
+    }
+
+    private static void EnsureRoleAssignable(SystemUserActorContext actor, string roleCode)
+    {
+        if (actor.IsAdmin)
+            return;
+
+        if (!string.Equals(roleCode, actor.RoleCode, StringComparison.OrdinalIgnoreCase))
+            throw new ApplicationServiceException(403, "普通用户不能授予管理员或其他角色权限");
+    }
+
+    private async Task<bool> CanManageTargetAsync(
+        SystemUserActorContext actor,
+        SystemUser target,
+        CancellationToken cancellationToken)
+    {
+        if (actor.IsAdmin)
+            return true;
+        if (HasAdminRole(GetEffectiveRoleCode(target)))
+            return false;
+
+        var manageable = await GetManageableOrgUnitIdsAsync(actor, cancellationToken);
+        var now = DateTime.UtcNow;
+        return target.UserOrgUnits.Any(link =>
+            manageable.Contains(link.OrgUnitId) &&
+            link.OrgUnit.IsActive &&
+            (!link.StartAt.HasValue || link.StartAt <= now) &&
+            (!link.EndAt.HasValue || link.EndAt >= now));
+    }
+
+    private async Task EnsureCanManageTargetAsync(
+        SystemUserActorContext actor,
+        SystemUser target,
+        CancellationToken cancellationToken)
+    {
+        if (!await CanManageTargetAsync(actor, target, cancellationToken))
+            throw new ApplicationServiceException(403, "普通用户不能管理管理员或其他部门的用户");
     }
 
     private async Task<bool> ValidateAdminBoundaryAsync(

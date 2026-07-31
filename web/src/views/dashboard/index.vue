@@ -5,13 +5,12 @@ import { Refresh } from "@element-plus/icons-vue";
 import {
   getDashboardSummary,
   type DashboardPeriodPreset,
+  type DashboardRecentExecution,
   type DashboardSummary,
   type DashboardSummaryRequest
 } from "@/api/dashboard";
-import {
-  getExecutionHistoryList,
-  type ExecutionHistoryListItem
-} from "@/api/execution-history";
+import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
+import { useUserStoreHook } from "@/store/modules/user";
 import { formatExecutionHistoryDateTime } from "@/views/other/execution-history/executionHistory.formatters";
 import DashboardSparkline from "./components/DashboardSparkline.vue";
 import { createDashboardRequestGate } from "./dashboard-request-gate";
@@ -34,15 +33,18 @@ const emptySummary: DashboardSummary = {
   smartFillAdoptedRows: 0,
   matchingRate: 0,
   adoptionRate: 0,
-  dailyTrend: []
+  dailyTrend: [],
+  recentExecutions: []
 };
 
+const userStore = useUserStoreHook();
+const isAdmin = computed(() => userStore.roleCode === "admin");
 const loading = ref(false);
-const recentLoading = ref(false);
 const periodPreset = ref<DashboardPeriodPreset>("last7");
 const customRange = ref<[Date, Date] | null>(null);
+const selectedOrgUnitId = ref<number | null>(null);
+const orgUnitOptions = ref<OrgUnit[]>([]);
 const summary = ref<DashboardSummary | null>(null);
-const recentTasks = ref<ExecutionHistoryListItem[]>([]);
 const trendLabels = ref<string[]>([]);
 const importTrend = ref<number[]>([]);
 const taskTrend = ref<number[]>([]);
@@ -52,6 +54,9 @@ const datePickerDefaultTime: [Date, Date] = [
 ];
 
 const currentSummary = computed(() => summary.value ?? emptySummary);
+const recentTasks = computed<DashboardRecentExecution[]>(
+  () => currentSummary.value.recentExecutions
+);
 const currentPeriodLabel = computed(() => {
   if (currentSummary.value.periodPreset === "last30") return "近 30 天";
   if (currentSummary.value.periodPreset === "custom") return "自定义周期";
@@ -81,22 +86,25 @@ const idleScheduler = globalThis as typeof globalThis & {
 let idleCallbackId: number | undefined;
 let loadTimerId: ReturnType<typeof setTimeout> | undefined;
 const summaryRequestGate = createDashboardRequestGate();
-const recentRequestGate = createDashboardRequestGate();
-
 const buildRequest = (): DashboardSummaryRequest => {
+  const orgParams =
+    isAdmin.value && selectedOrgUnitId.value
+      ? { orgUnitId: selectedOrgUnitId.value }
+      : {};
   if (periodPreset.value !== "custom") {
-    return { range: periodPreset.value };
+    return { range: periodPreset.value, ...orgParams };
   }
 
   if (!customRange.value) {
-    return { range: "last7" };
+    return { range: "last7", ...orgParams };
   }
 
   const [from, to] = customRange.value;
   return {
     range: "custom",
     from: from.toISOString(),
-    to: to.toISOString()
+    to: to.toISOString(),
+    ...orgParams
   };
 };
 
@@ -129,29 +137,19 @@ const load = async () => {
   }
 };
 
-const loadRecentTasks = async () => {
-  const ticket = recentRequestGate.begin();
-  recentLoading.value = true;
+const loadOrgUnits = async () => {
+  if (!isAdmin.value) return;
   try {
-    const response = await getExecutionHistoryList(
-      { page: 1, pageSize: 5 },
-      ticket.signal
-    );
-    if (!ticket.isCurrent()) return;
+    const response = await getOrgUnitFlat();
     if (response.code === 0) {
-      recentTasks.value = response.data.items;
+      orgUnitOptions.value = (response.data ?? []).filter(
+        item => item.isActive && item.unitType !== 0
+      );
       return;
     }
-
-    ElMessage.error(response.message || "加载最近执行记录失败");
-  } catch (error) {
-    if (!isCanceledRequest(error)) {
-      ElMessage.error("加载最近执行记录失败");
-    }
-  } finally {
-    if (ticket.isCurrent()) {
-      recentLoading.value = false;
-    }
+    ElMessage.error(response.message || "加载部门列表失败");
+  } catch {
+    ElMessage.error("加载部门列表失败");
   }
 };
 
@@ -160,7 +158,7 @@ const scheduleLoad = () => {
     idleCallbackId = idleScheduler.requestIdleCallback(
       () => {
         void load();
-        void loadRecentTasks();
+        void loadOrgUnits();
       },
       { timeout: 800 }
     );
@@ -169,7 +167,7 @@ const scheduleLoad = () => {
 
   loadTimerId = globalThis.setTimeout(() => {
     void load();
-    void loadRecentTasks();
+    void loadOrgUnits();
   }, 120);
 };
 
@@ -222,7 +220,6 @@ const formatDateTime = (value: string | undefined) => {
 
 const refreshDashboard = () => {
   void load();
-  void loadRecentTasks();
 };
 
 onMounted(() => {
@@ -242,7 +239,6 @@ onBeforeUnmount(() => {
   }
 
   summaryRequestGate.cancel();
-  recentRequestGate.cancel();
 });
 </script>
 
@@ -256,6 +252,21 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="period-tools">
+        <el-select
+          v-if="isAdmin"
+          v-model="selectedOrgUnitId"
+          class="department-selector"
+          placeholder="公司总体"
+          clearable
+          @change="load"
+        >
+          <el-option
+            v-for="org in orgUnitOptions"
+            :key="org.id"
+            :label="`${'　'.repeat(org.depth)}${org.name}`"
+            :value="org.id"
+          />
+        </el-select>
         <el-segmented
           v-model="periodPreset"
           :options="periodOptions"
@@ -365,7 +376,7 @@ onBeforeUnmount(() => {
       </el-col>
     </el-row>
 
-    <el-card v-loading="recentLoading" class="recent-card">
+    <el-card v-loading="loading" class="recent-card">
       <template #header>
         <div class="card-header">
           <span>最近执行</span>
@@ -441,6 +452,10 @@ onBeforeUnmount(() => {
 
 .period-picker {
   width: 360px;
+}
+
+.department-selector {
+  width: 190px;
 }
 
 .stat-card {

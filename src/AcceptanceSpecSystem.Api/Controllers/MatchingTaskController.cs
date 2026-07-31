@@ -19,6 +19,7 @@ public class MatchingTaskController : MatchingApiControllerBase
     }
 
     [HttpGet("tasks/{taskId:regex(^[[a-f0-9]]{{32}}$)}/status")]
+    [AuditOperation("read", "matching")]
     [ProducesResponseType(typeof(ApiResponse<MatchingTaskStatusDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
     public Task<ActionResult<ApiResponse<MatchingTaskStatusDto>>> GetStatus(

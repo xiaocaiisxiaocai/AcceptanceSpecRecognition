@@ -42,7 +42,11 @@ public class SystemUsersController : BaseApiController
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 200);
 
-        var data = await _systemUserAppService.GetListAsync(companyId.Value, page, pageSize, keyword, isActive, cancellationToken);
+        var actor = CreateActor(companyId.Value);
+        if (actor == null)
+            return Error<PagedData<SystemUserDto>>(401, "当前会话缺少用户上下文");
+
+        var data = await _systemUserAppService.GetListAsync(actor, page, pageSize, keyword, isActive, cancellationToken);
         return Success(data);
     }
 
@@ -61,7 +65,11 @@ public class SystemUsersController : BaseApiController
         if (!companyId.HasValue)
             return Error<SystemUserDto>(401, "当前会话缺少公司上下文");
 
-        var user = await _systemUserAppService.GetByIdAsync(companyId.Value, id, cancellationToken);
+        var actor = CreateActor(companyId.Value);
+        if (actor == null)
+            return Error<SystemUserDto>(401, "当前会话缺少用户上下文");
+
+        var user = await _systemUserAppService.GetByIdAsync(actor, id, cancellationToken);
         if (user == null)
             return NotFoundResult<SystemUserDto>("用户不存在");
 
@@ -86,7 +94,11 @@ public class SystemUsersController : BaseApiController
 
         try
         {
-            var user = await _systemUserAppService.CreateAsync(companyId.Value, request, cancellationToken);
+            var actor = CreateActor(companyId.Value);
+            if (actor == null)
+                return Error<SystemUserDto>(401, "当前会话缺少用户上下文");
+
+            var user = await _systemUserAppService.CreateAsync(actor, request, cancellationToken);
             return Success(user, "创建用户成功");
         }
         catch (ApplicationServiceException ex)
@@ -114,12 +126,11 @@ public class SystemUsersController : BaseApiController
 
         try
         {
-            var user = await _systemUserAppService.UpdateAsync(
-                companyId.Value,
-                id,
-                request,
-                GetCurrentUsername(),
-                cancellationToken);
+            var actor = CreateActor(companyId.Value);
+            if (actor == null)
+                return Error<SystemUserDto>(401, "当前会话缺少用户上下文");
+
+            var user = await _systemUserAppService.UpdateAsync(actor, id, request, cancellationToken);
             return Success(user, "更新用户成功");
         }
         catch (ApplicationServiceException ex)
@@ -147,12 +158,11 @@ public class SystemUsersController : BaseApiController
 
         try
         {
-            var user = await _systemUserAppService.UpdateStatusAsync(
-                companyId.Value,
-                id,
-                request,
-                GetCurrentUsername(),
-                cancellationToken);
+            var actor = CreateActor(companyId.Value);
+            if (actor == null)
+                return Error<SystemUserDto>(401, "当前会话缺少用户上下文");
+
+            var user = await _systemUserAppService.UpdateStatusAsync(actor, id, request, cancellationToken);
             return Success(user, "更新状态成功");
         }
         catch (ApplicationServiceException ex)
@@ -180,7 +190,11 @@ public class SystemUsersController : BaseApiController
 
         try
         {
-            await _systemUserAppService.ResetPasswordAsync(companyId.Value, id, request, cancellationToken);
+            var actor = CreateActor(companyId.Value);
+            if (actor == null)
+                return Error(401, "当前会话缺少用户上下文");
+
+            await _systemUserAppService.ResetPasswordAsync(actor, id, request, cancellationToken);
             return Success("重置密码成功");
         }
         catch (ApplicationServiceException ex)
@@ -207,7 +221,11 @@ public class SystemUsersController : BaseApiController
 
         try
         {
-            await _systemUserAppService.DeleteAsync(companyId.Value, id, GetCurrentUsername(), cancellationToken);
+            var actor = CreateActor(companyId.Value);
+            if (actor == null)
+                return Error(401, "当前会话缺少用户上下文");
+
+            await _systemUserAppService.DeleteAsync(actor, id, cancellationToken);
             return Success("删除用户成功");
         }
         catch (ApplicationServiceException ex)
@@ -216,10 +234,16 @@ public class SystemUsersController : BaseApiController
         }
     }
 
-    private string GetCurrentUsername()
+    private SystemUserActorContext? CreateActor(int companyId)
     {
-        return User.FindFirstValue(ClaimTypes.NameIdentifier)
-               ?? User.FindFirstValue(ClaimTypes.Name)
-               ?? string.Empty;
+        var userId = AuthClaimHelper.GetUserId(User);
+        if (!userId.HasValue)
+            return null;
+
+        var username = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                       ?? User.FindFirstValue(ClaimTypes.Name)
+                       ?? string.Empty;
+        var roleCode = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+        return new SystemUserActorContext(userId.Value, companyId, username, roleCode);
     }
 }

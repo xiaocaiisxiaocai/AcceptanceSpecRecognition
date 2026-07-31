@@ -16,6 +16,7 @@ public sealed class DashboardSummaryDto
     public double MatchingRate { get; set; }
     public double AdoptionRate { get; set; }
     public IReadOnlyList<DashboardDailyTrendDto> DailyTrend { get; set; } = [];
+    public IReadOnlyList<DashboardRecentExecutionDto> RecentExecutions { get; set; } = [];
 }
 
 public sealed class DashboardDailyTrendDto
@@ -23,4 +24,15 @@ public sealed class DashboardDailyTrendDto
     public DateOnly Date { get; set; }
     public int ImportedSpecCount { get; set; }
     public int SmartFillTaskCount { get; set; }
+}
+
+public sealed class DashboardRecentExecutionDto
+{
+    public int Id { get; set; }
+    public string TaskId { get; set; } = string.Empty;
+    public string TaskType { get; set; } = string.Empty;
+    public string SourceFileName { get; set; } = string.Empty;
+    public int TotalRowCount { get; set; }
+    public int AdoptedRowCount { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
