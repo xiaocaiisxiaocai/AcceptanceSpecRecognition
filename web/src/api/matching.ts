@@ -516,6 +516,7 @@ export interface SmartFillSpecBackfillItem {
 }
 
 export interface SmartFillSpecBackfillRequest {
+  fileId?: number;
   customerId?: number;
   processId?: number;
   machineModelId?: number;
@@ -544,6 +545,7 @@ export interface MatchLlmStreamItem {
 }
 
 export interface MatchLlmStreamRequest {
+  fileId?: number;
   customerId?: number;
   processId?: number;
   machineModelId?: number;

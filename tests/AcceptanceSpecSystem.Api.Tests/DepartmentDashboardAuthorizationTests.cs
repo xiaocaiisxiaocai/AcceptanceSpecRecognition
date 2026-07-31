@@ -152,6 +152,7 @@ public sealed class DepartmentDashboardAuthorizationTests
         var root = await db.OrgUnits.SingleAsync(org => org.ParentId == null);
         var commonRole = await db.AuthRoles.SingleAsync(role => role.Code == "common");
         var commonUser = await db.SystemUsers.SingleAsync(user => user.Username == "common");
+        var adminUser = await db.SystemUsers.SingleAsync(user => user.Username == "admin");
 
         var departmentA = new OrgUnit
         {
@@ -241,8 +242,8 @@ public sealed class DepartmentDashboardAuthorizationTests
             CreateSpec(customerA.Id, fileA.Id, commonUser.Id, departmentA.Id, "A规格", now),
             CreateSpec(customerB.Id, fileB.Id, departmentBUser.Id, departmentB.Id, "B规格", now));
         db.ExecutionHistoryRecords.AddRange(
-            CreateHistory("department-a.xlsx", commonUser.Id, now),
-            CreateHistory("department-b.xlsx", departmentBUser.Id, now.AddMinutes(-1)));
+            CreateHistory("department-a.xlsx", commonUser.Id, departmentA.Id, now),
+            CreateHistory("department-b.xlsx", adminUser.Id, departmentB.Id, now.AddMinutes(-1)));
         await db.SaveChangesAsync();
 
         return new DepartmentFixture(commonUser.Id, departmentA.Id, departmentB.Id);
@@ -287,6 +288,7 @@ public sealed class DepartmentDashboardAuthorizationTests
     private static ExecutionHistoryRecord CreateHistory(
         string fileName,
         int userId,
+        int orgUnitId,
         DateTime now) => new()
         {
             TaskId = Guid.NewGuid().ToString("N"),
@@ -302,6 +304,7 @@ public sealed class DepartmentDashboardAuthorizationTests
             DetailJson = "{}",
             CreatedByUserId = userId,
             CompanyId = 1,
+            OwnerOrgUnitId = orgUnitId,
             CreatedAt = now
         };
 

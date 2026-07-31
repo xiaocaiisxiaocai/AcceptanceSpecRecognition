@@ -38,6 +38,16 @@ describe("上传 API 传输控制", () => {
     expect(config.signal).toBe(transport.signal);
     expect(config.onUploadProgress).toBe(transport.onUploadProgress);
   });
+
+  it("文档上传会提交业务归属部门", async () => {
+    await uploadFile(new File(["a"], "a.xlsx"), {
+      ...transport,
+      businessOrgUnitId: 23
+    });
+
+    const formData = request.mock.calls[0]?.[2]?.data as FormData;
+    expect(formData.get("businessOrgUnitId")).toBe("23");
+  });
 });
 
 const transport = {

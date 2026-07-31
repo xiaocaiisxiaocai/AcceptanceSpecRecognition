@@ -360,9 +360,12 @@ public sealed class DashboardAppService : IDashboardAppService
         if (scope.IncludeSelf && orgUnitIds.Length > 0)
         {
             return query.Where(record =>
-                record.CreatedByUserId == scope.UserId ||
-                (record.CreatedByUserId.HasValue &&
-                 scopedUserIds.Contains(record.CreatedByUserId.Value)));
+                (record.OwnerOrgUnitId.HasValue &&
+                 orgUnitIds.Contains(record.OwnerOrgUnitId.Value)) ||
+                (!record.OwnerOrgUnitId.HasValue &&
+                 (record.CreatedByUserId == scope.UserId ||
+                  (record.CreatedByUserId.HasValue &&
+                   scopedUserIds.Contains(record.CreatedByUserId.Value)))));
         }
 
         if (scope.IncludeSelf)
@@ -371,8 +374,11 @@ public sealed class DashboardAppService : IDashboardAppService
         if (orgUnitIds.Length > 0)
         {
             return query.Where(record =>
-                record.CreatedByUserId.HasValue &&
-                scopedUserIds.Contains(record.CreatedByUserId.Value));
+                (record.OwnerOrgUnitId.HasValue &&
+                 orgUnitIds.Contains(record.OwnerOrgUnitId.Value)) ||
+                (!record.OwnerOrgUnitId.HasValue &&
+                 record.CreatedByUserId.HasValue &&
+                 scopedUserIds.Contains(record.CreatedByUserId.Value)));
         }
 
         return query.Where(_ => false);

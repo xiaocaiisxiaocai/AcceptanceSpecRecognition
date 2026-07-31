@@ -124,6 +124,23 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
         DocumentUploadCommand upload,
         CancellationToken cancellationToken = default)
     {
+        if (!scope.OrgUnitId.HasValue)
+        {
+            throw new ApplicationServiceException(400, "当前上传缺少业务归属");
+        }
+
+        var ownerOrgUnitName = await _unitOfWork.OrgUnits.Query()
+            .Where(org =>
+                org.Id == scope.OrgUnitId.Value &&
+                org.CompanyId == scope.CompanyId &&
+                org.IsActive)
+            .Select(org => org.Name)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(ownerOrgUnitName))
+        {
+            throw new ApplicationServiceException(400, "业务归属不存在、已停用或不属于当前公司");
+        }
+
         var fileHash = Convert.ToHexString(SHA256.HashData(upload.Content)).ToLowerInvariant();
         var filePath = await _documentFileAccessService.SaveUploadedFileAsync(
             upload.FileType,
@@ -179,7 +196,9 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
             IsDuplicate = false,
             TableCount = 0,
             TableCountReady = false,
-            FileType = wordFile.FileType
+            FileType = wordFile.FileType,
+            OwnerOrgUnitId = scope.OrgUnitId.Value,
+            OwnerOrgUnitName = ownerOrgUnitName
         };
     }
 

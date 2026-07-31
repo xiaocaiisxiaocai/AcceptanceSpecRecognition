@@ -15,17 +15,20 @@ public class DocumentsController : BaseApiController
     private readonly IDocumentFileAppService _documentFileAppService;
     private readonly IDocumentTableQueryAppService _documentTableQueryAppService;
     private readonly IDocumentImportAppService _documentImportAppService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
 
     public DocumentsController(
         IAuthDataScopeService authDataScopeService,
         IDocumentFileAppService documentFileAppService,
         IDocumentTableQueryAppService documentTableQueryAppService,
-        IDocumentImportAppService documentImportAppService)
+        IDocumentImportAppService documentImportAppService,
+        IBusinessOrgScopeService businessOrgScopeService)
     {
         _authDataScopeService = authDataScopeService;
         _documentFileAppService = documentFileAppService;
         _documentTableQueryAppService = documentTableQueryAppService;
         _documentImportAppService = documentImportAppService;
+        _businessOrgScopeService = businessOrgScopeService;
     }
 
     [HttpGet]
@@ -58,6 +61,7 @@ public class DocumentsController : BaseApiController
     [ProducesResponseType(typeof(ApiResponse<FileUploadResponse>), StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ApiResponse<FileUploadResponse>>> UploadFile(
         IFormFile file,
+        [FromForm] int? businessOrgUnitId = null,
         CancellationToken cancellationToken = default)
     {
         var scope = await ResolveSpecScopeAsync();
@@ -77,8 +81,13 @@ public class DocumentsController : BaseApiController
             }
 
             // 使用 HttpContext.RequestAborted 作为取消令牌，确保客户端断开时终止文件上传处理
+            var uploadScope = await _businessOrgScopeService.ResolveUploadScopeAsync(
+                scope,
+                User.IsInRole("admin"),
+                businessOrgUnitId,
+                HttpContext.RequestAborted);
             var result = await _documentFileAppService.UploadFileAsync(
-                scope.ToAccessContext(),
+                uploadScope.ToAccessContext(),
                 new DocumentUploadCommand(file.FileName, fileType, content),
                 HttpContext.RequestAborted);
             return Success(result, "文件上传成功");

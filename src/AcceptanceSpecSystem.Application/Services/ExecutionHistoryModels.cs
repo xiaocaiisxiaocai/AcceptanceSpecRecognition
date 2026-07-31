@@ -46,6 +46,8 @@ public sealed class ExecutionHistoryDraft
 
     public UploadedFileType? SourceFileType { get; set; }
 
+    public int? OwnerOrgUnitId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public List<ExecutionHistoryFileDto> Files { get; set; } = [];

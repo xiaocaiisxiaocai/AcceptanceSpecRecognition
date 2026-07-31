@@ -33,6 +33,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
     private readonly MatchingApprovalTokenService _approvalTokenService;
     private readonly MatchingConfigResolver _matchingConfigResolver;
     private readonly MatchingCandidateProvider _matchingCandidateProvider;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
     private readonly ILogger<MatchingPreviewAppService> _logger;
 
     public MatchingPreviewAppService(
@@ -45,6 +46,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
         MatchingApprovalTokenService approvalTokenService,
         MatchingConfigResolver matchingConfigResolver,
         MatchingCandidateProvider matchingCandidateProvider,
+        IBusinessOrgScopeService businessOrgScopeService,
         ILogger<MatchingPreviewAppService> logger)
     {
         _matchingService = matchingService;
@@ -56,6 +58,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
         _approvalTokenService = approvalTokenService;
         _matchingConfigResolver = matchingConfigResolver;
         _matchingCandidateProvider = matchingCandidateProvider;
+        _businessOrgScopeService = businessOrgScopeService;
         _logger = logger;
     }
 
@@ -105,6 +108,19 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 throw Failure(401, "会话缺少用户上下文");
             }
 
+            var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
+                request.FileId,
+                scope);
+            if (wordFile == null)
+            {
+                throw NotFoundFailure("源文件不存在");
+            }
+
+            var businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+                scope,
+                wordFile,
+                cancellationToken);
+
             cancellationToken.ThrowIfCancellationRequested();
 
             var config = await _matchingConfigResolver.ResolveAsync(request.Config, cancellationToken);
@@ -113,7 +129,7 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
                 request.CustomerId,
                 request.ProcessId,
                 request.MachineModelId,
-                scope,
+                businessScope,
                 config.EmbeddingServiceId,
                 hydrateEmbeddings: false,
                 cancellationToken: cancellationToken);
@@ -132,12 +148,6 @@ public sealed class MatchingPreviewAppService : IMatchingPreviewAppService
 
             var response = new BatchPreviewResponse();
             var allTableData = new List<(BatchTableConfig Config, List<MatchSourceItem> Items, List<MatchSource> Sources)>();
-            var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(request.FileId, scope);
-            if (wordFile == null)
-            {
-                throw NotFoundFailure("源文件不存在");
-            }
-
             var extractedTableCount = 0;
             var extractedRowCount = 0;
             foreach (var tableConfig in request.Tables)

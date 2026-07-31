@@ -121,6 +121,7 @@ public static class ApiServiceCollectionExtensions
         // ── 认证与授权 ──
         services.AddScoped<IAuthTokenService, AuthTokenService>();
         services.AddScoped<IBrowserAuthSecurityService, BrowserAuthSecurityService>();
+        services.AddScoped<IBusinessOrgScopeService, BusinessOrgScopeService>();
         services.AddSingleton<IMatchingApprovalTokenProtector, MatchingApprovalTokenProtector>();
         services.AddSingleton<IAuthPermissionSeedCatalog, AuthPermissionSeedCatalog>();
 

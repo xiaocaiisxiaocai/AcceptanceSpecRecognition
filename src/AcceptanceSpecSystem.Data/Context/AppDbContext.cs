@@ -629,6 +629,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.TaskId).IsUnique();
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => new { e.CompanyId, e.CreatedByUserId, e.CreatedAt });
+            entity.HasIndex(e => new { e.CompanyId, e.OwnerOrgUnitId, e.CreatedAt });
         });
 
         modelBuilder.Entity<DocumentImportExecution>(entity =>

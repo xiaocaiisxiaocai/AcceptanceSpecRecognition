@@ -16,13 +16,52 @@ public class OrgUnitsController : BaseApiController
 {
     private readonly IOrgUnitAppService _orgUnitAppService;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
 
     public OrgUnitsController(
         IOrgUnitAppService orgUnitAppService,
-        IAuthDataScopeService authDataScopeService)
+        IAuthDataScopeService authDataScopeService,
+        IBusinessOrgScopeService businessOrgScopeService)
     {
         _orgUnitAppService = orgUnitAppService;
         _authDataScopeService = authDataScopeService;
+        _businessOrgScopeService = businessOrgScopeService;
+    }
+
+    [HttpGet("business-context")]
+    [ProducesResponseType(typeof(ApiResponse<BusinessOrgContextDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<BusinessOrgContextDto>>> GetBusinessContext(
+        CancellationToken cancellationToken = default)
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+        {
+            return Error<BusinessOrgContextDto>(401, "会话缺少用户或公司上下文");
+        }
+
+        try
+        {
+            var scope = await _authDataScopeService.GetScopeAsync(
+                userId.Value,
+                companyId.Value,
+                "spec",
+                cancellationToken);
+            if (scope == null)
+            {
+                return Error<BusinessOrgContextDto>(401, "会话缺少用户上下文");
+            }
+
+            var context = await _businessOrgScopeService.GetContextAsync(
+                scope,
+                User.IsInRole("admin"),
+                cancellationToken);
+            return Success(context);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<BusinessOrgContextDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>

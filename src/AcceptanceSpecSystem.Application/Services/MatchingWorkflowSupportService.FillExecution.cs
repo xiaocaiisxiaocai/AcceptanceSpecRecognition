@@ -58,6 +58,10 @@ public sealed partial class MatchingWorkflowSupportService
         {
             throw Failure(400, "源文件不存在");
         }
+        var businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+            scope,
+            wordFile,
+            cancellationToken);
         var executionRequestId = request.ExecutionRequestId?.Trim();
         var requestFingerprint = BuildFillExecutionRequestFingerprint(request);
         if (!string.IsNullOrEmpty(executionRequestId))
@@ -136,7 +140,7 @@ public sealed partial class MatchingWorkflowSupportService
             .Distinct()
             .ToList();
 
-        var specDict = await GetScopedSpecDictionaryAsync(allSpecIds, scope);
+        var specDict = await GetScopedSpecDictionaryAsync(allSpecIds, businessScope);
 
         var currentMatchLookups = BuildExecutionPreviewSnapshots(request.PreviewTables);
         foreach (var table in request.Tables)
@@ -176,7 +180,7 @@ public sealed partial class MatchingWorkflowSupportService
                     effectiveProcessId,
                     effectiveMachineModelId,
                     executionConfig,
-                    scope,
+                    businessScope,
                     currentSnapshot,
                     currentMatchRows,
                     cancellationToken);

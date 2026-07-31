@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onActivated, onDeactivated, ref } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import { uploadFile, type FileUploadResponse } from "@/api/document";
+import { getBusinessOrgContext, type BusinessOrgContext } from "@/api/org-unit";
 import type { UploadRequestOptions } from "element-plus";
 import { getRequestErrorMessage } from "@/utils/error-message";
 import AppUploadZone from "@/components/AppUploadZone.vue";
@@ -27,6 +28,39 @@ const uploadedFile = computed({
   set: val => emit("update:modelValue", val)
 });
 const uploadZoneMounted = ref(true);
+const businessOrgContext = ref<BusinessOrgContext | null>(null);
+const businessOrgLoading = ref(false);
+const businessOrgError = ref("");
+const selectedBusinessOrgUnitId = ref<number>();
+
+const loadBusinessOrgContext = async () => {
+  if (businessOrgLoading.value || businessOrgContext.value) return;
+  businessOrgLoading.value = true;
+  businessOrgError.value = "";
+  try {
+    const response = await getBusinessOrgContext();
+    if (response.code !== 0) {
+      throw new Error(response.message || "业务归属加载失败");
+    }
+    businessOrgContext.value = response.data;
+    selectedBusinessOrgUnitId.value =
+      uploadedFile.value?.ownerOrgUnitId ??
+      response.data.currentOrgUnitId ??
+      undefined;
+  } catch (error) {
+    businessOrgError.value = getRequestErrorMessage(
+      error,
+      "业务归属加载失败，请重试"
+    );
+  } finally {
+    businessOrgLoading.value = false;
+  }
+};
+
+const canUpload = computed(
+  () =>
+    businessOrgContext.value != null && selectedBusinessOrgUnitId.value != null
+);
 
 const isExcel = computed(() => uploadedFile.value?.fileType === 1);
 const isTableCountPending = computed(
@@ -69,7 +103,14 @@ const handleUpload = async (
 
     if (file.size > 50 * 1024 * 1024) throw new Error("文件大小不能超过50MB");
 
-    const res = await uploadFile(file, context);
+    if (!selectedBusinessOrgUnitId.value) {
+      throw new Error("请先选择业务归属部门");
+    }
+
+    const res = await uploadFile(file, {
+      ...context,
+      businessOrgUnitId: selectedBusinessOrgUnitId.value
+    });
     throwIfUploadCancelled(context.signal);
     if (res.code !== 0) throw new Error(res.message || "上传失败");
 
@@ -91,6 +132,8 @@ const removeFromCurrentFlow = () => {
   uploadedFile.value = null;
 };
 
+onMounted(loadBusinessOrgContext);
+
 onDeactivated(() => {
   // AppUploadZone 卸载时会调用既有 cancel，真正中止当前上传请求。
   uploadZoneMounted.value = false;
@@ -98,14 +141,69 @@ onDeactivated(() => {
 
 onActivated(() => {
   uploadZoneMounted.value = true;
+  void loadBusinessOrgContext();
 });
 </script>
 
 <template>
   <div class="file-upload">
+    <div class="business-org-bar">
+      <div class="business-org-label">
+        <span>业务归属</span>
+        <el-tag
+          v-if="businessOrgContext && !businessOrgContext.requiresSelection"
+          size="small"
+          type="info"
+          effect="plain"
+        >
+          已锁定
+        </el-tag>
+      </div>
+      <div class="business-org-control">
+        <el-skeleton
+          v-if="businessOrgLoading"
+          animated
+          :rows="0"
+          class="business-org-loading"
+        />
+        <template v-else-if="businessOrgError">
+          <span class="business-org-error">{{ businessOrgError }}</span>
+          <el-button type="primary" link @click="loadBusinessOrgContext">
+            重试
+          </el-button>
+        </template>
+        <el-select
+          v-else-if="businessOrgContext?.requiresSelection"
+          v-model="selectedBusinessOrgUnitId"
+          placeholder="请选择本次业务归属部门"
+          :disabled="Boolean(uploadedFile)"
+          class="business-org-select"
+        >
+          <el-option
+            v-for="option in businessOrgContext.options"
+            :key="option.id"
+            :label="`${'　'.repeat(Math.max(0, option.depth - 1))}${option.name}`"
+            :value="option.id"
+          />
+        </el-select>
+        <span v-else-if="businessOrgContext" class="business-org-value">
+          {{ businessOrgContext.currentOrgUnitName }}
+        </span>
+      </div>
+      <span
+        v-if="businessOrgContext?.requiresSelection"
+        class="business-org-tip"
+      >
+        上传后不可更改，导入与智能填充均按此部门隔离
+      </span>
+      <span v-else-if="businessOrgContext" class="business-org-tip">
+        当前账号仅可处理本归属范围的数据
+      </span>
+    </div>
+
     <template v-if="!uploadedFile">
       <AppUploadZone
-        v-if="uploadZoneMounted"
+        v-if="uploadZoneMounted && canUpload"
         :request="handleUpload"
         :upload-hint="uploadHint"
         :accept="resolvedAccept"
@@ -129,6 +227,13 @@ onActivated(() => {
         <div class="file-details">
           <div class="file-name">{{ uploadedFile.fileName }}</div>
           <div class="file-meta">
+            <span class="owner-org">
+              业务归属：{{
+                uploadedFile.ownerOrgUnitName ||
+                businessOrgContext?.currentOrgUnitName ||
+                "已绑定"
+              }}
+            </span>
             <span v-if="isTableCountPending">
               文件已上传，正在读取{{ isExcel ? "工作表" : "表格" }}结构...
             </span>
@@ -159,6 +264,53 @@ onActivated(() => {
 <style scoped>
 .file-upload {
   width: 100%;
+}
+
+.business-org-bar {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 360px) 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  background: var(--el-fill-color-extra-light);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+}
+
+.business-org-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.business-org-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.business-org-select,
+.business-org-loading {
+  width: 100%;
+}
+
+.business-org-value {
+  font-weight: 600;
+  color: var(--el-color-primary);
+}
+
+.business-org-tip {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+
+.business-org-error {
+  font-size: 13px;
+  color: var(--el-color-danger);
 }
 
 .uploaded-info {
@@ -194,11 +346,24 @@ onActivated(() => {
   color: var(--app-text-secondary);
 }
 
+.owner-org {
+  padding-right: 8px;
+  color: var(--el-color-primary);
+  border-right: 1px solid var(--el-border-color);
+}
+
 .file-actions {
   flex-shrink: 0;
 }
 
 .metadata-error {
   color: var(--el-color-danger);
+}
+
+@media (width <= 900px) {
+  .business-org-bar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 </style>

@@ -611,6 +611,11 @@ public class ExecuteFillResponse
 public class MatchLlmStreamRequest
 {
     /// <summary>
+    /// 当前智能填充源文件ID，用于锁定业务归属部门。
+    /// </summary>
+    public int? FileId { get; set; }
+
+    /// <summary>
     /// 目标客户ID（限定匹配范围）
     /// </summary>
     public int? CustomerId { get; set; }
@@ -1091,6 +1096,11 @@ public class BatchExecuteFillRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public class SmartFillSpecBackfillRequest
 {
+    /// <summary>
+    /// 当前智能填充源文件ID，用于锁定业务归属部门。
+    /// </summary>
+    public int? FileId { get; set; }
+
     /// <summary>
     /// 当前匹配范围客户ID。
     /// </summary>

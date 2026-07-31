@@ -4,7 +4,11 @@ using AcceptanceSpecSystem.Core.Matching.Models;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
-public sealed record MatchingUserContext(int UserId, int CompanyId, string Username = "");
+public sealed record MatchingUserContext(
+    int UserId,
+    int CompanyId,
+    string Username = "",
+    bool IsAdmin = false);
 
 public interface IMatchingApprovalTokenProtector
 {

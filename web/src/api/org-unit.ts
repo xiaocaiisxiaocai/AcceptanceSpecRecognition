@@ -30,6 +30,22 @@ export interface UpdateOrgUnitRequest {
   isActive: boolean;
 }
 
+export interface BusinessOrgOption {
+  id: number;
+  name: string;
+  unitType: number;
+  path: string;
+  depth: number;
+}
+
+export interface BusinessOrgContext {
+  requiresSelection: boolean;
+  currentOrgUnitId?: number;
+  currentOrgUnitName?: string;
+  isCompanyFallback: boolean;
+  options: BusinessOrgOption[];
+}
+
 const baseUrl = "/api/org-units";
 
 export const getOrgUnitTree = () => {
@@ -38,6 +54,13 @@ export const getOrgUnitTree = () => {
 
 export const getOrgUnitFlat = () => {
   return http.request<ApiResponse<OrgUnit[]>>("get", `${baseUrl}/flat`);
+};
+
+export const getBusinessOrgContext = () => {
+  return http.request<ApiResponse<BusinessOrgContext>>(
+    "get",
+    `${baseUrl}/business-context`
+  );
 };
 
 export const createOrgUnit = (data: CreateOrgUnitRequest) => {

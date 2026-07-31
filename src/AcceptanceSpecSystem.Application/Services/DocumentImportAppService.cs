@@ -43,6 +43,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
     private readonly IImportWarmupTrigger _embeddingCacheWarmupTrigger;
     private readonly ColumnMappingLearningService _columnMappingLearningService;
     private readonly IMatchingApprovalTokenProtector _decisionTokenProtector;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
@@ -55,6 +56,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         IImportWarmupTrigger embeddingCacheWarmupTrigger,
         ColumnMappingLearningService columnMappingLearningService,
         IMatchingApprovalTokenProtector decisionTokenProtector,
+        IBusinessOrgScopeService businessOrgScopeService,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -66,6 +68,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         _embeddingCacheWarmupTrigger = embeddingCacheWarmupTrigger;
         _columnMappingLearningService = columnMappingLearningService;
         _decisionTokenProtector = decisionTokenProtector;
+        _businessOrgScopeService = businessOrgScopeService;
         _logger = logger;
     }
 
@@ -112,6 +115,11 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             {
                 throw new ApplicationServiceException(400, "该文件为 Excel，请使用 Excel 导入接口");
             }
+
+            var businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+                scope,
+                wordFile,
+                cancellationToken);
 
             await ValidateImportTargetAsync(
                 request.CustomerId,
@@ -179,7 +187,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 request.IsSpecificationOnly);
 
             var importResult = await ExecuteImportAsync(
-                scope,
+                businessScope,
                 wordFile,
                 request.TableIndex,
                 request.CustomerId,
@@ -276,6 +284,11 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 throw new ApplicationServiceException(400, "该文件不是 Excel（.xlsx）");
             }
 
+            var businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+                scope,
+                file,
+                cancellationToken);
+
             await ValidateImportTargetAsync(
                 request.CustomerId,
                 request.ProcessId,
@@ -313,7 +326,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
             if (sheetInfo.RowCount <= 0 || sheetInfo.ColumnCount <= 0)
             {
                 return await ExecuteImportAsync(
-                    scope,
+                    businessScope,
                     file,
                     request.SheetIndex,
                     request.CustomerId,
@@ -422,7 +435,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
                 request.IsSpecificationOnly);
 
             var importResult = await ExecuteImportAsync(
-                scope,
+                businessScope,
                 file,
                 request.SheetIndex,
                 request.CustomerId,

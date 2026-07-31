@@ -275,6 +275,7 @@ export function useSmartFillExecution({
     try {
       if (selected.length > 0) {
         const res = await backfillSmartFillSpecs({
+          fileId: uploadedFile.value?.fileId,
           customerId: request.customerId,
           processId: request.processId,
           machineModelId: request.machineModelId,

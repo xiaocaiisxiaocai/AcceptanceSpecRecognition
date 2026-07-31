@@ -30,6 +30,35 @@ public class OrgUnitDto
 }
 
 /// <summary>
+/// 导入与智能填充使用的业务归属上下文。
+/// </summary>
+public class BusinessOrgContextDto
+{
+    public bool RequiresSelection { get; set; }
+
+    public int? CurrentOrgUnitId { get; set; }
+
+    public string? CurrentOrgUnitName { get; set; }
+
+    public bool IsCompanyFallback { get; set; }
+
+    public List<BusinessOrgOptionDto> Options { get; set; } = [];
+}
+
+public class BusinessOrgOptionDto
+{
+    public int Id { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public OrgUnitType UnitType { get; set; }
+
+    public string Path { get; set; } = "/";
+
+    public int Depth { get; set; }
+}
+
+/// <summary>
 /// 创建组织节点请求
 /// </summary>
 public class CreateOrgUnitRequest

@@ -91,6 +91,11 @@ public class ExecutionHistoryRecord
     public int? CompanyId { get; set; }
 
     /// <summary>
+    /// 业务执行发生时的归属组织快照。
+    /// </summary>
+    public int? OwnerOrgUnitId { get; set; }
+
+    /// <summary>
     /// 创建时间
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

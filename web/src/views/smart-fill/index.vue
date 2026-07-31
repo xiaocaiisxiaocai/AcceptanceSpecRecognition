@@ -345,6 +345,7 @@ const { llmStreaming, startLlmStream, stopLlmStream, handleWindowOffline } =
     },
     buildLlmStreamPayload: (scope, items, config) =>
       createMatchLlmStreamRequest({
+        fileId: uploadedFile.value?.fileId,
         customerId: scope.customerId,
         processId: scope.processId,
         machineModelId: scope.machineModelId,
