@@ -95,6 +95,7 @@ public sealed partial class MatchingWorkflowSupportService
             SourceFileId = wordFile.Id,
             SourceFileName = wordFile.FileName,
             SourceFileType = wordFile.FileType,
+            OwnerOrgUnitId = wordFile.OwnerOrgUnitId,
             CreatedAt = createdAt,
             Files = [fileDetail],
             SmartFillSummary = playback == null ? null : BuildSmartFillSummary(playback),

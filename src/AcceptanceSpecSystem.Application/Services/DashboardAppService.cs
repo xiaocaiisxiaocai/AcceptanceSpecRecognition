@@ -12,6 +12,8 @@ public interface IDashboardAppService
     Task<DashboardSummaryDto?> GetSummaryAsync(
         int userId,
         int companyId,
+        bool isAdmin,
+        int? orgUnitId,
         string? range,
         DateTime? from,
         DateTime? to,
@@ -45,15 +47,18 @@ public sealed class DashboardAppService : IDashboardAppService
     public async Task<DashboardSummaryDto?> GetSummaryAsync(
         int userId,
         int companyId,
+        bool isAdmin,
+        int? orgUnitId,
         string? range,
         DateTime? from,
         DateTime? to,
         CancellationToken cancellationToken = default)
     {
-        var scope = await _authDataScopeService.GetScopeAsync(
+        var scope = await ResolveDashboardScopeAsync(
             userId,
             companyId,
-            "spec",
+            isAdmin,
+            orgUnitId,
             cancellationToken);
         if (scope == null)
         {
@@ -67,11 +72,14 @@ public sealed class DashboardAppService : IDashboardAppService
                 .Where(spec => spec.WordFile.CompanyId == scope.CompanyId),
             scope);
 
-        var smartFillRecords = _dbContext.ExecutionHistoryRecords
+        var scopedHistoryRecords = ApplyHistoryScope(
+            _dbContext.ExecutionHistoryRecords
+                .AsNoTracking()
+                .Where(record => record.CompanyId == scope.CompanyId),
+            scope);
+        var smartFillRecords = scopedHistoryRecords
             .AsNoTracking()
             .Where(record =>
-                record.CompanyId == scope.CompanyId &&
-                record.CreatedByUserId == scope.UserId &&
                 record.TaskType == SmartFillTaskType &&
                 record.DetailJson != string.Empty &&
                 record.CreatedAt >= period.Start &&
@@ -106,6 +114,21 @@ public sealed class DashboardAppService : IDashboardAppService
             .Select(group => new { Date = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => DateOnly.FromDateTime(item.Date), item => item.Count, cancellationToken);
         var dailyTrend = BuildDailyTrend(period, importedByDay, smartFillByDay);
+        var recentExecutions = await scopedHistoryRecords
+            .OrderByDescending(record => record.CreatedAt)
+            .ThenByDescending(record => record.Id)
+            .Take(5)
+            .Select(record => new DashboardRecentExecutionDto
+            {
+                Id = record.Id,
+                TaskId = record.TaskId,
+                TaskType = record.TaskType,
+                SourceFileName = record.SourceFileName,
+                TotalRowCount = record.TotalRowCount,
+                AdoptedRowCount = record.AdoptedRowCount,
+                CreatedAt = record.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
 
         return new DashboardSummaryDto
         {
@@ -122,7 +145,69 @@ public sealed class DashboardAppService : IDashboardAppService
             SmartFillAdoptedRows = smartFillAdoptedRows,
             MatchingRate = CalculateRate(smartFillMatchedRows, smartFillTotalRows),
             AdoptionRate = CalculateRate(smartFillAdoptedRows, smartFillTotalRows),
-            DailyTrend = dailyTrend
+            DailyTrend = dailyTrend,
+            RecentExecutions = recentExecutions
+        };
+    }
+
+    private async Task<DataScopeResult?> ResolveDashboardScopeAsync(
+        int userId,
+        int companyId,
+        bool isAdmin,
+        int? requestedOrgUnitId,
+        CancellationToken cancellationToken)
+    {
+        if (!isAdmin)
+        {
+            if (requestedOrgUnitId.HasValue)
+                throw new ApplicationServiceException(403, "普通用户只能查看所属部门的仪表盘");
+
+            return await _authDataScopeService.GetScopeAsync(
+                userId,
+                companyId,
+                "spec",
+                cancellationToken);
+        }
+
+        if (!requestedOrgUnitId.HasValue)
+        {
+            return new DataScopeResult
+            {
+                UserId = userId,
+                CompanyId = companyId,
+                IsAll = true,
+                IncludeSelf = true
+            };
+        }
+
+        var selectedOrg = await _dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org =>
+                org.Id == requestedOrgUnitId.Value &&
+                org.CompanyId == companyId &&
+                org.IsActive)
+            .Select(org => new { org.Id, org.Path })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (selectedOrg == null)
+            throw new ApplicationServiceException(400, "所选部门不存在、已停用或不属于当前公司");
+
+        var orgUnitIds = await _dbContext.OrgUnits
+            .AsNoTracking()
+            .Where(org =>
+                org.CompanyId == companyId &&
+                org.IsActive &&
+                org.Path.StartsWith(selectedOrg.Path))
+            .Select(org => org.Id)
+            .ToListAsync(cancellationToken);
+
+        return new DataScopeResult
+        {
+            UserId = userId,
+            CompanyId = companyId,
+            OrgUnitId = selectedOrg.Id,
+            IsAll = false,
+            IncludeSelf = false,
+            OrgUnitIds = orgUnitIds
         };
     }
 
@@ -248,6 +333,53 @@ public sealed class DashboardAppService : IDashboardAppService
 
         if (orgUnitIds.Length > 0)
             return query.Where(spec => spec.OwnerOrgUnitId.HasValue && orgUnitIds.Contains(spec.OwnerOrgUnitId.Value));
+
+        return query.Where(_ => false);
+    }
+
+    private IQueryable<ExecutionHistoryRecord> ApplyHistoryScope(
+        IQueryable<ExecutionHistoryRecord> query,
+        DataScopeResult scope)
+    {
+        if (scope.IsAll)
+            return query;
+
+        var orgUnitIds = scope.OrgUnitIds.Distinct().ToArray();
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var scopedUserIds = _dbContext.AuthUserOrgUnits
+            .AsNoTracking()
+            .Where(link =>
+                orgUnitIds.Contains(link.OrgUnitId) &&
+                link.OrgUnit.CompanyId == scope.CompanyId &&
+                link.OrgUnit.IsActive &&
+                (!link.StartAt.HasValue || link.StartAt <= now) &&
+                (!link.EndAt.HasValue || link.EndAt >= now))
+            .Select(link => link.UserId)
+            .Distinct();
+
+        if (scope.IncludeSelf && orgUnitIds.Length > 0)
+        {
+            return query.Where(record =>
+                (record.OwnerOrgUnitId.HasValue &&
+                 orgUnitIds.Contains(record.OwnerOrgUnitId.Value)) ||
+                (!record.OwnerOrgUnitId.HasValue &&
+                 (record.CreatedByUserId == scope.UserId ||
+                  (record.CreatedByUserId.HasValue &&
+                   scopedUserIds.Contains(record.CreatedByUserId.Value)))));
+        }
+
+        if (scope.IncludeSelf)
+            return query.Where(record => record.CreatedByUserId == scope.UserId);
+
+        if (orgUnitIds.Length > 0)
+        {
+            return query.Where(record =>
+                (record.OwnerOrgUnitId.HasValue &&
+                 orgUnitIds.Contains(record.OwnerOrgUnitId.Value)) ||
+                (!record.OwnerOrgUnitId.HasValue &&
+                 record.CreatedByUserId.HasValue &&
+                 scopedUserIds.Contains(record.CreatedByUserId.Value)));
+        }
 
         return query.Where(_ => false);
     }

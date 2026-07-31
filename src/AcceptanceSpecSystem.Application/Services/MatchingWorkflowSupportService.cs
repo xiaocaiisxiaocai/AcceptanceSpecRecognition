@@ -25,6 +25,7 @@ public sealed partial class MatchingWorkflowSupportService
     private readonly IMatchingResultWriteBackPort _matchingResultWriteBackService;
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly MatchingTaskSnapshotService _matchingTaskSnapshotService;
     private readonly ExecutionHistoryAppService _executionHistoryAppService;
@@ -80,6 +81,7 @@ public sealed partial class MatchingWorkflowSupportService
         IMatchingResultWriteBackPort matchingResultWriteBackService,
         ITextPreprocessingPipeline textPipeline,
         IAuthDataScopeService authDataScopeService,
+        IBusinessOrgScopeService businessOrgScopeService,
         IServiceScopeFactory scopeFactory,
         MatchingTaskSnapshotService matchingTaskSnapshotService,
         ExecutionHistoryAppService executionHistoryAppService,
@@ -96,6 +98,7 @@ public sealed partial class MatchingWorkflowSupportService
         _matchingResultWriteBackService = matchingResultWriteBackService;
         _textPipeline = textPipeline;
         _authDataScopeService = authDataScopeService;
+        _businessOrgScopeService = businessOrgScopeService;
         _scopeFactory = scopeFactory;
         _matchingTaskSnapshotService = matchingTaskSnapshotService;
         _executionHistoryAppService = executionHistoryAppService;

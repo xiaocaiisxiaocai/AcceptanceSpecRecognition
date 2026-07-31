@@ -7,6 +7,7 @@ export interface DashboardSummaryRequest {
   range?: DashboardPeriodPreset;
   from?: string;
   to?: string;
+  orgUnitId?: number;
 }
 
 export interface DashboardSummary {
@@ -24,12 +25,23 @@ export interface DashboardSummary {
   matchingRate: number;
   adoptionRate: number;
   dailyTrend: DashboardDailyTrend[];
+  recentExecutions: DashboardRecentExecution[];
 }
 
 export interface DashboardDailyTrend {
   date: string;
   importedSpecCount: number;
   smartFillTaskCount: number;
+}
+
+export interface DashboardRecentExecution {
+  id: number;
+  taskId: string;
+  taskType: string;
+  sourceFileName: string;
+  totalRowCount: number;
+  adoptedRowCount: number;
+  createdAt: string;
 }
 
 const baseUrl = "/api/dashboard";

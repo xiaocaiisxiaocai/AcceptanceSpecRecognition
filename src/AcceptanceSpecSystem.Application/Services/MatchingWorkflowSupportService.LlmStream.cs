@@ -31,12 +31,36 @@ public sealed partial class MatchingWorkflowSupportService
             throw Failure(401, "会话缺少用户上下文");
         }
 
+        DataScopeResult businessScope;
+        if (request.FileId.HasValue && request.FileId.Value > 0)
+        {
+            var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
+                request.FileId.Value,
+                scope);
+            if (wordFile == null)
+            {
+                throw Failure(400, "源文件不存在");
+            }
+
+            businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+                scope,
+                wordFile,
+                cancellationToken);
+        }
+        else
+        {
+            businessScope = await _businessOrgScopeService.ResolveCurrentScopeAsync(
+                scope,
+                user.IsAdmin,
+                cancellationToken);
+        }
+
         var config = await _matchingConfigResolver.ResolveAsync(request.Config, cancellationToken);
         var candidates = await _matchingCandidateProvider.GetCandidatesAsync(
             request.CustomerId,
             request.ProcessId,
             request.MachineModelId,
-            scope,
+            businessScope,
             config.EmbeddingServiceId,
             hydrateEmbeddings: false,
             cancellationToken: cancellationToken);
@@ -111,7 +135,7 @@ public sealed partial class MatchingWorkflowSupportService
                                 item,
                                 context.AuthoritativeBestMatch,
                                 config,
-                                scope,
+                                businessScope,
                                 request.CustomerId,
                                 request.ProcessId,
                                 request.MachineModelId,

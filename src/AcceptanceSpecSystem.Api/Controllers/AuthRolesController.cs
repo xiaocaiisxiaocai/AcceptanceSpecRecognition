@@ -1,5 +1,6 @@
 ﻿using AcceptanceSpecSystem.Api.Authorization;
 using AcceptanceSpecSystem.Api.DTOs;
+using System.Security.Claims;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -35,6 +36,13 @@ public class AuthRolesController : BaseApiController
             return Error<List<AuthRoleDto>>(401, "会话缺少公司上下文");
 
         var roles = await _authRoleAppService.GetListAsync(companyId.Value, keyword, cancellationToken);
+        if (!User.IsInRole("admin"))
+        {
+            var currentRoleCode = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+            roles = roles
+                .Where(role => string.Equals(role.Code, currentRoleCode, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
         return Success(roles);
     }
 
@@ -54,6 +62,11 @@ public class AuthRolesController : BaseApiController
         var role = await _authRoleAppService.GetByIdAsync(companyId.Value, id, cancellationToken);
         if (role == null)
             return NotFoundResult<AuthRoleDto>("角色不存在");
+        if (!User.IsInRole("admin") &&
+            !string.Equals(role.Code, User.FindFirstValue(ClaimTypes.Role), StringComparison.OrdinalIgnoreCase))
+        {
+            return Error<AuthRoleDto>(403, "普通用户不能查看其他角色权限");
+        }
 
         return Success(role);
     }
@@ -68,6 +81,9 @@ public class AuthRolesController : BaseApiController
         [FromBody] CreateAuthRoleRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!User.IsInRole("admin"))
+            return Error<AuthRoleDto>(403, "只有管理员可以创建角色");
+
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
@@ -94,6 +110,9 @@ public class AuthRolesController : BaseApiController
         [FromBody] UpdateAuthRoleRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (!User.IsInRole("admin"))
+            return Error<AuthRoleDto>(403, "只有管理员可以修改角色权限");
+
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error<AuthRoleDto>(401, "会话缺少公司上下文");
@@ -119,6 +138,9 @@ public class AuthRolesController : BaseApiController
         int id,
         CancellationToken cancellationToken = default)
     {
+        if (!User.IsInRole("admin"))
+            return Error(403, "只有管理员可以删除角色");
+
         var companyId = AuthClaimHelper.GetCompanyId(User);
         if (!companyId.HasValue)
             return Error(401, "会话缺少公司上下文");

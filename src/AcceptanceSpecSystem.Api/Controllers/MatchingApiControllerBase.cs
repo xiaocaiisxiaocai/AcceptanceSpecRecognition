@@ -19,7 +19,11 @@ public abstract class MatchingApiControllerBase : BaseApiController
         if (!userId.HasValue || !companyId.HasValue)
             throw new MatchingApiException(401, "会话缺少用户上下文");
 
-        return new MatchingUserContext(userId.Value, companyId.Value, User.Identity?.Name ?? string.Empty);
+        return new MatchingUserContext(
+            userId.Value,
+            companyId.Value,
+            User.Identity?.Name ?? string.Empty,
+            User.IsInRole("admin"));
     }
 
     /// <summary>

@@ -27,6 +27,7 @@ public sealed class DashboardController : BaseApiController
         [FromQuery] string? range = null,
         [FromQuery] DateTime? from = null,
         [FromQuery] DateTime? to = null,
+        [FromQuery] int? orgUnitId = null,
         CancellationToken cancellationToken = default)
     {
         var userId = AuthClaimHelper.GetUserId(User);
@@ -40,6 +41,8 @@ public sealed class DashboardController : BaseApiController
             result = await _dashboardAppService.GetSummaryAsync(
                 userId.Value,
                 companyId.Value,
+                User.IsInRole("admin"),
+                orgUnitId,
                 range,
                 from,
                 to,

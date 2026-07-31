@@ -22,13 +22,19 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IDocumentFileAccessService _documentFileAccessService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
 
     public SmartFillSpecBackfillAppService(
         IUnitOfWork unitOfWork,
-        IAuthDataScopeService authDataScopeService)
+        IAuthDataScopeService authDataScopeService,
+        IDocumentFileAccessService documentFileAccessService,
+        IBusinessOrgScopeService businessOrgScopeService)
     {
         _unitOfWork = unitOfWork;
         _authDataScopeService = authDataScopeService;
+        _documentFileAccessService = documentFileAccessService;
+        _businessOrgScopeService = businessOrgScopeService;
     }
 
     public async Task<MatchingOperationResult<SmartFillSpecBackfillResponse>> BackfillAsync(
@@ -44,6 +50,30 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
         if (scope == null)
         {
             throw Failure(401, "会话缺少用户上下文");
+        }
+
+        DataScopeResult businessScope;
+        if (request.FileId.HasValue && request.FileId.Value > 0)
+        {
+            var wordFile = await _documentFileAccessService.GetAccessibleWordFileAsync(
+                request.FileId.Value,
+                scope);
+            if (wordFile == null)
+            {
+                throw Failure(400, "源文件不存在");
+            }
+
+            businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+                scope,
+                wordFile,
+                cancellationToken);
+        }
+        else
+        {
+            businessScope = await _businessOrgScopeService.ResolveCurrentScopeAsync(
+                scope,
+                user.IsAdmin,
+                cancellationToken);
         }
 
         if (request.Items.Count == 0)
@@ -87,7 +117,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                     throw Failure(404, "验收规格不存在");
                 }
 
-                if (!SpecDataScopeRules.CanAccess(spec, scope))
+                if (!SpecDataScopeRules.CanAccess(spec, businessScope))
                 {
                     throw Failure(403, "无权回填该验收规格");
                 }
@@ -101,7 +131,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         var response = new SmartFillSpecBackfillResponse();
         var manualWordFile = normalizedItems.Any(item => !item.SpecId.HasValue)
-            ? await GetOrCreateManualWordFileAsync(scope, cancellationToken)
+            ? await GetOrCreateManualWordFileAsync(businessScope, cancellationToken)
             : null;
 
         foreach (var item in normalizedItems)
@@ -134,8 +164,8 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 Specification = RequireText(item.SourceSpecification, "新增规格的规格不能为空"),
                 Acceptance = item.OverrideAcceptance,
                 Remark = item.OverrideRemark,
-                OwnerOrgUnitId = scope.OrgUnitId,
-                CreatedByUserId = scope.UserId,
+                OwnerOrgUnitId = businessScope.OrgUnitId,
+                CreatedByUserId = businessScope.UserId,
                 WordFileId = manualWordFile!.Id,
                 ImportedAt = DateTime.UtcNow
             }, cancellationToken);

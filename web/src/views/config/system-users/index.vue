@@ -142,6 +142,11 @@ const currentUsername = computed(() => {
   const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
   return (userInfo?.username ?? "").trim();
 });
+const currentRoleCode = computed(() => {
+  const userInfo = storageLocal().getItem<DataInfo<number>>(userKey);
+  return (userInfo?.roleCode ?? "").trim().toLowerCase();
+});
+const isCurrentUserAdmin = computed(() => currentRoleCode.value === "admin");
 
 const listRequestParams = computed(() => {
   const isActive =
@@ -159,7 +164,11 @@ const listRequestParams = computed(() => {
 });
 
 const activeRoleOptions = computed(() => {
-  return roleOptions.value.filter(item => item.isActive);
+  return roleOptions.value.filter(
+    item =>
+      item.isActive &&
+      (isCurrentUserAdmin.value || item.code === currentRoleCode.value)
+  );
 });
 
 const roleNameMap = computed(() => {
@@ -423,12 +432,18 @@ const handleToggleStatus = async (row: SystemUser, value: boolean) => {
   }
 };
 
+const canManageRow = (row: SystemUser) =>
+  isCurrentUserAdmin.value || row.roleCode !== "admin";
+
 const canDelete = (row: SystemUser) => {
-  return row.username !== currentUsername.value;
+  return canManageRow(row) && row.username !== currentUsername.value;
 };
 
 const canDisable = (row: SystemUser) => {
-  return !(row.username === currentUsername.value && row.isActive);
+  return (
+    canManageRow(row) &&
+    !(row.username === currentUsername.value && row.isActive)
+  );
 };
 
 const formatDateTime = (value?: string | null) => {
@@ -550,6 +565,7 @@ onMounted(initPage);
               v-perms="'btn:system-user:update'"
               type="primary"
               link
+              :disabled="!canManageRow(row)"
               @click="openEditDialog(row)"
             >
               编辑
@@ -558,6 +574,7 @@ onMounted(initPage);
               v-perms="'btn:system-user:reset-password'"
               type="warning"
               link
+              :disabled="!canManageRow(row)"
               @click="openResetPasswordDialog(row)"
             >
               重置密码

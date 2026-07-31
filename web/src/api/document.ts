@@ -21,9 +21,15 @@ export interface FileUploadResponse {
   isDuplicate: boolean;
   tableCount: number;
   tableCountReady: boolean;
+  ownerOrgUnitId?: number;
+  ownerOrgUnitName?: string;
   /** 前端表结构加载阶段；与文件保存结果分离。 */
   tableMetadataStatus?: "loading" | "ready" | "error";
   tableMetadataError?: string;
+}
+
+export interface UploadFileOptions extends UploadTransportOptions {
+  businessOrgUnitId?: number;
 }
 
 /** 表格信息 */
@@ -183,9 +189,12 @@ export const getFileList = (params?: PagedRequest) => {
 };
 
 /** 上传Word文件 */
-export const uploadFile = (file: File, options?: UploadTransportOptions) => {
+export const uploadFile = (file: File, options?: UploadFileOptions) => {
   const formData = new FormData();
   formData.append("file", file);
+  if (options?.businessOrgUnitId) {
+    formData.append("businessOrgUnitId", String(options.businessOrgUnitId));
+  }
   return http.request<ApiResponse<FileUploadResponse>>(
     "post",
     `${baseUrl}/upload`,

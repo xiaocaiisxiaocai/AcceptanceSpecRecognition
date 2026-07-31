@@ -30,6 +30,7 @@ public class MatchingPreviewController : MatchingApiControllerBase
     }
 
     [HttpGet("batch-preview-progress/{requestId}")]
+    [AuditOperation("read", "matching")]
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewProgressResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiResponse<BatchPreviewProgressResponse>), StatusCodes.Status404NotFound)]
     public Task<ActionResult<ApiResponse<BatchPreviewProgressResponse>>> GetBatchPreviewProgress(string requestId)

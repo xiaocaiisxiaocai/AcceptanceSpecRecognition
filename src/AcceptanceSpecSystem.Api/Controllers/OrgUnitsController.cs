@@ -15,10 +15,53 @@ namespace AcceptanceSpecSystem.Api.Controllers;
 public class OrgUnitsController : BaseApiController
 {
     private readonly IOrgUnitAppService _orgUnitAppService;
+    private readonly IAuthDataScopeService _authDataScopeService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
 
-    public OrgUnitsController(IOrgUnitAppService orgUnitAppService)
+    public OrgUnitsController(
+        IOrgUnitAppService orgUnitAppService,
+        IAuthDataScopeService authDataScopeService,
+        IBusinessOrgScopeService businessOrgScopeService)
     {
         _orgUnitAppService = orgUnitAppService;
+        _authDataScopeService = authDataScopeService;
+        _businessOrgScopeService = businessOrgScopeService;
+    }
+
+    [HttpGet("business-context")]
+    [ProducesResponseType(typeof(ApiResponse<BusinessOrgContextDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<BusinessOrgContextDto>>> GetBusinessContext(
+        CancellationToken cancellationToken = default)
+    {
+        var userId = AuthClaimHelper.GetUserId(User);
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!userId.HasValue || !companyId.HasValue)
+        {
+            return Error<BusinessOrgContextDto>(401, "会话缺少用户或公司上下文");
+        }
+
+        try
+        {
+            var scope = await _authDataScopeService.GetScopeAsync(
+                userId.Value,
+                companyId.Value,
+                "spec",
+                cancellationToken);
+            if (scope == null)
+            {
+                return Error<BusinessOrgContextDto>(401, "会话缺少用户上下文");
+            }
+
+            var context = await _businessOrgScopeService.GetContextAsync(
+                scope,
+                User.IsInRole("admin"),
+                cancellationToken);
+            return Success(context);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<BusinessOrgContextDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -34,6 +77,15 @@ public class OrgUnitsController : BaseApiController
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
         var items = await _orgUnitAppService.GetTreeAsync(companyId.Value, cancellationToken);
+        if (!User.IsInRole("admin"))
+        {
+            var userId = AuthClaimHelper.GetUserId(User);
+            if (!userId.HasValue)
+                return Error<List<OrgUnitDto>>(401, "会话缺少用户上下文");
+            var scope = await _authDataScopeService.GetScopeAsync(
+                userId.Value, companyId.Value, "spec", cancellationToken);
+            items = FilterTree(items, scope?.OrgUnitIds ?? []);
+        }
         return Success(items);
     }
 
@@ -50,6 +102,16 @@ public class OrgUnitsController : BaseApiController
             return Error<List<OrgUnitDto>>(401, "会话缺少公司上下文");
 
         var items = await _orgUnitAppService.GetFlatAsync(companyId.Value, cancellationToken);
+        if (!User.IsInRole("admin"))
+        {
+            var userId = AuthClaimHelper.GetUserId(User);
+            if (!userId.HasValue)
+                return Error<List<OrgUnitDto>>(401, "会话缺少用户上下文");
+            var scope = await _authDataScopeService.GetScopeAsync(
+                userId.Value, companyId.Value, "spec", cancellationToken);
+            var allowed = (scope?.OrgUnitIds ?? []).ToHashSet();
+            items = items.Where(item => allowed.Contains(item.Id)).ToList();
+        }
         return Success(items);
     }
 
@@ -126,6 +188,43 @@ public class OrgUnitsController : BaseApiController
         catch (ApplicationServiceException ex)
         {
             return Error<object>(ex.Code, ex.Message);
+        }
+    }
+
+    private static List<OrgUnitDto> FilterTree(
+        IEnumerable<OrgUnitDto> source,
+        IEnumerable<int> allowedOrgUnitIds)
+    {
+        var allowed = allowedOrgUnitIds.ToHashSet();
+        return source
+            .Select(CloneAllowedNode)
+            .Where(node => node != null)
+            .Cast<OrgUnitDto>()
+            .ToList();
+
+        OrgUnitDto? CloneAllowedNode(OrgUnitDto node)
+        {
+            var children = node.Children
+                .Select(CloneAllowedNode)
+                .Where(child => child != null)
+                .Cast<OrgUnitDto>()
+                .ToList();
+            if (!allowed.Contains(node.Id) && children.Count == 0)
+                return null;
+
+            return new OrgUnitDto
+            {
+                Id = node.Id,
+                ParentId = node.ParentId,
+                UnitType = node.UnitType,
+                Code = node.Code,
+                Name = node.Name,
+                Path = node.Path,
+                Depth = node.Depth,
+                Sort = node.Sort,
+                IsActive = node.IsActive,
+                Children = children
+            };
         }
     }
 

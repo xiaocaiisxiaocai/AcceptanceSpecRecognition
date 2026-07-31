@@ -6,8 +6,12 @@ const apiMocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   deleteFile: vi.fn()
 }));
+const orgApiMocks = vi.hoisted(() => ({
+  getBusinessOrgContext: vi.fn()
+}));
 
 vi.mock("@/api/document", () => apiMocks);
+vi.mock("@/api/org-unit", () => orgApiMocks);
 vi.mock("element-plus", () => ({
   ElMessage: {
     error: vi.fn(),
@@ -59,6 +63,8 @@ async function mountUploadedFile(onUpdate?: (value: unknown) => void) {
       isDuplicate: false,
       tableCount: 1,
       tableCountReady: true,
+      ownerOrgUnitId: 8,
+      ownerOrgUnitName: "质量部",
       tableMetadataStatus: "ready"
     },
     "onUpdate:modelValue": onUpdate

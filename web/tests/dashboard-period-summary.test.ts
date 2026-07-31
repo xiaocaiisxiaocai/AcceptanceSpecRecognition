@@ -14,7 +14,10 @@ test("首页应使用聚合统计接口加载周期指标", () => {
   assert.match(dashboardSource, /matchingRate/);
   assert.match(dashboardSource, /importedSpecCount/);
   assert.match(dashboardSource, /dashboard-period-range/);
-  assert.match(dashboardSource, /formatDateTime\(currentSummary\.periodStart\)/);
+  assert.match(
+    dashboardSource,
+    /formatDateTime\(currentSummary\.periodStart\)/
+  );
   assert.match(dashboardSource, /formatDateTime\(currentSummary\.periodEnd\)/);
   assert.doesNotMatch(dashboardSource, /class="page-subtitle"/);
 });
@@ -33,6 +36,14 @@ test("首页应移除中部图表区并保留最近执行记录", () => {
   assert.doesNotMatch(dashboardSource, /chart-panel/);
   assert.doesNotMatch(dashboardSource, /height="100%"/);
   assert.doesNotMatch(dashboardSource, /height:\s*260px/);
-  assert.match(dashboardSource, /getExecutionHistoryList/);
+  assert.match(dashboardSource, /currentSummary\.value\.recentExecutions/);
+  assert.doesNotMatch(dashboardSource, /getExecutionHistoryList/);
   assert.match(dashboardSource, /最近执行/);
+});
+
+test("管理员可筛选部门且普通用户不展示部门筛选", () => {
+  assert.match(dashboardSource, /userStore\.roleCode === "admin"/);
+  assert.match(dashboardSource, /v-if="isAdmin"/);
+  assert.match(dashboardSource, /selectedOrgUnitId/);
+  assert.match(dashboardSource, /placeholder="公司总体"/);
 });

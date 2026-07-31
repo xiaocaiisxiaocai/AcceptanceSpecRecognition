@@ -164,6 +164,7 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         entity.SourceFileId = draft.SourceFileId;
         entity.SourceFileName = draft.SourceFileName;
         entity.SourceFileType = draft.SourceFileType;
+        entity.OwnerOrgUnitId = draft.OwnerOrgUnitId ?? entity.OwnerOrgUnitId;
         entity.FileCount = detail.FileCount;
         entity.TotalRowCount = detail.TotalRowCount;
         entity.MatchedRowCount = detail.MatchedRowCount;

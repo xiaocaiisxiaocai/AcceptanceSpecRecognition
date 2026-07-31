@@ -443,6 +443,10 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
             .Where(role => role.Code == "common")
             .Select(role => role.Id)
             .FirstAsync();
+        var commonUserId = await dbContext.SystemUsers
+            .Where(user => user.Username == "common")
+            .Select(user => user.Id)
+            .FirstAsync();
         var roleScopes = await dbContext.AuthRoleDataScopes
             .Include(scope => scope.Nodes)
             .Where(scope => scope.RoleId == commonRoleId && scope.Resource == "spec")
@@ -476,6 +480,18 @@ public class SpecDataScopeTests : IClassFixture<ApiWebApplicationFactory>
         roleScope.Nodes.Add(new AuthRoleDataScopeNode
         {
             OrgUnitId = orgUnitId
+        });
+
+        var commonOrgLinks = await dbContext.AuthUserOrgUnits
+            .Where(link => link.UserId == commonUserId)
+            .ToListAsync();
+        dbContext.AuthUserOrgUnits.RemoveRange(commonOrgLinks);
+        dbContext.AuthUserOrgUnits.Add(new AuthUserOrgUnit
+        {
+            UserId = commonUserId,
+            OrgUnitId = orgUnitId,
+            IsPrimary = true,
+            CreatedAt = DateTime.UtcNow
         });
 
         await dbContext.SaveChangesAsync();

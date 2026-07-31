@@ -78,6 +78,13 @@ public class FileUploadResponse
     /// 表格数量是否已完成读取
     /// </summary>
     public bool TableCountReady { get; set; } = true;
+
+    /// <summary>
+    /// 本次导入或智能填充任务的业务归属组织。
+    /// </summary>
+    public int OwnerOrgUnitId { get; set; }
+
+    public string OwnerOrgUnitName { get; set; } = string.Empty;
 }
 
 /// <summary>
