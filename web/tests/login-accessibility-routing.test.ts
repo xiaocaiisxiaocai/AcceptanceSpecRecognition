@@ -42,3 +42,12 @@ test("路由滚动应始终返回位置且登录判断使用不带查询参数�
   assert.match(router, /whiteList\.includes\(to\.path\)/);
   assert.doesNotMatch(router, /whiteList\.includes\(to\.fullPath\)/);
 });
+
+test("权限过滤后只剩一个子菜单时应直接导航到该子页面", () => {
+  const sidebarItem = readProjectFile(
+    "web/src/layout/components/lay-sidebar/components/SidebarItem.vue"
+  );
+
+  assert.match(sidebarItem, /<SidebarLinkItem[\s\S]*?:to="onlyOneChild"/);
+  assert.doesNotMatch(sidebarItem, /<SidebarLinkItem[\s\S]*?:to="item"/);
+});

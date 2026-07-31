@@ -13,6 +13,8 @@ public static class AuthUserSeedService
     public const string DefaultCompanyName = AuthUserSeedAppService.DefaultCompanyName;
     public const string DefaultRootOrgCode = AuthUserSeedAppService.DefaultRootOrgCode;
     public const string DefaultRootOrgName = AuthUserSeedAppService.DefaultRootOrgName;
+    public const string DefaultOperationalDepartmentCode = AuthUserSeedAppService.DefaultOperationalDepartmentCode;
+    public const string DefaultOperationalDepartmentName = AuthUserSeedAppService.DefaultOperationalDepartmentName;
     public const string DefaultAdminUsername = AuthUserSeedAppService.DefaultAdminUsername;
     public const string DefaultCommonUsername = AuthUserSeedAppService.DefaultCommonUsername;
     public const string DevelopmentDefaultAdminPassword = AuthUserSeedAppService.DevelopmentDefaultAdminPassword;

@@ -33,6 +33,14 @@ test("AI 搜索应使用业务化参数名称并说明当前筛选策略", () =>
   assert.doesNotMatch(semanticSearchSource, /<span>最小分数<\/span>/);
 });
 
+test("AI 搜索应等待 Embedding 就绪后再发起业务请求", () => {
+  assert.match(semanticSearchSource, /waitForRuntimeAiSelection/);
+  assert.match(
+    semanticSearchSource,
+    /await waitForRuntimeAiSelection\("embedding",[\s\S]*semanticSearchSpecs/
+  );
+});
+
 test("导入差异确认应展示后端已返回的 LLM 判断说明", () => {
   assert.match(differenceDialogSource, /v-if="item\.reviewCommentary"/);
   assert.match(differenceDialogSource, /判断说明/);

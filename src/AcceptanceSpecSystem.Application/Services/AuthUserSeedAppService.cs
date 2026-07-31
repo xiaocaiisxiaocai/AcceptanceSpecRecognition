@@ -22,6 +22,8 @@ public static class AuthUserSeedAppService
     public const string DefaultCompanyName = "默认公司";
     public const string DefaultRootOrgCode = "ROOT";
     public const string DefaultRootOrgName = "公司";
+    public const string DefaultOperationalDepartmentCode = "ELECTRICAL_CONTROL";
+    public const string DefaultOperationalDepartmentName = "电控工程部";
     public const string DefaultAdminUsername = "admin";
     public const string DefaultCommonUsername = "common";
     public const string DevelopmentDefaultAdminPassword = "admin";
@@ -40,6 +42,11 @@ public static class AuthUserSeedAppService
 
         var company = await EnsureCompanyAsync(dbContext, now);
         var rootOrgUnit = await EnsureRootOrgUnitAsync(dbContext, company.Id, now);
+        var operationalDepartment = await EnsureOperationalDepartmentAsync(
+            dbContext,
+            company.Id,
+            rootOrgUnit,
+            now);
 
         var permissionMap = await EnsurePermissionsAsync(dbContext, permissionSeeds, now);
         var roleMap = await EnsureRolesAsync(dbContext, company.Id, permissionMap, now);
@@ -50,11 +57,19 @@ public static class AuthUserSeedAppService
             company.Id,
             roleMap,
             rootOrgUnit.Id,
+            operationalDepartment.Id,
             now,
             seedOptions,
             hostEnvironment,
             logger);
-        await EnsureExistingUserRelationsAsync(dbContext, company.Id, roleMap["common"], rootOrgUnit.Id, now);
+        await EnsureExistingUserRelationsAsync(
+            dbContext,
+            company.Id,
+            roleMap["admin"],
+            roleMap["common"],
+            rootOrgUnit.Id,
+            operationalDepartment.Id,
+            now);
 
         await dbContext.SaveChangesAsync();
 
@@ -93,7 +108,11 @@ public static class AuthUserSeedAppService
             .Select(x => x.Count)
             .FirstOrDefault();
 
-        logger.LogInformation("鉴权基础数据初始化完成：CompanyId={CompanyId}, RootOrgUnitId={RootOrgUnitId}", company.Id, rootOrgUnit.Id);
+        logger.LogInformation(
+            "鉴权基础数据初始化完成：CompanyId={CompanyId}, RootOrgUnitId={RootOrgUnitId}, OperationalDepartmentId={OperationalDepartmentId}",
+            company.Id,
+            rootOrgUnit.Id,
+            operationalDepartment.Id);
         logger.LogInformation(
             "RBAC权限自检：admin权限总数={Total}, 页面={Page}, 按钮={Button}, API={Api}, 菜单={Menu}",
             adminTotalPermissionCount,
@@ -152,6 +171,53 @@ public static class AuthUserSeedAppService
         await transaction.CommitAsync();
 
         return rootOrgUnit;
+    }
+
+    private static async Task<OrgUnit> EnsureOperationalDepartmentAsync(
+        AppDbContext dbContext,
+        int companyId,
+        OrgUnit rootOrgUnit,
+        DateTime now)
+    {
+        var department = await dbContext.OrgUnits.FirstOrDefaultAsync(org =>
+            org.CompanyId == companyId &&
+            org.ParentId == rootOrgUnit.Id &&
+            (org.Code == DefaultOperationalDepartmentCode ||
+             (org.UnitType == OrgUnitType.Department &&
+              org.Name == DefaultOperationalDepartmentName)));
+        if (department != null)
+        {
+            department.UnitType = OrgUnitType.Department;
+            department.Code = DefaultOperationalDepartmentCode;
+            department.Name = DefaultOperationalDepartmentName;
+            department.Path = $"{rootOrgUnit.Path}{department.Id}/";
+            department.Depth = rootOrgUnit.Depth + 1;
+            department.IsActive = true;
+            department.UpdatedAt = now;
+            await dbContext.SaveChangesAsync();
+            return department;
+        }
+
+        department = new OrgUnit
+        {
+            CompanyId = companyId,
+            ParentId = rootOrgUnit.Id,
+            UnitType = OrgUnitType.Department,
+            Code = DefaultOperationalDepartmentCode,
+            Name = DefaultOperationalDepartmentName,
+            Path = rootOrgUnit.Path,
+            Depth = rootOrgUnit.Depth + 1,
+            Sort = 10,
+            IsActive = true,
+            CreatedAt = now
+        };
+        await dbContext.OrgUnits.AddAsync(department);
+        await dbContext.SaveChangesAsync();
+
+        department.Path = $"{rootOrgUnit.Path}{department.Id}/";
+        department.UpdatedAt = now;
+        await dbContext.SaveChangesAsync();
+        return department;
     }
 
     private static async Task<Dictionary<string, AuthPermission>> EnsurePermissionsAsync(
@@ -334,6 +400,7 @@ public static class AuthUserSeedAppService
             "api:dashboard:read",
             "api:document:read",
             "api:document:upload",
+            "api:document:preview",
             "api:document:import",
             "api:document:delete",
             "api:excel-document:import",
@@ -532,6 +599,7 @@ public static class AuthUserSeedAppService
         int companyId,
         Dictionary<string, AuthRole> roleMap,
         int rootOrgUnitId,
+        int operationalDepartmentId,
         DateTime now,
         AuthSeedConfiguration seedOptions,
         IHostEnvironment hostEnvironment,
@@ -581,7 +649,7 @@ public static class AuthUserSeedAppService
         await EnsureUserOrgAsync(dbContext, admin.Id, rootOrgUnitId, true, now);
 
         await EnsureUserRoleAsync(dbContext, common.Id, roleMap["common"].Id, now);
-        await EnsureUserOrgAsync(dbContext, common.Id, rootOrgUnitId, true, now);
+        await EnsureUserOrgAsync(dbContext, common.Id, operationalDepartmentId, true, now);
     }
 
     private static SeedPasswords ResolveSeedPasswords(
@@ -624,8 +692,10 @@ public static class AuthUserSeedAppService
     private static async Task EnsureExistingUserRelationsAsync(
         AppDbContext dbContext,
         int companyId,
+        AuthRole adminRole,
         AuthRole fallbackRole,
         int rootOrgUnitId,
+        int operationalDepartmentId,
         DateTime now)
     {
         var users = await dbContext.SystemUsers
@@ -657,9 +727,10 @@ public static class AuthUserSeedAppService
 
             if (user.UserOrgUnits.Count == 0)
             {
+                var isAdministrator = user.UserRoles.Any(userRole => userRole.RoleId == adminRole.Id);
                 user.UserOrgUnits.Add(new AuthUserOrgUnit
                 {
-                    OrgUnitId = rootOrgUnitId,
+                    OrgUnitId = isAdministrator ? rootOrgUnitId : operationalDepartmentId,
                     IsPrimary = true,
                     StartAt = null,
                     EndAt = null,

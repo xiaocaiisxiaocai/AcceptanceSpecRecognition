@@ -46,14 +46,35 @@ public class AiServiceDefaultModeApiTests : IClassFixture<AiServiceDefaultModeAp
             .State.Should().Be(AiServiceReadinessState.Available);
     }
 
-    private async Task<int> CreateConfigAsync(AiServicePurpose purpose)
+    [Fact]
+    public async Task TestConnection_WhenOllamaEmbeddingUsesFullMode_ShouldGenerateRealVector()
+    {
+        var configId = await CreateConfigAsync(
+            AiServicePurpose.Embedding,
+            AiServiceType.Ollama);
+
+        using var response = await _client.PostAsync(
+            $"/api/ai-services/{configId}/test?mode=full",
+            null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
+        result.Data.GetProperty("message").GetString()
+            .Should().Be("Embedding: OK (dim=3)");
+    }
+
+    private async Task<int> CreateConfigAsync(
+        AiServicePurpose purpose,
+        AiServiceType serviceType = AiServiceType.OpenAI)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var entity = new AiServiceConfig
         {
             Name = $"default-mode-{Guid.NewGuid():N}",
-            ServiceType = AiServiceType.OpenAI,
+            ServiceType = serviceType,
             Purpose = purpose,
             Priority = 0,
             Endpoint = "http://127.0.0.1:9",

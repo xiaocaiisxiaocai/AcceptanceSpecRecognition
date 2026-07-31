@@ -319,19 +319,6 @@ public class AiServicesController : BaseApiController
                             messages.Add($"Embedding: 快速测试未找到已配置模型（{entity.EmbeddingModel}）");
                         }
                     }
-                    else if (entity.ServiceType == AiServiceType.Ollama)
-                    {
-                        ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
-                        if (ContainsConfiguredModel(ollamaModels, entity.EmbeddingModel))
-                        {
-                            messages.Add($"Embedding: OK（模型已存在: {entity.EmbeddingModel}）");
-                        }
-                        else
-                        {
-                            success = false;
-                            messages.Add($"Embedding: 未找到已配置模型（{entity.EmbeddingModel}）");
-                        }
-                    }
                     else
                     {
                         var embedding = _semanticKernelFactory.CreateEmbeddingGenerator(ToCoreModel(entity));

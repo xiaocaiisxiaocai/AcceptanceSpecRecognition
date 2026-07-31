@@ -7,6 +7,7 @@ import {
   type SpecSemanticSearchRequest,
   type SpecSemanticSearchResponse
 } from "@/api/spec";
+import { waitForRuntimeAiSelection } from "@/utils/runtime-ai-selection-loader";
 import { buildSemanticSearchScopeKey } from "./specSemanticSearchScope";
 
 const props = defineProps<{
@@ -153,7 +154,32 @@ const performSearch = async (request: SpecSemanticSearchRequest) => {
   loading.value = true;
   lastRequest.value = immutableRequest;
   try {
-    const res = await semanticSearchSpecs(immutableRequest, controller.signal);
+    const selection = await waitForRuntimeAiSelection("embedding", {
+      signal: controller.signal
+    });
+    if (!canCommit()) return;
+    if (selection.status !== "available" || selection.serviceId == null) {
+      result.value = null;
+      const message =
+        selection.message ||
+        (selection.status === "checking"
+          ? "Embedding 服务仍在检测中，请稍后重试"
+          : "Embedding 服务当前不可用");
+      if (selection.status === "checking") {
+        ElMessage.warning(message);
+      } else {
+        ElMessage.error(message);
+      }
+      return;
+    }
+
+    const res = await semanticSearchSpecs(
+      {
+        ...immutableRequest,
+        embeddingServiceId: selection.serviceId
+      },
+      controller.signal
+    );
     if (!canCommit()) return;
     if (res.code === 0) {
       result.value = {

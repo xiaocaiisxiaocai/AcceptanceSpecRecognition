@@ -19,6 +19,41 @@ public class AuthDataScopeServiceTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task EnsureSeedUsersAsync_ShouldKeepAdminAtCompanyRoot_AndAssignCommonToOperationalDepartment()
+    {
+        await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var rootOrg = await dbContext.OrgUnits
+            .AsNoTracking()
+            .SingleAsync(org => org.UnitType == OrgUnitType.Company && org.ParentId == null);
+        var department = await dbContext.OrgUnits
+            .AsNoTracking()
+            .SingleAsync(org =>
+                org.ParentId == rootOrg.Id &&
+                org.Code == AuthUserSeedService.DefaultOperationalDepartmentCode);
+
+        department.Name.Should().Be(AuthUserSeedService.DefaultOperationalDepartmentName);
+        department.UnitType.Should().Be(OrgUnitType.Department);
+        department.Path.Should().Be($"{rootOrg.Path}{department.Id}/");
+
+        var users = await dbContext.SystemUsers
+            .AsNoTracking()
+            .Include(user => user.UserOrgUnits)
+            .Where(user =>
+                user.Username == AuthUserSeedService.DefaultAdminUsername ||
+                user.Username == AuthUserSeedService.DefaultCommonUsername)
+            .ToDictionaryAsync(user => user.Username);
+
+        users[AuthUserSeedService.DefaultAdminUsername]
+            .UserOrgUnits.Single().OrgUnitId.Should().Be(rootOrg.Id);
+        users[AuthUserSeedService.DefaultCommonUsername]
+            .UserOrgUnits.Single().OrgUnitId.Should().Be(department.Id);
+    }
+
+    [Fact]
     public async Task EnsureSeedUsersAsync_ShouldConfigureCommonRoleSpecScope_AsDynamicPrimaryOrgSubtree()
     {
         await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
