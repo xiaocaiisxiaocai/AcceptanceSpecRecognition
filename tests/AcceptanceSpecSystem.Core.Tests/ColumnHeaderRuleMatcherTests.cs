@@ -86,4 +86,28 @@ public class ColumnHeaderRuleMatcherTests
 
         ColumnHeaderRuleMatcher.IsMatch("OK/NG", rule).Should().BeFalse();
     }
+
+    [Fact]
+    public void MatchSession_ShouldCanonicalizeRepeatedHeaderAndRulesOnlyOnce()
+    {
+        var session = new ColumnHeaderRuleMatchSession();
+        var rules = Enumerable.Range(0, 120)
+            .Select(index => new ColumnHeaderMappingRule(
+                ColumnType.Specification,
+                ColumnHeaderMatchMode.Contains,
+                $"规格规则{index}"))
+            .ToList();
+
+        foreach (var rule in rules)
+        {
+            session.MatchNormalizedHeader("验收规格", rule)
+                .Should().Be(ColumnHeaderRuleMatcher.MatchNormalizedHeader("验收规格", rule));
+            session.MatchNormalizedHeader("验收规格", rule)
+                .Should().Be(ColumnHeaderRuleMatcher.MatchNormalizedHeader("验收规格", rule));
+        }
+
+        session.CanonicalizedValueCount.Should().Be(
+            rules.Count + 1,
+            "同一识别请求内相同表头和规则模式不应重复执行简繁转换");
+    }
 }

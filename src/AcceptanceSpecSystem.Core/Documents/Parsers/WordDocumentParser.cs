@@ -185,6 +185,42 @@ public class WordDocumentParser : IDocumentParser
         }, cancellationToken);
     }
 
+    public Task<DocumentTableSnapshot> ExtractDocumentSnapshotAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            using var doc = WordprocessingDocument.Open(stream, false);
+            cancellationToken.ThrowIfCancellationRequested();
+            var body = GetDocumentBody(doc);
+            if (body == null)
+            {
+                return new DocumentTableSnapshot();
+            }
+
+            var tables = GetTopLevelTables(body);
+            var infos = new List<TableInfo>(tables.Count);
+            var tableData = new List<TableData>(tables.Count);
+            for (var index = 0; index < tables.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                infos.Add(ExtractTableInfo(tables[index], index, tables, cancellationToken));
+                tableData.Add(ExtractTableData(
+                    tables[index],
+                    index,
+                    mapping: null,
+                    cancellationToken: cancellationToken));
+            }
+
+            return new DocumentTableSnapshot
+            {
+                Tables = infos,
+                TableData = tableData
+            };
+        }, cancellationToken);
+    }
+
     /// <summary>
     /// 提取表格基本信息
     /// </summary>

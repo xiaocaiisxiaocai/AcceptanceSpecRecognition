@@ -53,6 +53,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         CancellationToken cancellationToken = default)
     {
         var session = await _textPipeline.CreateSessionAsync(cancellationToken);
+        var ruleMatchSession = new ColumnHeaderRuleMatchSession();
         var details = new List<ColumnIdentificationResult>();
         var effectiveRules = rules
             .Where(rule => rule.ColumnType != ColumnType.Unknown)
@@ -63,7 +64,13 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         for (int i = 0; i < headers.Count; i++)
         {
             var header = headers[i];
-            var result = IdentifyColumn(header, i, sampleRows, session, effectiveRules);
+            var result = IdentifyColumn(
+                header,
+                i,
+                sampleRows,
+                session,
+                ruleMatchSession,
+                effectiveRules);
             details.Add(result);
         }
 
@@ -86,6 +93,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
         int columnIndex,
         IReadOnlyList<IReadOnlyList<string>> sampleRows,
         TextProcessingSession session,
+        ColumnHeaderRuleMatchSession ruleMatchSession,
         IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
         if (header.Length > ColumnHeaderRuleMatcher.MaxHeaderInputLength)
@@ -132,7 +140,7 @@ public sealed class RuleBasedMappingStrategy : IRuleBasedMappingStrategy
             {
                 continue;
             }
-            var match = ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule);
+            var match = ruleMatchSession.MatchNormalizedHeader(normalizedHeader, rule);
             if (match.Matched)
             {
                 candidates.Add((

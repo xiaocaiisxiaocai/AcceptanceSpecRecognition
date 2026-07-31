@@ -68,8 +68,10 @@ import {
   DATA_IMPORT_PREVIEW_WINDOW_COLUMNS,
   loadBoundedFullTablePreview
 } from "../dataImport.preview";
+import { runWithConcurrencyLimit } from "./previewConcurrency";
 
 const MAPPING_PREVIEW_ROWS = 50;
+const SMART_PREVIEW_CONCURRENCY = 2;
 
 export function useDataImportPage(
   options: {
@@ -713,28 +715,32 @@ export function useDataImportPage(
     smartStageText.value = initialText;
 
     try {
-      for (const [index, cfg] of pendingConfigs.entries()) {
-        if (uploadedFile.value?.fileId !== sourceFileId) {
-          return false;
+      await runWithConcurrencyLimit(
+        pendingConfigs,
+        SMART_PREVIEW_CONCURRENCY,
+        async (cfg, index) => {
+          if (uploadedFile.value?.fileId !== sourceFileId) {
+            throw new Error("源文件已切换，停止加载旧文件预览");
+          }
+          smartStageText.value = buildDataImportPreviewStageText(
+            index + 1,
+            pendingConfigs.length,
+            cfg.tableInfo?.name
+          );
+          const previewData = await loadPreviewData(
+            cfg,
+            previewRows,
+            sourceFileId
+          );
+          if (
+            uploadedFile.value?.fileId !== sourceFileId ||
+            !tableConfigs.value.includes(cfg)
+          ) {
+            throw new Error("源文件已切换，忽略旧文件预览结果");
+          }
+          cfg.previewData = previewData;
         }
-        smartStageText.value = buildDataImportPreviewStageText(
-          index + 1,
-          pendingConfigs.length,
-          cfg.tableInfo?.name
-        );
-        const previewData = await loadPreviewData(
-          cfg,
-          previewRows,
-          sourceFileId
-        );
-        if (
-          uploadedFile.value?.fileId !== sourceFileId ||
-          !tableConfigs.value.includes(cfg)
-        ) {
-          return false;
-        }
-        cfg.previewData = previewData;
-      }
+      );
       if (completeText) {
         smartStageText.value = completeText;
       }

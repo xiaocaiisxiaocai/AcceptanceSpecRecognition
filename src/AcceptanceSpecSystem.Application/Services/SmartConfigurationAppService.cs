@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -81,6 +82,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         SmartConfigurationRecognizeCommand command,
         CancellationToken cancellationToken = default)
     {
+        var totalStopwatch = Stopwatch.StartNew();
         if (command.FileId <= 0)
         {
             throw new ApplicationServiceException(400, "FileId 不能为空");
@@ -111,11 +113,18 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             ?? throw new ApplicationServiceException(400, "文档解析器不可用");
 
         var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
-        var tablesInfo = await parser.GetTablesAsync(absolutePath, cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
+        var stageStopwatch = Stopwatch.StartNew();
         await using var stream = File.OpenRead(absolutePath);
-        var tablesData = await parser.ExtractAllTablesDataAsync(stream, cancellationToken);
+        var documentSnapshot = await parser.ExtractDocumentSnapshotAsync(stream, cancellationToken);
+        var tablesInfo = documentSnapshot.Tables;
+        var tablesData = documentSnapshot.TableData;
+        _logger.LogInformation(
+            "智能结构识别解析完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}",
+            command.FileId,
+            tablesData.Count,
+            stageStopwatch.ElapsedMilliseconds);
 
+        stageStopwatch.Restart();
         var columnHeaderRuleSets = await BuildColumnHeaderRuleSetsAsync(
             command.CustomerId,
             cancellationToken);
@@ -123,6 +132,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var routingRules = await _unitOfWork.SmartStructureRoutingRules.GetEffectiveForCustomerAsync(
             command.CustomerId,
             cancellationToken);
+        _logger.LogInformation(
+            "智能结构识别规则加载完成：FileId={FileId}, ElapsedMs={ElapsedMs}",
+            command.FileId,
+            stageStopwatch.ElapsedMilliseconds);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromRules(columnHeaderRules);
         var fieldConflictMatcher = HeaderKeywordMatcher.FromRules(
             columnHeaderRuleSets.ConflictEligible);
@@ -162,6 +175,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 StringComparer.Ordinal);
         for (var i = 0; i < tablesData.Count; i++)
         {
+            var tableStopwatch = Stopwatch.StartNew();
             cancellationToken.ThrowIfCancellationRequested();
             var tableData = tablesData[i];
             var fullTableData = tableData;
@@ -172,23 +186,19 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             if (headerProfile.HeaderRowIndex > 0 || headerProfile.HeaderRowCount > 1)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await using var tableStream = File.OpenRead(absolutePath);
-                tableData = await parser.ExtractTableDataAsync(
-                    tableStream,
-                    tableData.TableIndex,
+                tableData = TableDataProjection.Project(
+                    fullTableData,
                     new ColumnMapping
                     {
                         HeaderRowIndex = headerProfile.HeaderRowIndex,
                         HeaderRowCount = headerProfile.HeaderRowCount,
                         DataStartRowIndex = headerProfile.HeaderRowIndex + headerProfile.HeaderRowCount
                     },
-                    cancellationToken: cancellationToken);
+                    cancellationToken);
             }
 
             var recognizedTable = await RecognizeTableAsync(
                 command.CustomerId,
-                parser,
-                absolutePath,
                 tableInfo,
                 tableData,
                 fullTableData,
@@ -203,15 +213,32 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
+            var mappingElapsedMs = tableStopwatch.ElapsedMilliseconds;
+            tableStopwatch.Restart();
             recognizedTable = DetectLogicalRegions(fullTableData, recognizedTable, headerKeywordMatcher);
+            var regionElapsedMs = tableStopwatch.ElapsedMilliseconds;
+            tableStopwatch.Restart();
             recognizedTable = AttachFieldConflicts(
                 fullTableData,
                 recognizedTable,
                 headerKeywordMatcher,
                 fieldConflictMatcher);
+            _logger.LogInformation(
+                "智能结构识别表处理完成：FileId={FileId}, TableIndex={TableIndex}, MappingMs={MappingMs}, RegionMs={RegionMs}, ConflictMs={ConflictMs}",
+                command.FileId,
+                tableData.TableIndex,
+                mappingElapsedMs,
+                regionElapsedMs,
+                tableStopwatch.ElapsedMilliseconds);
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
+        _logger.LogInformation(
+            "智能结构识别请求完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, LlmEnabled={LlmEnabled}",
+            command.FileId,
+            tables.Count,
+            totalStopwatch.ElapsedMilliseconds,
+            llmAssistanceEnabled);
         return new SmartConfigurationRecognizeResult
         {
             FileId = command.FileId,
@@ -2974,8 +3001,6 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<SmartConfigurationRecognizedTable> RecognizeTableAsync(
         int? customerId,
-        IDocumentParser parser,
-        string absolutePath,
         TableInfo? tableInfo,
         TableData tableData,
         TableData fullTableData,
@@ -3077,10 +3102,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
             var recognizedCurrentStructure = await BuildRecognizedTableFromMappingAsync(
                 customerId,
-                parser,
-                absolutePath,
                 tableInfo,
                 tableData,
+                fullTableData,
                 mapping,
                 headerKeywordMatcher,
                 columnHeaderRules,
@@ -3150,10 +3174,9 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 
     private async Task<SmartConfigurationRecognizedTable> BuildRecognizedTableFromMappingAsync(
         int? customerId,
-        IDocumentParser parser,
-        string absolutePath,
         TableInfo? tableInfo,
         TableData tableData,
+        TableData fullTableData,
         ColumnMappingResult mapping,
         HeaderKeywordMatcher headerKeywordMatcher,
         IReadOnlyList<ColumnHeaderMappingRule> columnHeaderRules,
@@ -3236,10 +3259,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                                        fused.HeaderRowCount != mapping.Mapping.HeaderRowCount ||
                                        fused.DataStartRowIndex != mapping.Mapping.DataStartRowIndex;
                 var totalRowCount = GetTotalRowCount(tableInfo, tableData);
-                var reextracted = await TryReextractWithStructureAsync(
-                    parser,
-                    absolutePath,
-                    tableData.TableIndex,
+                var reextracted = TryProjectWithStructure(
+                    fullTableData,
                     fused,
                     totalRowCount,
                     cancellationToken);
@@ -3655,10 +3676,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
     }
 
-    private async Task<TableData?> TryReextractWithStructureAsync(
-        IDocumentParser parser,
-        string absolutePath,
-        int tableIndex,
+    private TableData? TryProjectWithStructure(
+        TableData fullTableData,
         DocumentStructureCandidate candidate,
         int totalRowCount,
         CancellationToken cancellationToken)
@@ -3671,17 +3690,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await using var stream = File.OpenRead(absolutePath);
-            return await parser.ExtractTableDataAsync(
-                stream,
-                tableIndex,
+            return TableDataProjection.Project(
+                fullTableData,
                 new ColumnMapping
                 {
                     HeaderRowIndex = candidate.HeaderRowIndex,
                     HeaderRowCount = candidate.HeaderRowCount,
                     DataStartRowIndex = candidate.DataStartRowIndex
                 },
-                cancellationToken: cancellationToken);
+                cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3691,8 +3708,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             _logger.LogWarning(
                 ex,
-                "表格 {TableIndex} 按 LLM 表头结构重新提取失败，保留规则识别结果",
-                tableIndex);
+                "表格 {TableIndex} 按 LLM 表头结构重新投影失败，保留规则识别结果",
+                fullTableData.TableIndex);
             return null;
         }
     }
@@ -4000,6 +4017,7 @@ internal readonly record struct HeaderCandidateRank(
 internal sealed class HeaderKeywordMatcher
 {
     private readonly IReadOnlyList<ColumnHeaderMappingRule> _rules;
+    private readonly ColumnHeaderRuleMatchSession _matchSession = new();
 
     private HeaderKeywordMatcher(IReadOnlyList<ColumnHeaderMappingRule> rules)
     {
@@ -4018,7 +4036,7 @@ internal sealed class HeaderKeywordMatcher
     public bool Contains(string value)
     {
         return ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader) &&
-               _rules.Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched);
+               _rules.Any(rule => _matchSession.MatchNormalizedHeader(normalizedHeader, rule).Matched);
     }
     public bool Matches(ColumnType columnType, string? value)
     {
@@ -4027,7 +4045,7 @@ internal sealed class HeaderKeywordMatcher
                 ColumnHeaderRuleMatcher.TryNormalizeHeader(candidate, out var normalizedHeader) &&
                 _rules
                     .Where(rule => rule.ColumnType == columnType)
-                    .Any(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched));
+                    .Any(rule => _matchSession.MatchNormalizedHeader(normalizedHeader, rule).Matched));
     }
 
     public HeaderCandidateRank GetRank(ColumnType columnType, string? value)
@@ -4040,7 +4058,7 @@ internal sealed class HeaderKeywordMatcher
                         .Select(rule => new
                         {
                             Rule = rule,
-                            Match = ColumnHeaderRuleMatcher.MatchNormalizedHeader(
+                            Match = _matchSession.MatchNormalizedHeader(
                                 normalizedHeader,
                                 rule)
                         })
@@ -4084,7 +4102,7 @@ internal sealed class HeaderKeywordMatcher
             ColumnHeaderRuleMatcher.TryNormalizeHeader(value, out var normalizedHeader) &&
             _rules
                 .Where(rule => rule.IsCustomerSpecific)
-                .Where(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched)
+                .Where(rule => _matchSession.MatchNormalizedHeader(normalizedHeader, rule).Matched)
                 .Select(rule => rule.ColumnType)
                 .Distinct()
                 .Skip(1)
@@ -4133,7 +4151,7 @@ internal sealed class HeaderKeywordMatcher
         }
 
         var matchedTypes = _rules
-            .Where(rule => ColumnHeaderRuleMatcher.MatchNormalizedHeader(normalizedHeader, rule).Matched)
+            .Where(rule => _matchSession.MatchNormalizedHeader(normalizedHeader, rule).Matched)
             .Select(rule => rule.ColumnType)
             .Distinct()
             .ToList();

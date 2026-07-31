@@ -83,19 +83,44 @@ public class ExcelDocumentParser : IDocumentParser
             using var workbook = new XLWorkbook(stream);
             cancellationToken.ThrowIfCancellationRequested();
             var infos = GetSheetInfos(workbook, cancellationToken);
-            var list = new List<TableData>(infos.Count);
-            foreach (var info in infos)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                list.Add(ExtractSheetTableData(
-                    workbook,
-                    info.Index,
-                    mapping: null,
-                    cancellationToken: cancellationToken));
-            }
-
-            return list;
+            return ExtractAllSheetData(workbook, infos, cancellationToken);
         }, cancellationToken);
+    }
+
+    public Task<DocumentTableSnapshot> ExtractDocumentSnapshotAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            using var workbook = new XLWorkbook(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            var infos = GetSheetInfos(workbook, cancellationToken);
+            return new DocumentTableSnapshot
+            {
+                Tables = infos,
+                TableData = ExtractAllSheetData(workbook, infos, cancellationToken)
+            };
+        }, cancellationToken);
+    }
+
+    private static IReadOnlyList<TableData> ExtractAllSheetData(
+        XLWorkbook workbook,
+        IReadOnlyList<TableInfo> infos,
+        CancellationToken cancellationToken)
+    {
+        var list = new List<TableData>(infos.Count);
+        foreach (var info in infos)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            list.Add(ExtractSheetTableData(
+                workbook,
+                info.Index,
+                mapping: null,
+                cancellationToken: cancellationToken));
+        }
+
+        return list;
     }
 
     private static List<TableInfo> GetSheetInfos(

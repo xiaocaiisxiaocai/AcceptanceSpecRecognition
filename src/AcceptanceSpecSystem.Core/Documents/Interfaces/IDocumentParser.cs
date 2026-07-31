@@ -80,4 +80,11 @@ public interface IDocumentParser
     Task<IReadOnlyList<TableData>> ExtractAllTablesDataAsync(
         Stream stream,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 在单次底层文档生命周期中提取所有表格信息与完整数据。
+    /// </summary>
+    Task<DocumentTableSnapshot> ExtractDocumentSnapshotAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default);
 }

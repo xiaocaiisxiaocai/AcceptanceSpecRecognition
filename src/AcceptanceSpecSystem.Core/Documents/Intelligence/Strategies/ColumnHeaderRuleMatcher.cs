@@ -28,6 +28,17 @@ public static class ColumnHeaderRuleMatcher
         string normalizedHeader,
         ColumnHeaderMappingRule rule)
     {
+        return MatchNormalizedHeader(
+            normalizedHeader,
+            rule,
+            ColumnHeaderTextCanonicalizer.Canonicalize);
+    }
+
+    internal static ColumnHeaderRuleMatch MatchNormalizedHeader(
+        string normalizedHeader,
+        ColumnHeaderMappingRule rule,
+        Func<string, string> canonicalize)
+    {
         if (normalizedHeader.Length == 0 || normalizedHeader.Length > MaxHeaderInputLength)
         {
             return ColumnHeaderRuleMatch.NoMatch;
@@ -41,10 +52,10 @@ public static class ColumnHeaderRuleMatcher
 
         var text = rule.MatchMode == ColumnHeaderMatchMode.Regex
             ? normalizedHeader
-            : ColumnHeaderTextCanonicalizer.Canonicalize(normalizedHeader);
+            : canonicalize(normalizedHeader);
         var pattern = rule.MatchMode == ColumnHeaderMatchMode.Regex
             ? rawPattern.Trim()
-            : ColumnHeaderTextCanonicalizer.Canonicalize(rawPattern);
+            : canonicalize(rawPattern);
         if (text.Length == 0 || pattern.Length == 0)
         {
             return ColumnHeaderRuleMatch.NoMatch;
