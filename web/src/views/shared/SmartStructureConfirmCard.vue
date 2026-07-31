@@ -45,6 +45,7 @@ const props = withDefaults(
     inlineExcelRegionEditor?: boolean;
     confirmActionLabel?: string;
     showConfirmAction?: boolean;
+    showRangeSummarySubtitle?: boolean;
     interactionLocked?: boolean;
   }>(),
   {
@@ -53,6 +54,7 @@ const props = withDefaults(
     inlineExcelRegionEditor: false,
     confirmActionLabel: "确认并学习",
     showConfirmAction: true,
+    showRangeSummarySubtitle: true,
     interactionLocked: false
   }
 );
@@ -727,7 +729,7 @@ const emitConfirm = () => {
             识别到 {{ activeRegions.length }} 个数据区域 · 有效
             {{ effectiveRowCount }} 行 · 忽略 {{ ignoredRowCount }} 行
           </div>
-          <div class="range-summary-subtitle">
+          <div v-if="showRangeSummarySubtitle" class="range-summary-subtitle">
             确认后将保存模板，并自动学习尚未录入的列名；范围按{{
               isExcelFile ? "工作表坐标" : "表格行列"
             }}显示

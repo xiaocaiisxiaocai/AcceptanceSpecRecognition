@@ -22,6 +22,14 @@ const smartRecognitionSource = fs.readFileSync(
   "web/src/views/data-import/composables/useDataImportSmartStructureRecognition.ts",
   "utf8"
 );
+const smartConfirmTabsSource = fs.readFileSync(
+  "web/src/views/shared/SmartStructureConfirmTabs.vue",
+  "utf8"
+);
+const smartConfirmCardSource = fs.readFileSync(
+  "web/src/views/shared/SmartStructureConfirmCard.vue",
+  "utf8"
+);
 const pageComposableSource = fs.readFileSync(
   "web/src/views/data-import/composables/useDataImportPage.ts",
   "utf8"
@@ -112,5 +120,26 @@ test("双栏布局应提供粘性右栏和窄屏上下降级", () => {
   assert.match(
     indexStyles,
     /@media\s*\(width\s*<=\s*1280px\)[\s\S]*?\.smart-confirm-workspace\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/
+  );
+});
+
+test("智能确认页应隐藏重复的范围说明和文件摘要", () => {
+  assert.match(indexSource, /:show-range-summary-subtitle="false"/);
+  assert.match(indexSource, /:show-summary-bar="false"/);
+
+  assert.match(smartConfirmTabsSource, /showRangeSummarySubtitle\?: boolean/);
+  assert.match(
+    smartConfirmTabsSource,
+    /:show-range-summary-subtitle="showRangeSummarySubtitle"/
+  );
+  assert.match(
+    smartConfirmCardSource,
+    /v-if="showRangeSummarySubtitle"[\s\S]*?class="range-summary-subtitle"/
+  );
+
+  assert.match(confirmPanelSource, /showSummaryBar\?: boolean/);
+  assert.match(
+    confirmPanelSource,
+    /v-if="showSummaryBar"\s+class="import-summary-bar"/
   );
 });

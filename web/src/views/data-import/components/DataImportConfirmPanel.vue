@@ -77,11 +77,13 @@ const props = withDefaults(
     showImportAction?: boolean;
     allowEmptyPreviewAction?: boolean;
     showPreviewList?: boolean;
+    showSummaryBar?: boolean;
   }>(),
   {
     showImportAction: true,
     allowEmptyPreviewAction: false,
-    showPreviewList: true
+    showPreviewList: true,
+    showSummaryBar: true
   }
 );
 
@@ -555,7 +557,7 @@ const importResultPresentation = computed(() => {
       description="请切换到对应 Sheet 补齐必填列；全部可确认后，即可使用文件级主操作统一学习并导入。"
       class="mb-4"
     />
-    <div class="import-summary-bar">
+    <div v-if="showSummaryBar" class="import-summary-bar">
       <div class="import-summary-bar__meta">
         <span class="import-summary-bar__file" :title="uploadedFileName">
           {{ uploadedFileName || "-" }}

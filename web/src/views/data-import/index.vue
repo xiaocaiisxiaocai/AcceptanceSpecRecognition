@@ -852,6 +852,7 @@ const activeSmartStructureReadinessDescription = computed(() =>
                 :customer-id="selectedCustomerId"
                 :confirming-table-index="effectiveSmartConfirmingTableIndex"
                 :show-confirm-action="false"
+                :show-range-summary-subtitle="false"
                 :interaction-locked="batchConfirmImportRunning || importing"
                 ready-label="可导入"
                 unavailable-label="跳过"
@@ -932,6 +933,7 @@ const activeSmartStructureReadinessDescription = computed(() =>
                 :skipped-rows-groups="skippedRowsGroups"
                 :show-import-action="false"
                 :show-preview-list="false"
+                :show-summary-bar="false"
                 :allow-empty-preview-action="
                   selectedSmartTablesRequiringConfirmationCount > 0
                 "

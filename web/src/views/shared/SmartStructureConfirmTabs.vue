@@ -25,6 +25,7 @@ const props = withDefaults(
     isExcelFile?: boolean;
     inlineExcelRegionEditor?: boolean;
     showConfirmAction?: boolean;
+    showRangeSummarySubtitle?: boolean;
     interactionLocked?: boolean;
   }>(),
   {
@@ -37,6 +38,7 @@ const props = withDefaults(
     isExcelFile: true,
     inlineExcelRegionEditor: false,
     showConfirmAction: true,
+    showRangeSummarySubtitle: true,
     interactionLocked: false
   }
 );
@@ -136,6 +138,7 @@ watch(
         :confirmation-locked="confirmingTableIndex != null"
         :interaction-locked="interactionLocked"
         :show-confirm-action="showConfirmAction"
+        :show-range-summary-subtitle="showRangeSummarySubtitle"
         :is-excel-file="isExcelFile"
         :inline-excel-region-editor="inlineExcelRegionEditor"
         :import-selected="selectedTableIndexSet.has(table.tableIndex)"
