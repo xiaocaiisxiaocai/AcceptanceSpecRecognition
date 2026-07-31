@@ -772,9 +772,12 @@ const emitConfirm = () => {
               class="range-interval"
               :aria-label="`${range.column}${range.startRow}:${range.column}${range.endRow}`"
             >
-              <span class="range-interval-value"
-                >{{ range.column }}{{ range.startRow }}:{{ range.column
-                }}{{ range.endRow }}</span
+              <span class="range-boundary"
+                >{{ range.column }}{{ range.startRow }}</span
+              >
+              <span class="range-connector" aria-hidden="true">|</span>
+              <span class="range-boundary"
+                >{{ range.column }}{{ range.endRow }}</span
               >
             </div>
             <span v-if="field.ranges.length === 0" class="range-empty">{{
@@ -1118,24 +1121,35 @@ const emitConfirm = () => {
 .range-values {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 14px;
   align-items: flex-start;
 }
 
 .range-interval {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
   min-width: 0;
 }
 
-.range-interval-value {
-  display: inline-flex;
-  padding: 2px 7px;
+.range-boundary,
+.range-connector {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+}
+
+.range-boundary {
+  font-size: 13px;
   font-weight: 700;
-  color: var(--app-primary);
-  background: var(--app-primary-light);
-  border: 1px solid color-mix(in srgb, var(--app-primary) 18%, transparent);
-  border-radius: 4px;
+  line-height: 1.2;
+  color: var(--app-text-primary);
+}
+
+.range-connector {
+  padding-left: 0.45em;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--app-text-secondary);
 }
 
 .range-empty {
