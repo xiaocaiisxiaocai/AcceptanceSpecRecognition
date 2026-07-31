@@ -10,6 +10,13 @@ const confirmPanelSource = readFileSync(
   ),
   "utf8"
 );
+const previewPanelSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/data-import/components/DataImportPreviewPanel.vue"
+  ),
+  "utf8"
+);
 
 const confirmCardSource = readFileSync(
   resolve(process.cwd(), "web/src/views/shared/SmartStructureConfirmCard.vue"),
@@ -144,33 +151,36 @@ test("AI 疑似重复检查应使用业务文案、响应式双列和渐进披�
 });
 
 test("待导入清单应使用数量概览和移出语义，避免重复标题与删除歧义", () => {
-  assert.match(confirmPanelSource, /class="preview-metric primary"/);
-  assert.match(confirmPanelSource, /选中无关项/);
-  assert.match(confirmPanelSource, /验收列和备注列同时为空/);
-  assert.match(confirmPanelSource, /移出所选/);
-  assert.match(confirmPanelSource, /移出仅影响本次导入，不会修改原文件/);
-  assert.doesNotMatch(confirmPanelSource, /批量删除/);
-  assert.doesNotMatch(confirmPanelSource, /待导入数据清单/);
+  assert.match(previewPanelSource, /class="preview-metric primary"/);
+  assert.match(previewPanelSource, /选中无关项/);
+  assert.match(previewPanelSource, /验收列和备注列同时为空/);
+  assert.match(previewPanelSource, /移出所选/);
+  assert.match(previewPanelSource, /恢复移出项/);
+  assert.doesNotMatch(previewPanelSource, /批量删除/);
+  assert.doesNotMatch(previewPanelSource, /待导入数据清单/);
 });
 
-test("展开待导入清单时应自动补拉完整预览并复用并发请求", () => {
+test("实时待导入清单应自动补拉完整预览并复用并发请求", () => {
   assert.match(
-    confirmPanelSource,
-    /names\.includes\("preview-list"\)[\s\S]*previewLoadState\.hasPartialPreview[\s\S]*!props\.previewLoadState\.hasPendingInitialPreview[\s\S]*emit\("loadFullPreview"\)/
-  );
-  assert.match(confirmPanelSource, /@change="handleCollapseChange"/);
-  assert.match(
-    confirmPanelSource,
-    /watch\([\s\S]*props\.previewLoadState\.hasPendingInitialPreview[\s\S]*hasPartialPreview[\s\S]*!hasPendingInitialPreview[\s\S]*activeCollapseNames\.value\.includes\("preview-list"\)[\s\S]*emit\("loadFullPreview"\)/
+    previewPanelSource,
+    /props\.autoLoadFull,[\s\S]*props\.previewLoadState\.hasPartialPreview,[\s\S]*props\.previewLoadState\.hasPendingInitialPreview/
   );
   assert.match(
-    confirmPanelSource,
+    previewPanelSource,
+    /if \(!autoLoadFull \|\| !hasPartialPreview \|\| hasPendingInitialPreview\)/
+  );
+  assert.match(
+    previewPanelSource,
+    /setTimeout\(\(\) => \{[\s\S]*emit\("loadFullPreview"\)/
+  );
+  assert.match(
+    previewPanelSource,
     /previewLoadState\.hasPartialPreview[\s\S]*irrelevantPreviewRowCount === 0/
   );
   assert.equal(
     dataImportSource.match(/@load-full-preview="ensureFullPreviewDataLoaded"/g)
       ?.length,
-    2
+    3
   );
   assert.match(
     dataImportPageSource,
@@ -339,15 +349,17 @@ test("智能结构确认卡片的字段范围应在桌面端四列单行展示",
   );
 });
 
-test("智能结构确认卡片默认应以 B2:B4 形式显示完整 A1 范围", () => {
+test("智能结构确认卡片默认应竖向显示完整 A1 范围起止坐标", () => {
   assert.match(
     confirmCardSource,
     /column:\s*formatColumnCoordinate\(columnIndex\)/
   );
   assert.match(
     confirmCardSource,
-    /\{\{\s*range\.column\s*\}\}\{\{\s*range\.startRow\s*\}\}:\{\{\s*range\.column\s*\}\}\{\{\s*range\.endRow\s*\}\}/
+    /:aria-label="`\$\{range\.column\}\$\{range\.startRow\}:\$\{range\.column\}\$\{range\.endRow\}`"/
   );
+  assert.match(confirmCardSource, /class="range-connector"[^>]*>\|<\/span>/);
+  assert.equal(confirmCardSource.match(/class="range-boundary"/g)?.length, 2);
   assert.doesNotMatch(confirmCardSource, /class="range-interval-line"/);
   assert.doesNotMatch(confirmCardSource, /field\.columnLabel/);
   assert.doesNotMatch(
@@ -657,7 +669,7 @@ test("待确认表应可手动勾选，并区分已勾选与已配置汇总", ()
 test("手动处理应携带被点击 Sheet，返回智能确认前同步高级配置", () => {
   assert.match(
     dataImportSource,
-    /@advanced="table => enterAdvancedMode\('mapping', table\.tableIndex\)"/
+    /@advanced="\s*table => enterAdvancedMode\('mapping', table\.tableIndex\)\s*"/
   );
   const pageSource = readFileSync(
     resolve(
