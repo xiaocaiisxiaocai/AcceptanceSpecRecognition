@@ -955,6 +955,7 @@ const activeSmartStructureReadinessDescription = computed(() =>
 
             <aside class="smart-confirm-workspace__preview">
               <DataImportPreviewPanel
+                v-model:active-table-index="activeSmartStructureTab"
                 :preview-data-count="previewDataCount"
                 :preview-load-state="previewLoadState"
                 :removed-preview-row-count="removedPreviewRowCount"
@@ -975,6 +976,7 @@ const activeSmartStructureReadinessDescription = computed(() =>
                 "
                 show-heading
                 auto-load-full
+                tabbed-groups
                 @remove-selected-preview-rows="handleRemoveSelectedPreviewRows"
                 @restore-removed-preview-rows="handleRestoreRemovedPreviewRows"
                 @select-irrelevant-rows-change="

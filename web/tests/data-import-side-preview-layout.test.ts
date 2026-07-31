@@ -110,7 +110,7 @@ test("双栏布局应提供粘性右栏和窄屏上下降级", () => {
   assert.match(previewRule, /overflow:\s*hidden;/);
   assert.match(
     previewPanelSource,
-    /\.import-preview-groups[\s\S]*?overflow:\s*auto;/
+    /\.import-preview-tabs--stacked\s*\{[\s\S]*?overflow:\s*auto;/
   );
   assert.match(
     previewPanelSource,
@@ -141,5 +141,34 @@ test("智能确认页应隐藏重复的范围说明和文件摘要", () => {
   assert.match(
     confirmPanelSource,
     /v-if="showSummaryBar"\s+class="import-summary-bar"/
+  );
+});
+
+test("右侧待导入清单应使用与左侧同步的 Sheet Tab", () => {
+  assert.match(
+    indexSource,
+    /<DataImportPreviewPanel[\s\S]*?v-model:active-table-index="activeSmartStructureTab"/
+  );
+  assert.match(indexSource, /<DataImportPreviewPanel[\s\S]*?tabbed-groups/);
+
+  assert.match(previewPanelSource, /activeTableIndex\?: number/);
+  assert.match(previewPanelSource, /tabbedGroups\?: boolean/);
+  assert.match(
+    previewPanelSource,
+    /update:activeTableIndex[\s\S]*tableIndex: number/
+  );
+  assert.match(previewPanelSource, /<el-tabs[\s\S]*?<el-tab-pane/);
+  assert.match(
+    previewPanelSource,
+    /v-for="group in pagedImportPreviewGroups"[\s\S]*?:name="getPreviewTabName\(group\.tableIndex\)"/
+  );
+  assert.match(
+    previewPanelSource,
+    /const previewTabNamePrefix = `\$\{useId\(\)\}/
+  );
+  assert.match(previewPanelSource, /const getPreviewTableIndex =/);
+  assert.match(
+    previewPanelSource,
+    /\.import-preview-tabs[\s\S]*?overflow:\s*hidden;/
   );
 });
