@@ -1229,7 +1229,10 @@ test("字段候选弹框应预选推荐项并明确提示仍需人工确认", ()
     fieldConflictDialogSource,
     /hasAdjustedSelection \? "已选择" : "已预选"/
   );
-  assert.match(fieldConflictDialogSource, /确认后生效/);
+  assert.match(fieldConflictDialogSource, /class="selection-status"/);
+  assert.match(fieldConflictDialogSource, /<h3>确认数据列<\/h3>/);
+  assert.doesNotMatch(fieldConflictDialogSource, /<el-progress/);
+  assert.doesNotMatch(fieldConflictDialogSource, /class="conflict-progress"/);
   assert.match(
     fieldConflictDialogSource,
     /@change="hasAdjustedSelection = true"/

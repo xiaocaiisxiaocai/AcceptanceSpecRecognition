@@ -125,26 +125,19 @@ const handleConfirm = () => {
   >
     <template #header>
       <div class="dialog-heading">
-        <span class="dialog-kicker">字段映射需要确认</span>
-        <h3>请选择最终使用的数据列</h3>
-        <p>系统已预选推荐项，您可以直接确认或调整；确认后才会生效。</p>
+        <div class="dialog-heading__copy">
+          <h3>确认数据列</h3>
+          <p>系统已预选推荐项，可直接确认或调整。</p>
+        </div>
+        <span
+          class="selection-status"
+          :class="{ 'is-adjusted': hasAdjustedSelection }"
+        >
+          {{ hasAdjustedSelection ? "已选择" : "已预选" }}
+          {{ resolvedCount }}/{{ conflicts.length }}
+        </span>
       </div>
     </template>
-
-    <div class="conflict-progress">
-      <span>
-        {{ hasAdjustedSelection ? "已选择" : "已预选" }}
-        {{ resolvedCount }} / {{ conflicts.length }}，确认后生效
-      </span>
-      <el-progress
-        :percentage="
-          conflicts.length
-            ? Math.round((resolvedCount / conflicts.length) * 100)
-            : 0
-        "
-        :show-text="false"
-      />
-    </div>
 
     <div class="conflict-list">
       <section
@@ -221,20 +214,21 @@ const handleConfirm = () => {
 
 <style scoped>
 .dialog-heading {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.dialog-kicker {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--el-color-primary);
-  letter-spacing: 0.08em;
+.dialog-heading__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .dialog-heading h3 {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.35;
   color: var(--app-text-primary);
 }
@@ -245,14 +239,21 @@ const handleConfirm = () => {
   color: var(--app-text-secondary);
 }
 
-.conflict-progress {
-  display: grid;
-  grid-template-columns: auto 180px;
-  gap: 16px;
-  align-items: center;
-  margin-bottom: 14px;
+.selection-status {
+  flex: 0 0 auto;
+  padding: 4px 9px;
   font-size: 12px;
-  color: var(--app-text-secondary);
+  font-weight: 600;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 999px;
+}
+
+.selection-status.is-adjusted {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+  border-color: var(--el-color-success-light-7);
 }
 
 .conflict-list {
@@ -369,6 +370,10 @@ const handleConfirm = () => {
 }
 
 @media (width <= 760px) {
+  .dialog-heading {
+    align-items: flex-start;
+  }
+
   .candidate-grid {
     grid-template-columns: 1fr;
   }
