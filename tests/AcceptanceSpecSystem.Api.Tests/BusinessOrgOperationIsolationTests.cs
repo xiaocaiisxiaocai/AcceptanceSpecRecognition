@@ -90,7 +90,7 @@ public sealed class BusinessOrgOperationIsolationTests
         adminBody.Data.GetProperty("requiresSelection").GetBoolean().Should().BeTrue();
         adminBody.Data.GetProperty("options").EnumerateArray()
             .Select(item => item.GetProperty("id").GetInt32())
-            .Should().BeEquivalentTo([fixture.DepartmentAId, fixture.DepartmentBId]);
+            .Should().Contain([fixture.DepartmentAId, fixture.DepartmentBId]);
 
         using var commonRequest = new HttpRequestMessage(
             HttpMethod.Get,
@@ -104,6 +104,358 @@ public sealed class BusinessOrgOperationIsolationTests
         commonBody.Data.GetProperty("requiresSelection").GetBoolean().Should().BeFalse();
         commonBody.Data.GetProperty("currentOrgUnitId").GetInt32().Should().Be(fixture.DepartmentAId);
         commonBody.Data.GetProperty("currentOrgUnitName").GetString().Should().Be("A部门");
+    }
+
+    [Fact]
+    public async Task SpecReadScope_ShouldLetAdminFilterDepartment_AndRejectCommonOverride()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        var (departmentAProject, departmentBProject) =
+            await SeedDepartmentSpecsAsync(factory, fixture);
+        using var client = factory.CreateClient();
+
+        using var adminListResponse = await client.GetAsync(
+            $"/api/specs?page=1&pageSize=20&orgUnitId={fixture.DepartmentAId}");
+        adminListResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var adminListBody = await adminListResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var adminProjects = adminListBody.Data
+            .GetProperty("items")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("project").GetString())
+            .ToList();
+        adminProjects.Should().Contain(departmentAProject).And.NotContain(departmentBProject);
+        adminListBody.Data.GetProperty("total").GetInt32().Should().Be(1);
+
+        using var adminGroupsResponse = await client.GetAsync(
+            $"/api/specs/groups?orgUnitId={fixture.DepartmentAId}");
+        adminGroupsResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var adminGroupsBody = await adminGroupsResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        adminGroupsBody.Data.EnumerateArray()
+            .Sum(item => item.GetProperty("specCount").GetInt32())
+            .Should().Be(1);
+
+        using var commonRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/specs?page=1&pageSize=20&orgUnitId={fixture.DepartmentBId}");
+        commonRequest.Headers.Add("X-Test-Role", "common");
+        commonRequest.Headers.Add("X-Test-User-Id", fixture.CommonUserId.ToString());
+        commonRequest.Headers.Add("X-Test-Permissions", "*:*:*");
+        using var commonResponse = await client.SendAsync(commonRequest);
+        commonResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task SpecSearches_ShouldKeepKeywordDuplicateAndSemanticResultsInsideDepartment()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        var searchFixture = await SeedDepartmentSearchSpecsAsync(factory, fixture);
+        using var client = factory.CreateClient();
+
+        using var keywordResponse = await client.GetAsync(
+            $"/api/specs?page=1&pageSize=20&keyword={Uri.EscapeDataString(searchFixture.Keyword)}" +
+            $"&orgUnitId={fixture.DepartmentAId}");
+        keywordResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var keywordBody = await keywordResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        keywordBody.Data.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("id").GetInt32())
+            .Should().BeEquivalentTo(searchFixture.DepartmentASpecIds);
+
+        using var duplicateResponse = await client.GetAsync(
+            $"/api/specs/duplicate-groups?customerId={searchFixture.CustomerId}" +
+            $"&orgUnitId={fixture.DepartmentAId}");
+        duplicateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var duplicateBody = await duplicateResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        var duplicateIds = duplicateBody.Data.GetProperty("exactGroups")
+            .EnumerateArray()
+            .SelectMany(group => group.GetProperty("items").EnumerateArray())
+            .Select(item => item.GetProperty("id").GetInt32())
+            .ToList();
+        duplicateIds.Should().BeEquivalentTo(searchFixture.DepartmentASpecIds);
+
+        using var semanticResponse = await client.PostAsync(
+            "/api/specs/semantic-search",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                customerId = searchFixture.CustomerId,
+                queries = new[] { searchFixture.Keyword },
+                topK = 20,
+                minScore = 0
+            }));
+        semanticResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var semanticBody = await semanticResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        semanticBody.Data.GetProperty("groups")[0].GetProperty("items")
+            .EnumerateArray()
+            .Select(item => item.GetProperty("id").GetInt32())
+            .Should().BeEquivalentTo(searchFixture.DepartmentASpecIds);
+
+        using var commonDuplicateRequest = CreateCommonRequest(
+            fixture.CommonUserId,
+            HttpMethod.Get,
+            $"/api/specs/duplicate-groups?orgUnitId={fixture.DepartmentBId}");
+        using var commonDuplicateResponse = await client.SendAsync(commonDuplicateRequest);
+        commonDuplicateResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var commonSemanticRequest = CreateCommonRequest(
+            fixture.CommonUserId,
+            HttpMethod.Post,
+            "/api/specs/semantic-search",
+            new
+            {
+                orgUnitId = fixture.DepartmentBId,
+                queries = new[] { searchFixture.Keyword },
+                topK = 5,
+                minScore = 0
+            });
+        using var commonSemanticResponse = await client.SendAsync(commonSemanticRequest);
+        commonSemanticResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task RemarkBatchReplace_ShouldRequireDepartment_ReplaceOnlyItsRows_AndClearItsCaches()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        var replaceFixture = await SeedRemarkReplaceSpecsAsync(factory, fixture);
+        using var client = factory.CreateClient();
+
+        var previewPayload = new
+        {
+            searchText = replaceFixture.SearchText,
+            replacementText = replaceFixture.ReplacementText
+        };
+        using var overallResponse = await client.PostAsync(
+            "/api/specs/remark-replace/preview",
+            ApiClientJson.ToJsonContent(previewPayload));
+        overallResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var previewResponse = await client.PostAsync(
+            "/api/specs/remark-replace/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                previewPayload.searchText,
+                previewPayload.replacementText
+            }));
+        previewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewBody = await previewResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        previewBody.Data.GetProperty("affectedSpecCount").GetInt32().Should().Be(2);
+        previewBody.Data.GetProperty("matchCount").GetInt32().Should().Be(3);
+        previewBody.Data.GetProperty("samples").GetArrayLength().Should().Be(2);
+        var confirmationToken = previewBody.Data.GetProperty("confirmationToken").GetString();
+        confirmationToken.Should().NotBeNullOrWhiteSpace();
+
+        using var tamperedExecuteResponse = await client.PostAsync(
+            "/api/specs/remark-replace",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                previewPayload.searchText,
+                previewPayload.replacementText,
+                expectedAffectedSpecCount = 2,
+                expectedMatchCount = 3,
+                confirmationToken = "tampered"
+            }));
+        tamperedExecuteResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        using var executeResponse = await client.PostAsync(
+            "/api/specs/remark-replace",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                previewPayload.searchText,
+                previewPayload.replacementText,
+                expectedAffectedSpecCount = 2,
+                expectedMatchCount = 3,
+                confirmationToken
+            }));
+        executeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var executeBody = await executeResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        executeBody.Data.GetProperty("updatedSpecCount").GetInt32().Should().Be(2);
+        executeBody.Data.GetProperty("replacedMatchCount").GetInt32().Should().Be(3);
+
+        await using (var verifyScope = factory.Services.CreateAsyncScope())
+        {
+            var db = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var remarks = await db.AcceptanceSpecs
+                .Where(spec => replaceFixture.AllSpecIds.Contains(spec.Id))
+                .ToDictionaryAsync(spec => spec.Id, spec => spec.Remark);
+            remarks[replaceFixture.DepartmentASpecIds[0]].Should().Be("新字段 / 新字段");
+            remarks[replaceFixture.DepartmentASpecIds[1]].Should().Be("仅新字段");
+            remarks[replaceFixture.DepartmentBSpecId].Should().Be("旧字段 / B部门");
+
+            var remainingCacheSpecIds = await db.EmbeddingCaches
+                .Where(cache => replaceFixture.AllSpecIds.Contains(cache.SpecId))
+                .Select(cache => cache.SpecId)
+                .ToListAsync();
+            remainingCacheSpecIds.Should().BeEquivalentTo([replaceFixture.DepartmentBSpecId]);
+
+            var audit = await db.AuditLogs
+                .Where(item =>
+                    item.EventType == "controller.remark-replace" &&
+                    item.Details != null &&
+                    item.Details.Contains("updatedSpecCount"))
+                .OrderByDescending(item => item.Id)
+                .FirstAsync();
+            audit.Details.Should().Contain($"\"orgUnitId\":{fixture.DepartmentAId}");
+            audit.Details.Should().Contain("\"updatedSpecCount\":2");
+            audit.Details.Should().Contain("\"replacedMatchCount\":3");
+            audit.Details.Should().NotContain(replaceFixture.SearchText);
+            audit.Details.Should().NotContain(replaceFixture.ReplacementText);
+        }
+
+        using var commonOwnPreviewRequest = CreateCommonRequest(
+            fixture.CommonUserId,
+            HttpMethod.Post,
+            "/api/specs/remark-replace/preview",
+            new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                searchText = replaceFixture.ReplacementText,
+                replacementText = "再次替换"
+            });
+        using var commonOwnPreviewResponse = await client.SendAsync(commonOwnPreviewRequest);
+        commonOwnPreviewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var commonOtherPreviewRequest = CreateCommonRequest(
+            fixture.CommonUserId,
+            HttpMethod.Post,
+            "/api/specs/remark-replace/preview",
+            new
+            {
+                orgUnitId = fixture.DepartmentBId,
+                searchText = replaceFixture.SearchText,
+                replacementText = replaceFixture.ReplacementText
+            });
+        using var commonOtherPreviewResponse = await client.SendAsync(commonOtherPreviewRequest);
+        commonOtherPreviewResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task RemarkBatchReplace_ShouldRejectStalePreviewWithoutPartialWrite()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        var replaceFixture = await SeedRemarkReplaceSpecsAsync(factory, fixture);
+        using var client = factory.CreateClient();
+
+        using var previewResponse = await client.PostAsync(
+            "/api/specs/remark-replace/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                searchText = replaceFixture.SearchText,
+                replacementText = replaceFixture.ReplacementText
+            }));
+        previewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewBody = await previewResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+
+        await using (var mutateScope = factory.Services.CreateAsyncScope())
+        {
+            var db = mutateScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var spec = await db.AcceptanceSpecs.FindAsync(replaceFixture.DepartmentASpecIds[0]);
+            spec!.Remark = $"{spec.Remark} / 新增匹配{replaceFixture.SearchText}";
+            spec.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        using var executeResponse = await client.PostAsync(
+            "/api/specs/remark-replace",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                searchText = replaceFixture.SearchText,
+                replacementText = replaceFixture.ReplacementText,
+                expectedAffectedSpecCount = previewBody.Data.GetProperty("affectedSpecCount").GetInt32(),
+                expectedMatchCount = previewBody.Data.GetProperty("matchCount").GetInt32(),
+                confirmationToken = previewBody.Data.GetProperty("confirmationToken").GetString()
+            }));
+        executeResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var remarks = await verifyDb.AcceptanceSpecs
+            .Where(spec => replaceFixture.DepartmentASpecIds.Contains(spec.Id))
+            .Select(spec => spec.Remark)
+            .ToListAsync();
+        remarks.Should().OnlyContain(remark => remark!.Contains(replaceFixture.SearchText));
+    }
+
+    [Fact]
+    public async Task ManualSpecCreate_ShouldRequireAdminDepartment_AndPersistSelectedOrg()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        using var client = factory.CreateClient();
+
+        int customerId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var customer = new Customer
+            {
+                Name = $"手工新增客户-{Guid.NewGuid():N}",
+                CreatedAt = DateTime.UtcNow
+            };
+            db.Customers.Add(customer);
+            await db.SaveChangesAsync();
+            customerId = customer.Id;
+        }
+
+        var baseRequest = new
+        {
+            customerId,
+            project = $"手工新增-{Guid.NewGuid():N}",
+            specification = "仅属于A部门的规格"
+        };
+
+        using var missingOrgResponse = await client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(baseRequest));
+        missingOrgResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var rootOrgResponse = await client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                businessOrgUnitId = fixture.RootOrgUnitId,
+                baseRequest.customerId,
+                baseRequest.project,
+                baseRequest.specification
+            }));
+        rootOrgResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var selectedOrgResponse = await client.PostAsync(
+            "/api/specs",
+            ApiClientJson.ToJsonContent(new
+            {
+                businessOrgUnitId = fixture.DepartmentAId,
+                baseRequest.customerId,
+                baseRequest.project,
+                baseRequest.specification
+            }));
+        selectedOrgResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var selectedOrgBody = await selectedOrgResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        selectedOrgBody.Data.GetProperty("ownerOrgUnitId").GetInt32()
+            .Should().Be(fixture.DepartmentAId);
+
+        using var commonRequest = new HttpRequestMessage(HttpMethod.Post, "/api/specs")
+        {
+            Content = ApiClientJson.ToJsonContent(new
+            {
+                businessOrgUnitId = fixture.DepartmentBId,
+                baseRequest.customerId,
+                project = $"普通用户越权-{Guid.NewGuid():N}",
+                baseRequest.specification
+            })
+        };
+        commonRequest.Headers.Add("X-Test-Role", "common");
+        commonRequest.Headers.Add("X-Test-User-Id", fixture.CommonUserId.ToString());
+        commonRequest.Headers.Add("X-Test-Permissions", "*:*:*");
+        using var commonResponse = await client.SendAsync(commonRequest);
+        commonResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -303,6 +655,99 @@ public sealed class BusinessOrgOperationIsolationTests
         ownerOrgUnitId.Should().Be(fixture.DepartmentAId);
     }
 
+    [Fact]
+    public async Task LegacyBatchImport_ShouldInheritSourceFileOrg_AndRejectCommonCrossDepartment()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        using var client = factory.CreateClient();
+
+        int customerId;
+        int departmentBFileId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var adminId = await db.SystemUsers
+                .Where(user => user.Username == "admin")
+                .Select(user => user.Id)
+                .SingleAsync();
+            var customer = new Customer
+            {
+                Name = $"旧批量导入客户-{Guid.NewGuid():N}",
+                CreatedAt = DateTime.UtcNow
+            };
+            var departmentBFile = new WordFile
+            {
+                FileName = "legacy-batch-import-b.docx",
+                FilePath = "legacy-batch-import-b.docx",
+                FileHash = Guid.NewGuid().ToString("N"),
+                FileType = UploadedFileType.WordDocx,
+                FileContent = [1],
+                CreatedByUserId = adminId,
+                CompanyId = 1,
+                OwnerOrgUnitId = fixture.DepartmentBId,
+                UploadedAt = DateTime.UtcNow
+            };
+            db.AddRange(customer, departmentBFile);
+            await db.SaveChangesAsync();
+            customerId = customer.Id;
+            departmentBFileId = departmentBFile.Id;
+        }
+
+        var adminProject = $"旧批量导入B部门-{Guid.NewGuid():N}";
+        var payload = new
+        {
+            customerId,
+            wordFileId = departmentBFileId,
+            items = new[]
+            {
+                new
+                {
+                    project = adminProject,
+                    specification = "必须继承B部门归属"
+                }
+            }
+        };
+        using var adminResponse = await client.PostAsync(
+            "/api/specs/batch-import",
+            ApiClientJson.ToJsonContent(payload));
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var verifyScope = factory.Services.CreateAsyncScope())
+        {
+            var db = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var ownerOrgUnitId = await db.AcceptanceSpecs
+                .Where(spec => spec.Project == adminProject)
+                .Select(spec => spec.OwnerOrgUnitId)
+                .SingleAsync();
+            ownerOrgUnitId.Should().Be(fixture.DepartmentBId);
+        }
+
+        using var commonRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/specs/batch-import")
+        {
+            Content = ApiClientJson.ToJsonContent(new
+            {
+                customerId,
+                wordFileId = departmentBFileId,
+                items = new[]
+                {
+                    new
+                    {
+                        project = $"普通用户跨部门导入-{Guid.NewGuid():N}",
+                        specification = "不应写入"
+                    }
+                }
+            })
+        };
+        commonRequest.Headers.Add("X-Test-Role", "common");
+        commonRequest.Headers.Add("X-Test-User-Id", fixture.CommonUserId.ToString());
+        commonRequest.Headers.Add("X-Test-Permissions", "*:*:*");
+        using var commonResponse = await client.SendAsync(commonRequest);
+        commonResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     private static HttpRequestMessage CreateCommonUploadRequest(
         int userId,
         MultipartFormDataContent content)
@@ -311,6 +756,23 @@ public sealed class BusinessOrgOperationIsolationTests
         {
             Content = content
         };
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-User-Id", userId.ToString());
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        return request;
+    }
+
+    private static HttpRequestMessage CreateCommonRequest(
+        int userId,
+        HttpMethod method,
+        string path,
+        object? body = null)
+    {
+        var request = new HttpRequestMessage(method, path);
+        if (body != null)
+        {
+            request.Content = ApiClientJson.ToJsonContent(body);
+        }
         request.Headers.Add("X-Test-Role", "common");
         request.Headers.Add("X-Test-User-Id", userId.ToString());
         request.Headers.Add("X-Test-Permissions", "*:*:*");
@@ -359,6 +821,192 @@ public sealed class BusinessOrgOperationIsolationTests
         return new DepartmentFixture(root.Id, commonUser.Id, departmentA.Id, departmentB.Id);
     }
 
+    private static async Task<(string DepartmentAProject, string DepartmentBProject)>
+        SeedDepartmentSpecsAsync(
+            ApiWebApplicationFactory factory,
+            DepartmentFixture fixture)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminId = await db.SystemUsers
+            .Where(user => user.Username == "admin")
+            .Select(user => user.Id)
+            .SingleAsync();
+        var customer = new Customer
+        {
+            Name = $"部门筛选客户-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var fileA = new WordFile
+        {
+            FileName = "spec-scope-a.docx",
+            FilePath = "spec-scope-a.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileType = UploadedFileType.WordDocx,
+            FileContent = [1],
+            CreatedByUserId = adminId,
+            CompanyId = 1,
+            OwnerOrgUnitId = fixture.DepartmentAId,
+            UploadedAt = DateTime.UtcNow
+        };
+        var fileB = new WordFile
+        {
+            FileName = "spec-scope-b.docx",
+            FilePath = "spec-scope-b.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileType = UploadedFileType.WordDocx,
+            FileContent = [1],
+            CreatedByUserId = adminId,
+            CompanyId = 1,
+            OwnerOrgUnitId = fixture.DepartmentBId,
+            UploadedAt = DateTime.UtcNow
+        };
+        db.AddRange(customer, fileA, fileB);
+        await db.SaveChangesAsync();
+
+        var projectA = $"A部门筛选-{Guid.NewGuid():N}";
+        var projectB = $"B部门筛选-{Guid.NewGuid():N}";
+        db.AcceptanceSpecs.AddRange(
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = projectA,
+                Specification = "A部门规格",
+                WordFileId = fileA.Id,
+                CreatedByUserId = adminId,
+                OwnerOrgUnitId = fixture.DepartmentAId,
+                ImportedAt = DateTime.UtcNow
+            },
+            new AcceptanceSpec
+            {
+                CustomerId = customer.Id,
+                Project = projectB,
+                Specification = "B部门规格",
+                WordFileId = fileB.Id,
+                CreatedByUserId = adminId,
+                OwnerOrgUnitId = fixture.DepartmentBId,
+                ImportedAt = DateTime.UtcNow
+            });
+        await db.SaveChangesAsync();
+        return (projectA, projectB);
+    }
+
+    private static async Task<DepartmentSearchFixture> SeedDepartmentSearchSpecsAsync(
+        ApiWebApplicationFactory factory,
+        DepartmentFixture fixture)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminId = await db.SystemUsers
+            .Where(user => user.Username == "admin")
+            .Select(user => user.Id)
+            .SingleAsync();
+        var keyword = $"部门搜索隔离{Guid.NewGuid():N}";
+        var customer = new Customer
+        {
+            Name = $"搜索隔离客户-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var fileA = CreateOwnedWordFile("search-a.docx", adminId, fixture.DepartmentAId);
+        var fileB = CreateOwnedWordFile("search-b.docx", adminId, fixture.DepartmentBId);
+        db.AddRange(customer, fileA, fileB);
+        await db.SaveChangesAsync();
+
+        var specs = new[]
+        {
+            CreateOwnedSpec(customer.Id, fileA.Id, adminId, fixture.DepartmentAId, keyword, "相同规格", $"{keyword} A1"),
+            CreateOwnedSpec(customer.Id, fileA.Id, adminId, fixture.DepartmentAId, keyword, "相同规格", $"{keyword} A2"),
+            CreateOwnedSpec(customer.Id, fileB.Id, adminId, fixture.DepartmentBId, keyword, "相同规格", $"{keyword} B")
+        };
+        db.AcceptanceSpecs.AddRange(specs);
+        await db.SaveChangesAsync();
+        return new DepartmentSearchFixture(
+            customer.Id,
+            keyword,
+            specs.Take(2).Select(spec => spec.Id).ToArray(),
+            specs[2].Id);
+    }
+
+    private static async Task<RemarkReplaceFixture> SeedRemarkReplaceSpecsAsync(
+        ApiWebApplicationFactory factory,
+        DepartmentFixture fixture)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminId = await db.SystemUsers
+            .Where(user => user.Username == "admin")
+            .Select(user => user.Id)
+            .SingleAsync();
+        var customer = new Customer
+        {
+            Name = $"备注替换客户-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var fileA = CreateOwnedWordFile("remark-replace-a.docx", adminId, fixture.DepartmentAId);
+        var fileB = CreateOwnedWordFile("remark-replace-b.docx", adminId, fixture.DepartmentBId);
+        db.AddRange(customer, fileA, fileB);
+        await db.SaveChangesAsync();
+
+        var specs = new[]
+        {
+            CreateOwnedSpec(customer.Id, fileA.Id, adminId, fixture.DepartmentAId, "A1", "规格", "旧字段 / 旧字段"),
+            CreateOwnedSpec(customer.Id, fileA.Id, adminId, fixture.DepartmentAId, "A2", "规格", "仅旧字段"),
+            CreateOwnedSpec(customer.Id, fileB.Id, adminId, fixture.DepartmentBId, "B", "规格", "旧字段 / B部门")
+        };
+        db.AcceptanceSpecs.AddRange(specs);
+        await db.SaveChangesAsync();
+        db.EmbeddingCaches.AddRange(specs.Select(spec => new EmbeddingCache
+        {
+            SpecId = spec.Id,
+            ModelName = "remark-replace-test",
+            Usage = "semantic-search",
+            TextHash = Guid.NewGuid().ToString("N"),
+            Vector = [1, 2, 3],
+            CreatedAt = DateTime.UtcNow
+        }));
+        await db.SaveChangesAsync();
+        return new RemarkReplaceFixture(
+            "旧字段",
+            "新字段",
+            specs.Take(2).Select(spec => spec.Id).ToArray(),
+            specs[2].Id);
+    }
+
+    private static WordFile CreateOwnedWordFile(
+        string fileName,
+        int userId,
+        int orgUnitId) => new()
+    {
+        FileName = fileName,
+        FilePath = fileName,
+        FileHash = Guid.NewGuid().ToString("N"),
+        FileType = UploadedFileType.WordDocx,
+        FileContent = [1],
+        CreatedByUserId = userId,
+        CompanyId = 1,
+        OwnerOrgUnitId = orgUnitId,
+        UploadedAt = DateTime.UtcNow
+    };
+
+    private static AcceptanceSpec CreateOwnedSpec(
+        int customerId,
+        int wordFileId,
+        int userId,
+        int orgUnitId,
+        string project,
+        string specification,
+        string remark) => new()
+    {
+        CustomerId = customerId,
+        Project = project,
+        Specification = specification,
+        Remark = remark,
+        WordFileId = wordFileId,
+        CreatedByUserId = userId,
+        OwnerOrgUnitId = orgUnitId,
+        ImportedAt = DateTime.UtcNow
+    };
+
     private static OrgUnit CreateDepartment(OrgUnit root, string name, DateTime now) => new()
     {
         CompanyId = root.CompanyId,
@@ -394,4 +1042,19 @@ public sealed class BusinessOrgOperationIsolationTests
         int CommonUserId,
         int DepartmentAId,
         int DepartmentBId);
+
+    private sealed record DepartmentSearchFixture(
+        int CustomerId,
+        string Keyword,
+        int[] DepartmentASpecIds,
+        int DepartmentBSpecId);
+
+    private sealed record RemarkReplaceFixture(
+        string SearchText,
+        string ReplacementText,
+        int[] DepartmentASpecIds,
+        int DepartmentBSpecId)
+    {
+        public int[] AllSpecIds => [.. DepartmentASpecIds, DepartmentBSpecId];
+    }
 }

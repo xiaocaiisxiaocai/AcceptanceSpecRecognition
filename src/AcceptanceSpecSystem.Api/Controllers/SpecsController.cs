@@ -20,6 +20,7 @@ public class SpecsController : BaseApiController
     private readonly AcceptanceSpecAppService _acceptanceSpecAppService;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly SpecSemanticSearchService _specSemanticSearchService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
 
     /// <summary>
     /// 创建验收规格控制器实例
@@ -27,11 +28,13 @@ public class SpecsController : BaseApiController
     public SpecsController(
         AcceptanceSpecAppService acceptanceSpecAppService,
         IAuthDataScopeService authDataScopeService,
-        SpecSemanticSearchService specSemanticSearchService)
+        SpecSemanticSearchService specSemanticSearchService,
+        IBusinessOrgScopeService businessOrgScopeService)
     {
         _acceptanceSpecAppService = acceptanceSpecAppService;
         _authDataScopeService = authDataScopeService;
         _specSemanticSearchService = specSemanticSearchService;
+        _businessOrgScopeService = businessOrgScopeService;
     }
 
     /// <summary>
@@ -40,14 +43,22 @@ public class SpecsController : BaseApiController
     [HttpGet("groups")]
     [ProducesResponseType(typeof(ApiResponse<List<SpecGroupDto>>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ApiResponse<List<SpecGroupDto>>>> GetGroups(
+        [FromQuery] int? orgUnitId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync(cancellationToken);
-        if (scope == null)
-            return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
+        try
+        {
+            var scope = await ResolveRequestedSpecScopeAsync(orgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<List<SpecGroupDto>>(401, "会话缺少用户上下文");
 
-        var items = await _acceptanceSpecAppService.GetGroupsAsync(scope.ToAccessContext(), cancellationToken);
-        return Success(items.Select(item => item.ToDto()).ToList());
+            var items = await _acceptanceSpecAppService.GetGroupsAsync(scope.ToAccessContext(), cancellationToken);
+            return Success(items.Select(item => item.ToDto()).ToList());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<List<SpecGroupDto>>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -66,27 +77,35 @@ public class SpecsController : BaseApiController
         [FromQuery] bool? machineModelIdIsNull = null,
         [FromQuery] DateTime? importedFrom = null,
         [FromQuery] DateTime? importedTo = null,
+        [FromQuery] int? orgUnitId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync(cancellationToken);
-        if (scope == null)
-            return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
+        try
+        {
+            var scope = await ResolveRequestedSpecScopeAsync(orgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
 
-        var data = await _acceptanceSpecAppService.GetPagedAsync(
-            scope.ToAccessContext(),
-            page,
-            pageSize,
-            keyword,
-            customerId,
-            processId,
-            machineModelId,
-            processIdIsNull,
-            machineModelIdIsNull,
-            importedFrom,
-            importedTo,
-            cancellationToken);
+            var data = await _acceptanceSpecAppService.GetPagedAsync(
+                scope.ToAccessContext(),
+                page,
+                pageSize,
+                keyword,
+                customerId,
+                processId,
+                machineModelId,
+                processIdIsNull,
+                machineModelIdIsNull,
+                importedFrom,
+                importedTo,
+                cancellationToken);
 
-        return Success(data.ToDto());
+            return Success(data.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<PagedData<AcceptanceSpecDto>>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -104,25 +123,33 @@ public class SpecsController : BaseApiController
         [FromQuery] bool? machineModelIdIsNull = null,
         [FromQuery] double? minSimilarity = null,
         [FromQuery] int? maxGroups = null,
+        [FromQuery] int? orgUnitId = null,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync(cancellationToken);
-        if (scope == null)
-            return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
+        try
+        {
+            var scope = await ResolveRequestedSpecScopeAsync(orgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<SpecDuplicateDetectionResultDto>(401, "会话缺少用户上下文");
 
-        var result = await _acceptanceSpecAppService.GetDuplicateGroupsAsync(
-            scope.ToAccessContext(),
-            keyword,
-            customerId,
-            processId,
-            machineModelId,
-            processIdIsNull,
-            machineModelIdIsNull,
-            minSimilarity,
-            maxGroups,
-            cancellationToken);
+            var result = await _acceptanceSpecAppService.GetDuplicateGroupsAsync(
+                scope.ToAccessContext(),
+                keyword,
+                customerId,
+                processId,
+                machineModelId,
+                processIdIsNull,
+                machineModelIdIsNull,
+                minSimilarity,
+                maxGroups,
+                cancellationToken);
 
-        return Success(result.ToDto());
+            return Success(result.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SpecDuplicateDetectionResultDto>(ex.Code, ex.Message);
+        }
     }
 
     /// <summary>
@@ -165,12 +192,12 @@ public class SpecsController : BaseApiController
         [FromBody] SpecSemanticSearchRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync(cancellationToken);
-        if (scope == null)
-            return Error<SpecSemanticSearchResponse>(401, "会话缺少用户上下文");
-
         try
         {
+            var scope = await ResolveRequestedSpecScopeAsync(request.OrgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<SpecSemanticSearchResponse>(401, "会话缺少用户上下文");
+
             var result = await _specSemanticSearchService.SearchAsync(
                 request,
                 scope,
@@ -181,9 +208,80 @@ public class SpecsController : BaseApiController
         {
             return Error<SpecSemanticSearchResponse>(400, ex.Message);
         }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SpecSemanticSearchResponse>(ex.Code, ex.Message);
+        }
         catch (AiServiceUnavailableException ex)
         {
             return Error<SpecSemanticSearchResponse>(400, $"Embedding 服务不可用: {ex.Reason}");
+        }
+    }
+
+    /// <summary>
+    /// 预览部门内备注批量替换影响
+    /// </summary>
+    [HttpPost("remark-replace/preview")]
+    [AuditOperation("remark-replace", "spec")]
+    [ProducesResponseType(typeof(ApiResponse<SpecRemarkReplacePreviewResponse>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<SpecRemarkReplacePreviewResponse>>> PreviewRemarkReplace(
+        [FromBody] SpecRemarkReplacePreviewRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var scope = await ResolveDepartmentOperationScopeAsync(request.OrgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<SpecRemarkReplacePreviewResponse>(401, "会话缺少用户上下文");
+
+            var result = await _acceptanceSpecAppService.PreviewRemarkReplaceAsync(
+                scope.ToAccessContext(),
+                request.SearchText,
+                request.ReplacementText,
+                cancellationToken);
+            return Success(result.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SpecRemarkReplacePreviewResponse>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 执行部门内备注批量替换
+    /// </summary>
+    [HttpPost("remark-replace")]
+    [AuditOperation("remark-replace", "spec")]
+    [ProducesResponseType(typeof(ApiResponse<SpecRemarkReplaceResult>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<SpecRemarkReplaceResult>>> ExecuteRemarkReplace(
+        [FromBody] SpecRemarkReplaceExecuteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var scope = await ResolveDepartmentOperationScopeAsync(request.OrgUnitId, cancellationToken);
+            if (scope == null)
+                return Error<SpecRemarkReplaceResult>(401, "会话缺少用户上下文");
+
+            var result = await _acceptanceSpecAppService.ExecuteRemarkReplaceAsync(
+                scope.ToAccessContext(),
+                request.SearchText,
+                request.ReplacementText,
+                request.ExpectedAffectedSpecCount,
+                request.ExpectedMatchCount,
+                request.ConfirmationToken,
+                cancellationToken);
+            AuditOperationFilter.SetSafeDetails(HttpContext, new
+            {
+                orgUnitId = scope.OrgUnitId,
+                updatedSpecCount = result.UpdatedSpecCount,
+                replacedMatchCount = result.ReplacedMatchCount
+            });
+            return Success(result.ToDto(), $"已更新 {result.UpdatedSpecCount} 条规格备注");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<SpecRemarkReplaceResult>(ex.Code, ex.Message);
         }
     }
 
@@ -198,9 +296,23 @@ public class SpecsController : BaseApiController
         [FromBody] CreateSpecRequest request,
         CancellationToken cancellationToken = default)
     {
-        var scope = await ResolveSpecScopeAsync(cancellationToken);
-        if (scope == null)
+        var callerScope = await ResolveSpecScopeAsync(cancellationToken);
+        if (callerScope == null)
             return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
+
+        DataScopeResult scope;
+        try
+        {
+            scope = await _businessOrgScopeService.ResolveManualEntryScopeAsync(
+                callerScope,
+                User.IsInRole("admin"),
+                request.BusinessOrgUnitId,
+                cancellationToken);
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
+        }
 
         try
         {
@@ -352,5 +464,35 @@ public class SpecsController : BaseApiController
     private async Task<DataScopeResult?> ResolveSpecScopeAsync(CancellationToken cancellationToken)
     {
         return await SpecDataScopeHelper.ResolveScopeAsync(User, _authDataScopeService, cancellationToken);
+    }
+
+    private async Task<DataScopeResult?> ResolveRequestedSpecScopeAsync(
+        int? orgUnitId,
+        CancellationToken cancellationToken)
+    {
+        var callerScope = await ResolveSpecScopeAsync(cancellationToken);
+        if (callerScope == null)
+            return null;
+
+        return await _businessOrgScopeService.ResolveReadScopeAsync(
+            callerScope,
+            User.IsInRole("admin"),
+            orgUnitId,
+            cancellationToken);
+    }
+
+    private async Task<DataScopeResult?> ResolveDepartmentOperationScopeAsync(
+        int? orgUnitId,
+        CancellationToken cancellationToken)
+    {
+        var callerScope = await ResolveSpecScopeAsync(cancellationToken);
+        if (callerScope == null)
+            return null;
+
+        return await _businessOrgScopeService.ResolveDepartmentOperationScopeAsync(
+            callerScope,
+            User.IsInRole("admin"),
+            orgUnitId,
+            cancellationToken);
     }
 }

@@ -131,6 +131,32 @@ internal static class ApplicationModelMappingExtensions
         };
     }
 
+    public static SpecRemarkReplacePreviewResponse ToDto(this SpecRemarkReplacePreviewModel item)
+    {
+        return new SpecRemarkReplacePreviewResponse
+        {
+            AffectedSpecCount = item.AffectedSpecCount,
+            MatchCount = item.MatchCount,
+            ConfirmationToken = item.ConfirmationToken,
+            Samples = item.Samples.Select(sample => new SpecRemarkReplaceSampleDto
+            {
+                SpecId = sample.SpecId,
+                Project = sample.Project,
+                BeforePreview = sample.BeforePreview,
+                AfterPreview = sample.AfterPreview
+            }).ToList()
+        };
+    }
+
+    public static SpecRemarkReplaceResult ToDto(this SpecRemarkReplaceResultModel item)
+    {
+        return new SpecRemarkReplaceResult
+        {
+            UpdatedSpecCount = item.UpdatedSpecCount,
+            ReplacedMatchCount = item.ReplacedMatchCount
+        };
+    }
+
     public static BatchImportSpecItemInput ToInput(this SpecImportItem item)
     {
         return new BatchImportSpecItemInput

@@ -16,10 +16,12 @@ export interface AcceptanceSpec {
   remark?: string;
   importedAt: string;
   updatedAt?: string | null;
+  ownerOrgUnitId?: number | null;
 }
 
 /** 创建验收规格请求 */
 export interface CreateSpecRequest {
+  businessOrgUnitId?: number;
   customerId: number;
   processId?: number;
   machineModelId?: number;
@@ -39,6 +41,7 @@ export interface UpdateSpecRequest {
 
 /** 验收规格列表请求参数 */
 export interface SpecListRequest extends PagedRequest {
+  orgUnitId?: number;
   customerId?: number;
   processId?: number;
   machineModelId?: number;
@@ -112,6 +115,7 @@ export interface SpecDuplicateDetectionResult {
 }
 
 export interface SpecDuplicateDetectionRequest {
+  orgUnitId?: number;
   keyword?: string;
   customerId?: number;
   processId?: number;
@@ -123,6 +127,7 @@ export interface SpecDuplicateDetectionRequest {
 }
 
 export interface SpecSemanticSearchRequest {
+  orgUnitId?: number;
   queries: string[];
   customerId?: number;
   processId?: number;
@@ -152,11 +157,45 @@ export interface SpecSemanticSearchResponse {
   groups: SpecSemanticSearchGroup[];
 }
 
+export interface SpecRemarkReplacePreviewRequest {
+  orgUnitId: number;
+  searchText: string;
+  replacementText: string;
+}
+
+export interface SpecRemarkReplaceSample {
+  specId: number;
+  project: string;
+  beforePreview: string;
+  afterPreview: string;
+}
+
+export interface SpecRemarkReplacePreviewResponse {
+  affectedSpecCount: number;
+  matchCount: number;
+  confirmationToken: string;
+  samples: SpecRemarkReplaceSample[];
+}
+
+export interface SpecRemarkReplaceExecuteRequest
+  extends SpecRemarkReplacePreviewRequest {
+  expectedAffectedSpecCount: number;
+  expectedMatchCount: number;
+  confirmationToken: string;
+}
+
+export interface SpecRemarkReplaceResult {
+  updatedSpecCount: number;
+  replacedMatchCount: number;
+}
+
 const baseUrl = "/api/specs";
 
 /** 获取验收规格分组汇总 */
-export const getSpecGroups = () => {
-  return http.request<ApiResponse<SpecGroup[]>>("get", `${baseUrl}/groups`);
+export const getSpecGroups = (params?: { orgUnitId?: number }) => {
+  return http.request<ApiResponse<SpecGroup[]>>("get", `${baseUrl}/groups`, {
+    params
+  });
 };
 
 /** 获取验收规格列表 */
@@ -224,5 +263,27 @@ export const semanticSearchSpecs = (
     "post",
     `${baseUrl}/semantic-search`,
     { data, signal }
+  );
+};
+
+/** 预览部门内验收规格备注批量替换 */
+export const previewSpecRemarkReplace = (
+  data: SpecRemarkReplacePreviewRequest
+) => {
+  return http.request<ApiResponse<SpecRemarkReplacePreviewResponse>>(
+    "post",
+    `${baseUrl}/remark-replace/preview`,
+    { data }
+  );
+};
+
+/** 执行部门内验收规格备注批量替换 */
+export const executeSpecRemarkReplace = (
+  data: SpecRemarkReplaceExecuteRequest
+) => {
+  return http.request<ApiResponse<SpecRemarkReplaceResult>>(
+    "post",
+    `${baseUrl}/remark-replace`,
+    { data }
   );
 };

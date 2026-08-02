@@ -16,6 +16,7 @@ const props = defineProps<{
   customerId: number;
   machineModelId?: number;
   processId?: number;
+  orgUnitId?: number;
   allowEdit: boolean;
 }>();
 
@@ -84,6 +85,9 @@ const buildScopeRequest = (queries: string[]): SpecSemanticSearchRequest => {
     topK: form.topK,
     minScore: Number(form.minScore.toFixed(2))
   };
+  if (props.orgUnitId != null) {
+    request.orgUnitId = props.orgUnitId;
+  }
 
   if (props.machineModelId != null) {
     request.machineModelId = props.machineModelId;
@@ -132,7 +136,12 @@ const invalidateSearchScope = () => {
 };
 
 watch(
-  () => [props.customerId, props.machineModelId, props.processId],
+  () => [
+    props.customerId,
+    props.machineModelId,
+    props.processId,
+    props.orgUnitId
+  ],
   invalidateSearchScope,
   { flush: "sync" }
 );

@@ -563,6 +563,7 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:spec:create");
         permissions.Should().Contain("btn:spec:update");
         permissions.Should().Contain("btn:spec:delete");
+        permissions.Should().Contain("btn:spec:remark-replace");
         permissions.Should().Contain("menu:rbac");
         permissions.Should().Contain("page:config:system-users");
         permissions.Should().Contain("api:system-user:read");

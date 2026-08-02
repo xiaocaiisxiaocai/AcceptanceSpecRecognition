@@ -70,6 +70,35 @@ public sealed class BatchImportResultModel
     public int TotalCount { get; set; }
 }
 
+public sealed class SpecRemarkReplacePreviewModel
+{
+    public int AffectedSpecCount { get; set; }
+
+    public int MatchCount { get; set; }
+
+    public string ConfirmationToken { get; set; } = string.Empty;
+
+    public List<SpecRemarkReplaceSampleModel> Samples { get; set; } = [];
+}
+
+public sealed class SpecRemarkReplaceSampleModel
+{
+    public int SpecId { get; set; }
+
+    public string Project { get; set; } = string.Empty;
+
+    public string BeforePreview { get; set; } = string.Empty;
+
+    public string AfterPreview { get; set; } = string.Empty;
+}
+
+public sealed class SpecRemarkReplaceResultModel
+{
+    public int UpdatedSpecCount { get; set; }
+
+    public int ReplacedMatchCount { get; set; }
+}
+
 public sealed class SpecDuplicateDetectionResultModel
 {
     public int ScannedCount { get; set; }

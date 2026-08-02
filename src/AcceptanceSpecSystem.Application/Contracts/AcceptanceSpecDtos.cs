@@ -89,6 +89,12 @@ public class AcceptanceSpecDto
 public class CreateSpecRequest
 {
     /// <summary>
+    /// 业务归属部门ID；管理员新增时必选，普通用户固定为本人所属部门
+    /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "业务归属部门ID必须大于0")]
+    public int? BusinessOrgUnitId { get; set; }
+
+    /// <summary>
     /// 所属客户ID
     /// </summary>
     [Required(ErrorMessage = "客户ID不能为空")]
@@ -164,6 +170,67 @@ public class UpdateSpecRequest
     /// </summary>
     [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
+}
+
+/// <summary>
+/// 验收规格备注批量替换预览请求
+/// </summary>
+public class SpecRemarkReplacePreviewRequest
+{
+    [Range(1, int.MaxValue, ErrorMessage = "部门ID必须大于0")]
+    public int? OrgUnitId { get; set; }
+
+    [Required(ErrorMessage = "查找内容不能为空")]
+    [StringLength(2000, MinimumLength = 1, ErrorMessage = "查找内容长度必须在1到2000个字符之间")]
+    public string SearchText { get; set; } = string.Empty;
+
+    [MaxLength(2000, ErrorMessage = "替换内容不能超过2000个字符")]
+    public string ReplacementText { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 验收规格备注批量替换执行请求
+/// </summary>
+public sealed class SpecRemarkReplaceExecuteRequest : SpecRemarkReplacePreviewRequest
+{
+    [Range(0, int.MaxValue, ErrorMessage = "预期影响规格数不能小于0")]
+    public int ExpectedAffectedSpecCount { get; set; }
+
+    [Range(0, int.MaxValue, ErrorMessage = "预期匹配次数不能小于0")]
+    public int ExpectedMatchCount { get; set; }
+
+    [Required(ErrorMessage = "确认信息不能为空")]
+    [StringLength(128, MinimumLength = 1, ErrorMessage = "确认信息格式无效")]
+    public string ConfirmationToken { get; set; } = string.Empty;
+}
+
+public sealed class SpecRemarkReplacePreviewResponse
+{
+    public int AffectedSpecCount { get; set; }
+
+    public int MatchCount { get; set; }
+
+    public string ConfirmationToken { get; set; } = string.Empty;
+
+    public List<SpecRemarkReplaceSampleDto> Samples { get; set; } = [];
+}
+
+public sealed class SpecRemarkReplaceSampleDto
+{
+    public int SpecId { get; set; }
+
+    public string Project { get; set; } = string.Empty;
+
+    public string BeforePreview { get; set; } = string.Empty;
+
+    public string AfterPreview { get; set; } = string.Empty;
+}
+
+public sealed class SpecRemarkReplaceResult
+{
+    public int UpdatedSpecCount { get; set; }
+
+    public int ReplacedMatchCount { get; set; }
 }
 
 /// <summary>
@@ -454,6 +521,12 @@ public class SpecDuplicateItemDto
 /// </summary>
 public class SpecSemanticSearchRequest
 {
+    /// <summary>
+    /// 管理员查看的业务部门ID；为空表示公司总体
+    /// </summary>
+    [Range(1, int.MaxValue, ErrorMessage = "部门ID必须大于0")]
+    public int? OrgUnitId { get; set; }
+
     /// <summary>
     /// 查询文本列表，多行输入时每行对应一条查询
     /// </summary>

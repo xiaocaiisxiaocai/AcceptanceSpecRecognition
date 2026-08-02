@@ -172,8 +172,8 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
                 .GetProcesses(cancellationToken: cancellation.Token),
             () => WithUser(new MachineModelsController(null!, new CancellationCheckingScopeService()))
                 .GetMachineModels(cancellationToken: cancellation.Token),
-            () => WithUser(new SpecsController(null!, new CancellationCheckingScopeService(), null!))
-                .GetGroups(cancellation.Token)
+            () => WithUser(new SpecsController(null!, new CancellationCheckingScopeService(), null!, null!))
+                .GetGroups(cancellationToken: cancellation.Token)
         };
 
         foreach (var action in actions)
@@ -1227,6 +1227,7 @@ public sealed class CrudCancellationAndBatchDeleteTests : IClassFixture<ApiWebAp
 
             var service = new AcceptanceSpecAppService(
                 serviceScope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+                null!,
                 null!,
                 NullLogger<AcceptanceSpecAppService>.Instance);
             return new SpecExecuteDeleteFailureFixture(
