@@ -3,6 +3,9 @@ using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -13,18 +16,24 @@ public sealed class AcceptanceSpecAppService
 {
     private const string ManualFileName = "__MANUAL_ENTRY__";
     private const string ManualFileHash = "manual_entry_placeholder";
+    private const int RemarkMaxLength = 2000;
+    private const int RemarkPreviewLength = 160;
+    private const int RemarkPreviewSampleLimit = 5;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly AcceptanceSpecQueryService _acceptanceSpecQueryService;
+    private readonly IBusinessOrgScopeService _businessOrgScopeService;
     private readonly ILogger<AcceptanceSpecAppService> _logger;
 
     public AcceptanceSpecAppService(
         IUnitOfWork unitOfWork,
         AcceptanceSpecQueryService acceptanceSpecQueryService,
+        IBusinessOrgScopeService businessOrgScopeService,
         ILogger<AcceptanceSpecAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _acceptanceSpecQueryService = acceptanceSpecQueryService;
+        _businessOrgScopeService = businessOrgScopeService;
         _logger = logger;
     }
 
@@ -209,6 +218,101 @@ public sealed class AcceptanceSpecAppService
         return true;
     }
 
+    public async Task<SpecRemarkReplacePreviewModel> PreviewRemarkReplaceAsync(
+        SpecAccessContext scope,
+        string searchText,
+        string replacementText,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureExactDepartmentScope(scope);
+        var snapshot = await BuildRemarkReplaceSnapshotAsync(
+            scope,
+            searchText,
+            replacementText,
+            trackEntities: false,
+            cancellationToken);
+        return MapRemarkReplacePreview(snapshot);
+    }
+
+    public async Task<SpecRemarkReplaceResultModel> ExecuteRemarkReplaceAsync(
+        SpecAccessContext scope,
+        string searchText,
+        string replacementText,
+        int expectedAffectedSpecCount,
+        int expectedMatchCount,
+        string confirmationToken,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureExactDepartmentScope(scope);
+        var orgUnitId = scope.OrgUnitId.GetValueOrDefault();
+
+        var lockKey = $"spec-remark-replace:{scope.CompanyId}:{orgUnitId}";
+        await using var operationLock = await _unitOfWork.AcquireOperationLockAsync(
+            lockKey,
+            cancellationToken);
+        var transactionStarted = false;
+        try
+        {
+            await _unitOfWork.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            transactionStarted = true;
+            var snapshot = await BuildRemarkReplaceSnapshotAsync(
+                scope,
+                searchText,
+                replacementText,
+                trackEntities: true,
+                cancellationToken);
+            if (snapshot.Specs.Count != expectedAffectedSpecCount ||
+                snapshot.MatchCount != expectedMatchCount ||
+                !MatchesConfirmationToken(snapshot.ConfirmationToken, confirmationToken))
+            {
+                throw new ApplicationServiceException(409, "备注数据已发生变化，请重新预览后再确认");
+            }
+
+            var now = DateTime.UtcNow;
+            foreach (var spec in snapshot.Specs)
+            {
+                spec.Remark = spec.Remark!.Replace(
+                    snapshot.SearchText,
+                    snapshot.ReplacementText,
+                    StringComparison.Ordinal);
+                spec.UpdatedAt = now;
+            }
+
+            var specIds = snapshot.Specs.Select(spec => spec.Id).ToArray();
+            var caches = await _unitOfWork.EmbeddingCaches
+                .Query(asNoTracking: false)
+                .Where(cache => specIds.Contains(cache.SpecId))
+                .ToListAsync(cancellationToken);
+            if (caches.Count > 0)
+            {
+                _unitOfWork.EmbeddingCaches.RemoveRange(caches);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            transactionStarted = false;
+
+            _logger.LogInformation(
+                "部门内批量替换验收规格备注完成: OrgUnitId={OrgUnitId}, Updated={UpdatedCount}, Matches={MatchCount}",
+                orgUnitId,
+                snapshot.Specs.Count,
+                snapshot.MatchCount);
+            return new SpecRemarkReplaceResultModel
+            {
+                UpdatedSpecCount = snapshot.Specs.Count,
+                ReplacedMatchCount = snapshot.MatchCount
+            };
+        }
+        catch
+        {
+            if (transactionStarted)
+            {
+                await _unitOfWork.RollbackTransactionAsync(CancellationToken.None);
+            }
+            throw;
+        }
+    }
+
     public async Task<BatchImportResultModel> BatchImportAsync(
         SpecAccessContext scope,
         int customerId,
@@ -226,6 +330,10 @@ public sealed class AcceptanceSpecAppService
         if (wordFile == null)
             throw new ApplicationServiceException(400, "Word文件不存在");
 
+        var businessScope = await _businessOrgScopeService.ResolveFileScopeAsync(
+            scope,
+            wordFile,
+            cancellationToken);
         var successCount = 0;
         var failedCount = 0;
 
@@ -248,8 +356,8 @@ public sealed class AcceptanceSpecAppService
                     Specification = item.Specification.Trim(),
                     Acceptance = NormalizeOptionalText(item.Acceptance),
                     Remark = NormalizeOptionalText(item.Remark),
-                    OwnerOrgUnitId = scope.OrgUnitId,
-                    CreatedByUserId = scope.UserId,
+                    OwnerOrgUnitId = businessScope.OrgUnitId,
+                    CreatedByUserId = businessScope.UserId,
                     WordFileId = wordFileId,
                     ImportedAt = DateTime.UtcNow
                 }, cancellationToken);
@@ -374,6 +482,130 @@ public sealed class AcceptanceSpecAppService
         return wordFile;
     }
 
+    private async Task<RemarkReplaceSnapshot> BuildRemarkReplaceSnapshotAsync(
+        SpecAccessContext scope,
+        string searchText,
+        string replacementText,
+        bool trackEntities,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            throw new ApplicationServiceException(400, "查找内容不能为空");
+        if (searchText.Length > RemarkMaxLength)
+            throw new ApplicationServiceException(400, "查找内容不能超过2000个字符");
+        replacementText ??= string.Empty;
+        if (replacementText.Length > RemarkMaxLength)
+            throw new ApplicationServiceException(400, "替换内容不能超过2000个字符");
+
+        var query = scope.ApplySpecScopeToQuery(
+                _unitOfWork.AcceptanceSpecs.Query(asNoTracking: !trackEntities))
+            .Where(spec =>
+                spec.WordFile.CompanyId == scope.CompanyId &&
+                spec.Remark != null &&
+                spec.Remark.Contains(searchText));
+        var candidates = await query
+            .OrderBy(spec => spec.Id)
+            .ToListAsync(cancellationToken);
+        var matchedSpecs = candidates
+            .Where(spec => spec.Remark!.Contains(searchText, StringComparison.Ordinal))
+            .ToList();
+        var matchCount = 0;
+        foreach (var spec in matchedSpecs)
+        {
+            matchCount += CountOccurrences(spec.Remark!, searchText);
+            var replaced = spec.Remark!.Replace(searchText, replacementText, StringComparison.Ordinal);
+            if (replaced.Length > RemarkMaxLength)
+            {
+                throw new ApplicationServiceException(
+                    422,
+                    $"规格 {spec.Id} 替换后的备注超过2000个字符，请缩短替换内容");
+            }
+        }
+
+        var tokenSource = new StringBuilder()
+            .Append(scope.CompanyId).Append('|')
+            .Append(scope.OrgUnitId).Append('|')
+            .Append(searchText).Append('|')
+            .Append(replacementText).Append('|')
+            .Append(matchCount);
+        foreach (var spec in matchedSpecs)
+        {
+            tokenSource.Append('|').Append(spec.Id).Append(':').Append(spec.Remark);
+        }
+
+        return new RemarkReplaceSnapshot
+        {
+            SearchText = searchText,
+            ReplacementText = replacementText,
+            Specs = matchedSpecs,
+            MatchCount = matchCount,
+            ConfirmationToken = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(tokenSource.ToString())))
+        };
+    }
+
+    private static SpecRemarkReplacePreviewModel MapRemarkReplacePreview(
+        RemarkReplaceSnapshot snapshot) => new()
+    {
+        AffectedSpecCount = snapshot.Specs.Count,
+        MatchCount = snapshot.MatchCount,
+        ConfirmationToken = snapshot.ConfirmationToken,
+        Samples = snapshot.Specs
+            .Take(RemarkPreviewSampleLimit)
+            .Select(spec => new SpecRemarkReplaceSampleModel
+            {
+                SpecId = spec.Id,
+                Project = spec.Project,
+                BeforePreview = TruncateRemarkPreview(spec.Remark!),
+                AfterPreview = TruncateRemarkPreview(
+                    spec.Remark!.Replace(
+                        snapshot.SearchText,
+                        snapshot.ReplacementText,
+                        StringComparison.Ordinal))
+            })
+            .ToList()
+    };
+
+    private static int CountOccurrences(string value, string searchText)
+    {
+        var count = 0;
+        var startIndex = 0;
+        while ((startIndex = value.IndexOf(searchText, startIndex, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            startIndex += searchText.Length;
+        }
+        return count;
+    }
+
+    private static void EnsureExactDepartmentScope(SpecAccessContext scope)
+    {
+        var scopedOrgUnitIds = scope.OrgUnitIds.Distinct().ToArray();
+        if (scope.IsAll ||
+            scope.IncludeSelf ||
+            !scope.OrgUnitId.HasValue ||
+            scopedOrgUnitIds.Length != 1 ||
+            scopedOrgUnitIds[0] != scope.OrgUnitId.Value)
+        {
+            throw new ApplicationServiceException(400, "该操作必须绑定唯一的具体部门");
+        }
+    }
+
+    private static bool MatchesConfirmationToken(string expected, string? actual)
+    {
+        if (string.IsNullOrEmpty(actual) || expected.Length != actual.Length)
+            return false;
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(expected),
+            Encoding.UTF8.GetBytes(actual));
+    }
+
+    private static string TruncateRemarkPreview(string value) =>
+        value.Length <= RemarkPreviewLength
+            ? value
+            : $"{value[..(RemarkPreviewLength - 3)]}...";
+
     private async Task RemoveEmbeddingCachesAsync(int specId, CancellationToken cancellationToken = default)
     {
         var caches = await _unitOfWork.EmbeddingCaches.GetBySpecIdAsync(specId, cancellationToken);
@@ -395,5 +627,18 @@ public sealed class AcceptanceSpecAppService
     private static string? NormalizeOptionalText(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private sealed class RemarkReplaceSnapshot
+    {
+        public string SearchText { get; init; } = string.Empty;
+
+        public string ReplacementText { get; init; } = string.Empty;
+
+        public List<AcceptanceSpec> Specs { get; init; } = [];
+
+        public int MatchCount { get; init; }
+
+        public string ConfirmationToken { get; init; } = string.Empty;
     }
 }

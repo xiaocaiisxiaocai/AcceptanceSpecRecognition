@@ -63,6 +63,7 @@ public sealed class AuditOperationFilter :
     private static readonly object AuditStateKey = new();
     private static readonly object AuditExceptionKey = new();
     private static readonly object AuditWrittenKey = new();
+    private static readonly object AuditSafeDetailsKey = new();
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AuditOperationFilter> _logger;
@@ -73,6 +74,11 @@ public sealed class AuditOperationFilter :
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+    }
+
+    internal static void SetSafeDetails(HttpContext httpContext, object details)
+    {
+        httpContext.Items[AuditSafeDetailsKey] = details;
     }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -171,6 +177,11 @@ public sealed class AuditOperationFilter :
                 controller = state.Controller,
                 action = state.Action,
                 routeValues = state.RouteValues,
+                operationDetails = httpContext.Items.TryGetValue(
+                    AuditSafeDetailsKey,
+                    out var safeDetails)
+                    ? safeDetails
+                    : null,
                 error = exception == null
                     ? null
                     : SensitiveLogFormatter.SanitizeMessage(

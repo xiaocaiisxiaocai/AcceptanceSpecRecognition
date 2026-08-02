@@ -19,24 +19,42 @@ import {
   type SpecListRequest,
   type SpecDuplicateDetectionResult
 } from "@/api/spec";
+import type { BusinessOrgOption } from "@/api/org-unit";
 import { hasPerms } from "@/utils/auth";
-import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
+import {
+  requiredSelectionRule,
+  requiredTrimmedRule,
+  validateForm
+} from "@/utils/form-rules";
 import {
   getRequestErrorMessage,
   isGloballyHandledAuthError
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
+import SpecRemarkReplaceDialog from "./SpecRemarkReplaceDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
-const props = defineProps<{
-  customerId?: number;
-  machineModelId?: number;
-  processId?: number;
-  customerName?: string;
-  machineModelName?: string;
-  processName?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    customerId?: number;
+    machineModelId?: number;
+    processId?: number;
+    customerName?: string;
+    machineModelName?: string;
+    processName?: string;
+    orgUnitId?: number;
+    businessOrgOptions?: BusinessOrgOption[];
+    requiresBusinessOrgSelection?: boolean;
+    currentOrgUnitId?: number;
+    scopeLabel?: string;
+  }>(),
+  {
+    businessOrgOptions: () => [],
+    requiresBusinessOrgSelection: false,
+    scopeLabel: "当前范围"
+  }
+);
 
 const emit = defineEmits<{
   "data-change": [];
@@ -60,16 +78,22 @@ const dialogTitle = ref("");
 const isEdit = ref(false);
 const formData = reactive({
   id: 0,
+  businessOrgUnitId: null as number | null,
   project: "",
   specification: "",
   acceptance: "",
   remark: ""
 });
 const formRef = ref<FormInstance>();
-const formRules: FormRules<typeof formData> = {
+const formRules = computed<FormRules<typeof formData>>(() => ({
   project: [requiredTrimmedRule("请输入项目名称")],
-  specification: [requiredTrimmedRule("请输入规格内容")]
-};
+  specification: [requiredTrimmedRule("请输入规格内容")],
+  ...(!isEdit.value && props.requiresBusinessOrgSelection
+    ? {
+        businessOrgUnitId: [requiredSelectionRule("请选择所属部门")]
+      }
+    : {})
+}));
 
 const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
@@ -77,6 +101,7 @@ const duplicateDialogVisible = ref(false);
 const duplicateLoading = ref(false);
 const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
 const semanticSearchDialogVisible = ref(false);
+const remarkReplaceDialogVisible = ref(false);
 const semanticSearchDialogRef = ref<InstanceType<
   typeof SpecSemanticSearchDialog
 > | null>(null);
@@ -87,16 +112,29 @@ const canDelete = computed(() => hasPerms("btn:spec:delete"));
 const canBatchDelete = computed(() => hasPerms("btn:spec:delete-batch"));
 const canSemanticSearch = computed(() => hasPerms("btn:spec:semantic-search"));
 const canInspectDuplicates = computed(() => hasPerms("api:spec:read"));
+const canRemarkReplace = computed(() => hasPerms("btn:spec:remark-replace"));
 const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
 const hasSelectedGroup = computed(() => props.customerId != null);
+const effectiveOperationOrgUnitId = computed(
+  () => props.orgUnitId ?? props.currentOrgUnitId
+);
+const showOwnerOrgUnit = computed(
+  () => props.requiresBusinessOrgSelection && props.orgUnitId == null
+);
+const orgUnitNameMap = computed(
+  () => new Map(props.businessOrgOptions.map(item => [item.id, item.name]))
+);
+const formatOrgUnitName = (orgUnitId?: number | null) =>
+  orgUnitId ? orgUnitNameMap.value.get(orgUnitId) || `部门 ${orgUnitId}` : "-";
 const showToolbarRight = computed(
   () =>
     canCreate.value ||
     canBatchDelete.value ||
     canInspectDuplicates.value ||
-    canSemanticSearch.value
+    canSemanticSearch.value ||
+    canRemarkReplace.value
 );
 const actionColumnWidth = computed(() => {
   const visibleActionCount =
@@ -118,6 +156,9 @@ const buildRequestParams = (): SpecListRequest => {
     page: queryParams.page,
     pageSize: queryParams.pageSize
   };
+  if (props.orgUnitId != null) {
+    params.orgUnitId = props.orgUnitId;
+  }
 
   if (queryParams.keyword) {
     params.keyword = queryParams.keyword;
@@ -149,6 +190,9 @@ const buildGroupRequestParams = (): SpecListRequest => {
     page: queryParams.page,
     pageSize: queryParams.pageSize
   };
+  if (props.orgUnitId != null) {
+    params.orgUnitId = props.orgUnitId;
+  }
 
   if (queryParams.keyword) {
     params.keyword = queryParams.keyword;
@@ -199,7 +243,12 @@ const reloadSemanticSearchIfNeeded = async () => {
 };
 
 watch(
-  () => [props.customerId, props.machineModelId, props.processId],
+  () => [
+    props.customerId,
+    props.machineModelId,
+    props.processId,
+    props.orgUnitId
+  ],
   () => {
     queryParams.page = 1;
     queryParams.keyword = "";
@@ -208,6 +257,7 @@ watch(
     duplicateDialogVisible.value = false;
     duplicateResult.value = null;
     semanticSearchDialogVisible.value = false;
+    remarkReplaceDialogVisible.value = false;
     loadData();
   },
   { immediate: true }
@@ -237,6 +287,8 @@ const openCreateDialog = () => {
   dialogTitle.value = "新增验收规格";
   isEdit.value = false;
   formData.id = 0;
+  formData.businessOrgUnitId =
+    props.orgUnitId ?? props.currentOrgUnitId ?? null;
   formData.project = "";
   formData.specification = "";
   formData.acceptance = "";
@@ -260,6 +312,7 @@ const openEditDialog = (row: AcceptanceSpec) => {
   dialogTitle.value = "编辑验收规格";
   isEdit.value = true;
   formData.id = row.id;
+  formData.businessOrgUnitId = row.ownerOrgUnitId ?? null;
   formData.project = row.project;
   formData.specification = row.specification;
   formData.acceptance = row.acceptance || "";
@@ -422,6 +475,26 @@ const handleOpenSemanticSearch = () => {
   semanticSearchDialogVisible.value = true;
 };
 
+const handleOpenRemarkReplace = () => {
+  if (!canRemarkReplace.value) {
+    ElMessage.error("权限不足，无法批量替换备注");
+    return;
+  }
+  if (!effectiveOperationOrgUnitId.value) {
+    ElMessage.warning("请先在上方数据范围选择具体部门");
+    return;
+  }
+  remarkReplaceDialogVisible.value = true;
+};
+
+const handleRemarkReplaceSuccess = async () => {
+  duplicateDialogVisible.value = false;
+  duplicateResult.value = null;
+  await loadData();
+  await reloadSemanticSearchIfNeeded();
+  emit("data-change");
+};
+
 const handleSemanticSearchView = (row: SpecSemanticSearchItem) => {
   openDetailDialog(row);
 };
@@ -459,6 +532,7 @@ const handleSubmit = async () => {
           remark: formData.remark || undefined
         })
       : await createSpec({
+          businessOrgUnitId: formData.businessOrgUnitId ?? undefined,
           customerId: props.customerId!,
           processId: props.processId,
           machineModelId: props.machineModelId,
@@ -494,19 +568,21 @@ const handleSizeChange = (size: number) => {
 };
 
 const groupLabel = () => {
+  const prefix = props.scopeLabel ? `${props.scopeLabel} / ` : "";
   if (props.customerId == null) {
-    return "全局搜索";
+    return `${prefix}全局搜索`;
   }
   const parts = [props.customerName];
   parts.push(props.machineModelName || "未指定机型");
   parts.push(props.processName || "未指定制程");
-  return parts.join(" / ");
+  return `${prefix}${parts.join(" / ")}`;
 };
 
 const scopeBreadcrumbItems = computed(() =>
   queryParams.globalSearch
-    ? ["验收规格", "全局搜索"]
+    ? [props.scopeLabel, "验收规格", "全局搜索"]
     : [
+        props.scopeLabel,
         props.customerName || "未选择客户",
         props.machineModelName || "未指定机型",
         props.processName || "未指定制程"
@@ -557,6 +633,9 @@ const scopeBreadcrumbItems = computed(() =>
         <el-button v-if="canSemanticSearch" @click="handleOpenSemanticSearch">
           AI搜索
         </el-button>
+        <el-button v-if="canRemarkReplace" @click="handleOpenRemarkReplace">
+          批量替换备注
+        </el-button>
         <el-button v-if="canCreate" type="primary" @click="handleAdd">
           新增规格
         </el-button>
@@ -580,6 +659,16 @@ const scopeBreadcrumbItems = computed(() =>
         @selection-change="handleSelectionChange"
       >
         <el-table-column v-if="canBatchDelete" type="selection" width="50" />
+        <el-table-column
+          v-if="showOwnerOrgUnit"
+          label="所属部门"
+          width="140"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            {{ formatOrgUnitName(row.ownerOrgUnitId) }}
+          </template>
+        </el-table-column>
         <el-table-column
           prop="project"
           label="项目"
@@ -673,6 +762,26 @@ const scopeBreadcrumbItems = computed(() =>
         label-width="100px"
         status-icon
       >
+        <el-form-item
+          v-if="!isEdit && requiresBusinessOrgSelection"
+          label="所属部门"
+          prop="businessOrgUnitId"
+        >
+          <el-select
+            v-model="formData.businessOrgUnitId"
+            placeholder="请选择所属部门"
+            filterable
+            :disabled="orgUnitId != null"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="option in businessOrgOptions"
+              :key="option.id"
+              :label="option.name"
+              :value="option.id"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="项目名称" prop="project">
           <el-input
             v-model="formData.project"
@@ -731,6 +840,12 @@ const scopeBreadcrumbItems = computed(() =>
         <el-descriptions-item label="制程">{{
           detailData.processName || processName || "-"
         }}</el-descriptions-item>
+        <el-descriptions-item
+          v-if="requiresBusinessOrgSelection"
+          label="所属部门"
+        >
+          {{ formatOrgUnitName(detailData.ownerOrgUnitId) }}
+        </el-descriptions-item>
         <el-descriptions-item label="项目">{{
           detailData.project
         }}</el-descriptions-item>
@@ -770,9 +885,18 @@ const scopeBreadcrumbItems = computed(() =>
       :customer-id="customerId ?? 0"
       :machine-model-id="machineModelId"
       :process-id="processId"
+      :org-unit-id="orgUnitId"
       :allow-edit="canUpdate"
       @view="handleSemanticSearchView"
       @edit="handleSemanticSearchEdit"
+    />
+
+    <SpecRemarkReplaceDialog
+      v-if="effectiveOperationOrgUnitId"
+      v-model="remarkReplaceDialogVisible"
+      :org-unit-id="effectiveOperationOrgUnitId"
+      :scope-label="scopeLabel"
+      @success="handleRemarkReplaceSuccess"
     />
   </div>
 </template>
