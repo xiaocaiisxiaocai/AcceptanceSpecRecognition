@@ -53,13 +53,15 @@ const treeData = computed(() =>
     .map(type => ({
       id: `group:${type}`,
       label: permissionTypeLabels[type],
+      disabled: readOnly.value,
       children: props.permissions
         .filter(item => item.permissionType === type)
         .sort((a, b) => a.code.localeCompare(b.code))
         .map(item => ({
           id: item.code,
           label: item.name,
-          code: item.code
+          code: item.code,
+          disabled: readOnly.value
         }))
     }))
     .filter(group => group.children.length > 0)
@@ -85,6 +87,11 @@ const handlePermissionCheck = (
   _data: unknown,
   state: { checkedKeys: Array<string | number> }
 ) => {
+  if (readOnly.value) {
+    syncCheckedKeys();
+    return;
+  }
+
   updateForm({
     permissionCodes: state.checkedKeys
       .map(String)
@@ -255,7 +262,6 @@ const handleOpened = () => {
             show-checkbox
             default-expand-all
             :expand-on-click-node="false"
-            :disabled="readOnly"
             @check="handlePermissionCheck"
           >
             <template #default="{ data }">
