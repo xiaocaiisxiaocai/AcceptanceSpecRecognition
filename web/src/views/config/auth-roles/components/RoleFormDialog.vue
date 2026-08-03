@@ -11,6 +11,7 @@ import {
   normalizeScopeOrgUnitIds,
   validateScopeOrgUnitIds
 } from "../roleScope";
+import { isProtectedBuiltInRole } from "../roleProtection";
 
 const props = defineProps<{
   visible: boolean;
@@ -42,7 +43,7 @@ const title = computed(() =>
   props.mode === "create" ? "创建角色" : "编辑角色"
 );
 const readOnly = computed(
-  () => props.mode === "edit" && props.modelValue.isBuiltIn
+  () => props.mode === "edit" && isProtectedBuiltInRole(props.modelValue)
 );
 const permissionCodes = computed(
   () => new Set(props.permissions.map(item => item.code))
@@ -52,13 +53,15 @@ const treeData = computed(() =>
     .map(type => ({
       id: `group:${type}`,
       label: permissionTypeLabels[type],
+      disabled: readOnly.value,
       children: props.permissions
         .filter(item => item.permissionType === type)
         .sort((a, b) => a.code.localeCompare(b.code))
         .map(item => ({
           id: item.code,
           label: item.name,
-          code: item.code
+          code: item.code,
+          disabled: readOnly.value
         }))
     }))
     .filter(group => group.children.length > 0)
@@ -84,6 +87,11 @@ const handlePermissionCheck = (
   _data: unknown,
   state: { checkedKeys: Array<string | number> }
 ) => {
+  if (readOnly.value) {
+    syncCheckedKeys();
+    return;
+  }
+
   updateForm({
     permissionCodes: state.checkedKeys
       .map(String)
@@ -178,7 +186,7 @@ const handleOpened = () => {
   >
     <el-alert
       v-if="readOnly"
-      title="内置角色为只读角色，不允许修改。"
+      title="内置管理员角色受系统保护，不允许修改。"
       type="info"
       :closable="false"
       show-icon
@@ -254,7 +262,6 @@ const handleOpened = () => {
             show-checkbox
             default-expand-all
             :expand-on-click-node="false"
-            :disabled="readOnly"
             @check="handlePermissionCheck"
           >
             <template #default="{ data }">

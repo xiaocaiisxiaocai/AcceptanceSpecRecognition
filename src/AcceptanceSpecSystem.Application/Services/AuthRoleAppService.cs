@@ -145,7 +145,7 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
         if (role == null)
             throw new ApplicationServiceException(404, "角色不存在");
 
-        if (role.IsBuiltIn)
+        if (role.IsBuiltIn && !IsAdministrativelyEditableBuiltInRole(role))
             throw new ApplicationServiceException(400, "内置角色不允许修改");
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -329,6 +329,11 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
     private static string NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+    }
+
+    private static bool IsAdministrativelyEditableBuiltInRole(AuthRole role)
+    {
+        return string.Equals(role.Code, "common", StringComparison.OrdinalIgnoreCase);
     }
 
     private static AuthRoleDto ToDto(AuthRole role)

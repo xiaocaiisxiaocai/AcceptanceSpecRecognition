@@ -21,6 +21,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import RoleFormDialog from "./components/RoleFormDialog.vue";
+import { isProtectedBuiltInRole } from "./roleProtection";
 import type { RoleFormModel, ScopeType } from "./roleForm.types";
 import { normalizeScopeOrgUnitIds, validateScopeOrgUnitIds } from "./roleScope";
 
@@ -330,8 +331,8 @@ const handleCreate = async () => {
 };
 
 const handleUpdate = async () => {
-  if (editForm.isBuiltIn) {
-    ElMessage.warning("内置角色只读，不可保存");
+  if (isProtectedBuiltInRole(editForm)) {
+    ElMessage.warning("内置管理员角色只读，不可保存");
     return;
   }
 
