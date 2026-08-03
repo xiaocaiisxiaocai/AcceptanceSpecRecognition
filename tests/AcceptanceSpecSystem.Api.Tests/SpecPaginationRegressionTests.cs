@@ -37,7 +37,7 @@ public class SpecPaginationRegressionTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task GetSpecs_GlobalKeyword_ShouldSearchCustomerMachineModelAndProcessNames()
+    public async Task GetSpecs_GlobalKeyword_ShouldIgnoreCustomerMachineModelAndProcessNames()
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var keyword = $"全局对象-{suffix}";
@@ -99,11 +99,8 @@ public class SpecPaginationRegressionTests : IClassFixture<ApiWebApplicationFact
         var payload = await response.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
         payload.Code.Should().Be(0);
         payload.Data.Should().NotBeNull();
-        payload.Data!.Total.Should().Be(1);
-        payload.Data.Items.Should().ContainSingle(item =>
-            item.GetProperty("customerName").GetString() == $"客户-{keyword}" &&
-            item.GetProperty("machineModelName").GetString() == $"机型-{keyword}" &&
-            item.GetProperty("processName").GetString() == $"制程-{keyword}");
+        payload.Data!.Total.Should().Be(0);
+        payload.Data.Items.Should().BeEmpty();
     }
 
     private async Task<(int CustomerId, int ProcessId, int Count)> SeedSpecsAsync(int count)

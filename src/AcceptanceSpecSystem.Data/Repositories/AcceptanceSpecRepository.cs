@@ -417,10 +417,7 @@ public class AcceptanceSpecRepository : Repository<AcceptanceSpec>, IAcceptanceS
                 spec.Project.Contains(keyword) ||
                 spec.Specification.Contains(keyword) ||
                 (spec.Acceptance != null && spec.Acceptance.Contains(keyword)) ||
-                (spec.Remark != null && spec.Remark.Contains(keyword)) ||
-                spec.Customer.Name.Contains(keyword) ||
-                (spec.MachineModel != null && spec.MachineModel.Name.Contains(keyword)) ||
-                (spec.Process != null && spec.Process.Name.Contains(keyword)));
+                (spec.Remark != null && spec.Remark.Contains(keyword)));
         }
 
         if (options.ImportedFrom.HasValue)
