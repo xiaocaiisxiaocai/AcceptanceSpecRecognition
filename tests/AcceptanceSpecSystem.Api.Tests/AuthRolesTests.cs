@@ -1,11 +1,14 @@
 ﻿using System.Net;
 using System.Text.Json;
+using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
+using AcceptanceSpecSystem.Application.Contracts;
 using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AcceptanceSpecSystem.Api.Tests;
 
@@ -54,7 +57,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
-    public async Task Update_WhenRoleBuiltIn_ShouldReturnBadRequest()
+    public async Task Update_WhenAdminRoleBuiltIn_ShouldReturnBadRequest()
     {
         var updatedName = $"管理员-{Guid.NewGuid():N}"[..12];
 
@@ -93,6 +96,73 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
         updatedRole.Name.Should().NotBe(updatedName);
         updatedRole.Description.Should().NotBe("允许修改内置角色");
         updatedRole.IsActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Update_WhenCommonRoleBuiltIn_ShouldPersistAdministratorChangesAcrossSeedRuns()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var commonRoleId = await dbContext.AuthRoles
+            .Where(role => role.Code == "common")
+            .Select(role => role.Id)
+            .SingleAsync();
+
+        var originalResponse = await _client.GetAsync($"/api/auth-roles/{commonRoleId}");
+        originalResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var originalBody = await originalResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
+        var originalRole = originalBody.Data!;
+        var customizedDescription = $"管理员自定义-{Guid.NewGuid():N}";
+        var customizedPermissionCodes = originalRole.PermissionCodes.Take(1).ToArray();
+
+        try
+        {
+            var updateResponse = await _client.PutAsync(
+                $"/api/auth-roles/{commonRoleId}",
+                ApiClientJson.ToJsonContent(new
+                {
+                    name = originalRole.Name,
+                    description = customizedDescription,
+                    isActive = true,
+                    permissionCodes = customizedPermissionCodes,
+                    dataScopes = new[]
+                    {
+                        new
+                        {
+                            resource = "spec",
+                            scopeType = 0,
+                            orgUnitIds = Array.Empty<int>()
+                        }
+                    }
+                }));
+
+            updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+
+            var persistedResponse = await _client.GetAsync($"/api/auth-roles/{commonRoleId}");
+            persistedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var persistedBody = await persistedResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
+            persistedBody.Data!.Description.Should().Be(customizedDescription);
+            persistedBody.Data.PermissionCodes.Should().BeEquivalentTo(customizedPermissionCodes);
+            persistedBody.Data.DataScopes.Should().ContainSingle(scopeDto =>
+                scopeDto.Resource == "spec" &&
+                scopeDto.ScopeType == DataScopeType.Self &&
+                scopeDto.OrgUnitIds.Count == 0);
+        }
+        finally
+        {
+            await _client.PutAsync(
+                $"/api/auth-roles/{commonRoleId}",
+                ApiClientJson.ToJsonContent(new
+                {
+                    name = originalRole.Name,
+                    description = originalRole.Description,
+                    isActive = originalRole.IsActive,
+                    permissionCodes = originalRole.PermissionCodes,
+                    dataScopes = originalRole.DataScopes
+                }));
+        }
     }
 
     [Fact]

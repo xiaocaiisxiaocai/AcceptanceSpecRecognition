@@ -496,12 +496,19 @@ public static class AuthUserSeedAppService
             .ToHashSet();
 
         var adminPermissionsChanged = await SyncRolePermissionsAsync(dbContext, adminRole.Id, allPermissionIds);
-        var commonPermissionsChanged = await SyncRolePermissionsAsync(dbContext, commonRole.Id, commonPermissionIds);
+        // common 在首次初始化前由种子维护；管理员通过角色管理保存后会写入 UpdatedAt，
+        // 此后必须保留人工配置，避免应用重启重新覆盖权限和数据范围。
+        var commonManagedBySeed = commonRole.UpdatedAt == null;
+        var commonPermissionsChanged = commonManagedBySeed &&
+                                       await SyncRolePermissionsAsync(dbContext, commonRole.Id, commonPermissionIds);
 
         await EnsureRoleDataScopesAsync(dbContext, adminRole.Id, DataScopeType.All, [], now);
         // 普通角色默认按“主组织及其子树”取范围：
         // OrgSubtree + 空节点 表示运行时回退到用户当前有效组织，而不是绑定公司根节点。
-        await EnsureRoleDataScopesAsync(dbContext, commonRole.Id, DataScopeType.OrgSubtree, [], now);
+        if (commonManagedBySeed)
+        {
+            await EnsureRoleDataScopesAsync(dbContext, commonRole.Id, DataScopeType.OrgSubtree, [], now);
+        }
 
         if (adminPermissionsChanged)
         {

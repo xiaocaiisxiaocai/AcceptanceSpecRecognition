@@ -11,6 +11,7 @@ import {
   normalizeScopeOrgUnitIds,
   validateScopeOrgUnitIds
 } from "../roleScope";
+import { isProtectedBuiltInRole } from "../roleProtection";
 
 const props = defineProps<{
   visible: boolean;
@@ -42,7 +43,7 @@ const title = computed(() =>
   props.mode === "create" ? "创建角色" : "编辑角色"
 );
 const readOnly = computed(
-  () => props.mode === "edit" && props.modelValue.isBuiltIn
+  () => props.mode === "edit" && isProtectedBuiltInRole(props.modelValue)
 );
 const permissionCodes = computed(
   () => new Set(props.permissions.map(item => item.code))
@@ -178,7 +179,7 @@ const handleOpened = () => {
   >
     <el-alert
       v-if="readOnly"
-      title="内置角色为只读角色，不允许修改。"
+      title="内置管理员角色受系统保护，不允许修改。"
       type="info"
       :closable="false"
       show-icon

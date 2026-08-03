@@ -1218,19 +1218,19 @@ public class ReviewRegressionTests
     }
 
     [Fact]
-    public void AuthRolePage_ShouldRenderBuiltInRoleAsReadonlyInEditDialog()
+    public void AuthRolePage_ShouldOnlyProtectAdministratorBuiltInRoleInEditDialog()
     {
         var content = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/config/auth-roles/index.vue".Replace('/', Path.DirectorySeparatorChar)));
 
-        content.Should().Contain("内置角色只读，不可保存",
-            "内置角色允许打开编辑弹窗时，应明确提示当前为只读模式");
+        content.Should().Contain("isProtectedBuiltInRole(editForm)",
+            "保存前应只拦截受保护的内置管理员角色");
         var dialogContent = File.ReadAllText(Path.Combine(
             GetRepositoryRoot(),
             "web/src/views/config/auth-roles/components/RoleFormDialog.vue".Replace('/', Path.DirectorySeparatorChar)));
-        dialogContent.Should().Contain("props.modelValue.isBuiltIn",
-            "编辑弹窗应从当前角色模型推导只读状态");
+        dialogContent.Should().Contain("isProtectedBuiltInRole(props.modelValue)",
+            "编辑弹窗应允许维护 common，同时保护 admin");
         dialogContent.Should().Contain(":disabled=\"readOnly\"",
             "编辑弹窗中的输入控件应随内置角色状态进入只读态");
         dialogContent.Should().Contain("{{ readOnly ? \"不可保存\"",
