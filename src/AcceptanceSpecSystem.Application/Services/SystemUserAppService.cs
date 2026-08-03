@@ -171,7 +171,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "用户名不能为空");
 
         if (!IsValidUsername(normalizedUsername))
-            throw new ApplicationServiceException(400, "用户名支持中文、字母、数字、点、下划线和中划线，且长度为3-64");
+            throw new ApplicationServiceException(400, "用户名支持中文、字母、数字、点、下划线和中划线，且长度为2-10");
 
         ValidateNewPassword(request.Password, "密码");
 
@@ -685,7 +685,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
 
     private static bool IsValidUsername(string username)
     {
-        if (username.Length < 3 || username.Length > 64)
+        if (username.Length < 2 || username.Length > 10)
             return false;
 
         foreach (var ch in username)

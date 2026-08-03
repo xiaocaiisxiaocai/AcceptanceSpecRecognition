@@ -88,8 +88,8 @@ const createFormRules: FormRules<typeof createForm> = {
   username: [
     requiredTrimmedRule("请输入用户名"),
     {
-      pattern: /^[\p{L}\p{N}._-]{3,64}$/u,
-      message: "用户名支持中文、字母、数字、点、下划线和中划线，长度3-64",
+      pattern: /^[\p{L}\p{N}._-]{2,10}$/u,
+      message: "用户名支持中文、字母、数字、点、下划线和中划线，长度2-10",
       trigger: ["blur", "change"]
     }
   ],
@@ -612,8 +612,8 @@ onMounted(initPage);
         <el-form-item label="用户名" prop="username">
           <el-input
             v-model="createForm.username"
-            maxlength="64"
-            placeholder="3-64个字符，支持中文、字母、数字和._-"
+            maxlength="10"
+            placeholder="2-10个字符，支持中文、字母、数字和._-"
           />
         </el-form-item>
         <el-form-item label="密码" prop="password">

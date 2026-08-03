@@ -43,7 +43,7 @@ public class SystemUserDto
 public class CreateSystemUserRequest
 {
     [Required(ErrorMessage = "用户名不能为空")]
-    [StringLength(64, ErrorMessage = "用户名长度不能超过64个字符")]
+    [StringLength(10, MinimumLength = 2, ErrorMessage = "用户名长度必须在2到10个字符之间")]
     public string Username { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "密码不能为空")]

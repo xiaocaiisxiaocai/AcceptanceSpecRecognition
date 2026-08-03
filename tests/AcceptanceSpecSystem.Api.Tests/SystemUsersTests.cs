@@ -46,7 +46,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             "/api/system-users",
             ApiClientJson.ToJsonContent(new
             {
-                username = "test_user_01",
+                username = "test_u01",
                 password = "1234",
                 nickname = "测试用户",
                 avatar = "",
@@ -62,7 +62,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
         var userId = created.Data!.GetProperty("id").GetInt32();
 
         using var initialLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
-            "test_user_01", "1234");
+            "test_u01", "1234");
         using var initialLoginResp = await _client.SendAsync(initialLoginRequest);
         initialLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -82,12 +82,12 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
         }
 
         using var oldLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
-            "test_user_01", "1234");
+            "test_u01", "1234");
         var oldLoginResp = await _client.SendAsync(oldLoginRequest);
         oldLoginResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         using var newLoginRequest = AuthCookieTestHelper.CreateLoginRequest(
-            "test_user_01", "5678");
+            "test_u01", "5678");
         var newLoginResp = await _client.SendAsync(newLoginRequest);
         newLoginResp.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -96,7 +96,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Create_WithChineseUsername_ShouldCreateAndLogin()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
-        var username = $"中文用户{Guid.NewGuid():N}"[..16];
+        const string username = "张三";
 
         var createResp = await _client.PostAsync(
             "/api/system-users",
@@ -122,6 +122,26 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_WithUsernameLongerThanTenCharacters_ShouldReturnBadRequest()
+    {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username = "abcdefghijk",
+                password = "User@1234567",
+                nickname = "超长用户名",
+                avatar = "",
+                roleCode = "common",
+                orgUnitId = rootOrgUnitId,
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Create_WithLegacyRolesArray_ShouldReturnBadRequest()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
@@ -129,7 +149,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             "/api/system-users",
             ApiClientJson.ToJsonContent(new
             {
-                username = "test_user_legacy",
+                username = "legacy01",
                 password = "User@1234567",
                 nickname = "旧格式用户",
                 avatar = "",
@@ -145,7 +165,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Create_WithSingleOrgField_ShouldReturnSingleOrgFields()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
-        var username = $"single_org_{Guid.NewGuid():N}"[..18];
+        var username = CreateUniqueUsername("single");
 
         var createResp = await _client.PostAsync(
             "/api/system-users",
@@ -173,7 +193,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Create_WithLegacyOrgFields_ShouldReturnBadRequest()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
-        var username = $"legacy_org_{Guid.NewGuid():N}"[..18];
+        var username = CreateUniqueUsername("legacy");
 
         var createResp = await _client.PostAsync(
             "/api/system-users",
@@ -196,7 +216,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Update_WithLegacyOrgFields_ShouldReturnBadRequest()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
-        var username = $"legacy_upd_{Guid.NewGuid():N}"[..18];
+        var username = CreateUniqueUsername("update");
 
         var createResp = await _client.PostAsync(
             "/api/system-users",
@@ -234,7 +254,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     public async Task Create_WithActiveNonRootOrgUnit_ShouldAssignExactlyThatNode()
     {
         var childOrgUnitId = await SeedChildOrgUnitAsync();
-        var username = $"child_org_{Guid.NewGuid():N}"[..18];
+        var username = CreateUniqueUsername("child");
 
         var createResp = await _client.PostAsync(
             "/api/system-users",
@@ -285,7 +305,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
         await CreateAdminAsync(
-            $"future_{Guid.NewGuid():N}"[..18],
+            CreateUniqueUsername("future"),
             rootOrgUnitId,
             DateTime.UtcNow.AddHours(2),
             null);
@@ -308,7 +328,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
         await CreateAdminAsync(
-            $"expired_{Guid.NewGuid():N}"[..18],
+            CreateUniqueUsername("expired"),
             rootOrgUnitId,
             DateTime.UtcNow.AddHours(-2),
             DateTime.UtcNow.AddHours(-1));
@@ -330,7 +350,7 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();
         var now = DateTime.UtcNow;
         await CreateAdminAsync(
-            $"gap_{Guid.NewGuid():N}"[..18],
+            CreateUniqueUsername("gap"),
             rootOrgUnitId,
             now.AddHours(2),
             null);
@@ -419,6 +439,12 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
             .OrderBy(org => org.Id)
             .Select(org => org.Id)
             .FirstAsync();
+    }
+
+    private static string CreateUniqueUsername(string prefix)
+    {
+        var suffixLength = 10 - prefix.Length;
+        return $"{prefix}{Guid.NewGuid():N}"[..(prefix.Length + suffixLength)];
     }
 
     private async Task<int> GetSeedAdminIdAsync()

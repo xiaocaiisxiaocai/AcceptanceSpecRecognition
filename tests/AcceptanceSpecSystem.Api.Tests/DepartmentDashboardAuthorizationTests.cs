@@ -90,7 +90,7 @@ public sealed class DepartmentDashboardAuthorizationTests
             "api:system-user:create");
         createRequest.Content = ApiClientJson.ToJsonContent(new
         {
-            username = $"blocked_admin_{Guid.NewGuid():N}"[..28],
+            username = $"blocked{Guid.NewGuid():N}"[..10],
             password = "Admin@1234567",
             nickname = "不应创建",
             roleCode = "admin",
