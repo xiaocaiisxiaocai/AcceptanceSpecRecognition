@@ -249,7 +249,8 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
             return "存在无效的数据范围类型";
         if (normalizedScopes.Any(scope =>
                 scope.ScopeType is DataScopeType.OrgNode or DataScopeType.OrgSubtree &&
-                scope.OrgUnitIds.Count != 1))
+                scope.OrgUnitIds.Count != 1 &&
+                !IsDynamicPrimaryOrgSubtreeScope(role, scope)))
             return "单个组织或组织及子树范围必须选择一个组织节点";
         if (normalizedScopes.Any(scope =>
                 scope.ScopeType == DataScopeType.CustomNodes &&
@@ -334,6 +335,17 @@ public sealed class AuthRoleAppService : IAuthRoleAppService
     private static bool IsAdministrativelyEditableBuiltInRole(AuthRole role)
     {
         return string.Equals(role.Code, "common", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDynamicPrimaryOrgSubtreeScope(
+        AuthRole role,
+        AuthRoleDataScopeDto scope)
+    {
+        return role.IsBuiltIn &&
+               IsAdministrativelyEditableBuiltInRole(role) &&
+               string.Equals(scope.Resource, "spec", StringComparison.OrdinalIgnoreCase) &&
+               scope.ScopeType == DataScopeType.OrgSubtree &&
+               scope.OrgUnitIds.Count == 0;
     }
 
     private static AuthRoleDto ToDto(AuthRole role)
