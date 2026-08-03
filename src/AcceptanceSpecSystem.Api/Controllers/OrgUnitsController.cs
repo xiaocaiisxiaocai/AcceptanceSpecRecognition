@@ -167,6 +167,36 @@ public class OrgUnitsController : BaseApiController
     }
 
     /// <summary>
+    /// 移动组织节点及其整棵子树
+    /// </summary>
+    [HttpPut("{id:int}/move")]
+    [AuditOperation("move", "org-unit")]
+    [ProducesResponseType(typeof(ApiResponse<OrgUnitDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<OrgUnitDto>>> Move(
+        int id,
+        [FromBody] MoveOrgUnitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var companyId = AuthClaimHelper.GetCompanyId(User);
+        if (!companyId.HasValue)
+            return Error<OrgUnitDto>(401, "会话缺少公司上下文");
+
+        try
+        {
+            var item = await _orgUnitAppService.MoveAsync(
+                companyId.Value,
+                id,
+                request,
+                cancellationToken);
+            return Success(item, "移动组织节点成功");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<OrgUnitDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 删除组织节点
     /// </summary>
     [HttpDelete("{id:int}")]

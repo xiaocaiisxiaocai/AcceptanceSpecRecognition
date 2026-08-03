@@ -30,6 +30,10 @@ export interface UpdateOrgUnitRequest {
   isActive: boolean;
 }
 
+export interface MoveOrgUnitRequest {
+  newParentId: number;
+}
+
 export interface BusinessOrgOption {
   id: number;
   name: string;
@@ -69,6 +73,12 @@ export const createOrgUnit = (data: CreateOrgUnitRequest) => {
 
 export const updateOrgUnit = (id: number, data: UpdateOrgUnitRequest) => {
   return http.request<ApiResponse<OrgUnit>>("put", `${baseUrl}/${id}`, {
+    data
+  });
+};
+
+export const moveOrgUnit = (id: number, data: MoveOrgUnitRequest) => {
+  return http.request<ApiResponse<OrgUnit>>("put", `${baseUrl}/${id}/move`, {
     data
   });
 };

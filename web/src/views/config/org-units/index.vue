@@ -10,6 +10,7 @@ import {
   createOrgUnit,
   deleteOrgUnit,
   getOrgUnitTree,
+  moveOrgUnit,
   updateOrgUnit,
   type OrgUnit
 } from "@/api/org-unit";
@@ -29,6 +30,10 @@ import {
   orgUnitTypeLabels,
   type OrgUnitType
 } from "./hierarchy";
+import {
+  countOrgUnitSubtree,
+  getOrgUnitMoveTargetDisabledReason
+} from "./move";
 
 defineOptions({
   name: "OrgUnitsConfig"
@@ -39,6 +44,7 @@ const submitting = ref(false);
 const treeData = ref<OrgUnit[]>([]);
 const createDialogVisible = ref(false);
 const editDialogVisible = ref(false);
+const moveDialogVisible = ref(false);
 
 const createForm = reactive({
   parentId: null as number | null,
@@ -57,6 +63,10 @@ const editForm = reactive({
   sort: 0,
   isActive: true
 });
+const moveForm = reactive({
+  sourceId: 0,
+  newParentId: null as number | null
+});
 const createFormRef = ref<FormInstance>();
 const editFormRef = ref<FormInstance>();
 const createFormRules: FormRules<typeof createForm> = {
@@ -72,6 +82,7 @@ const editFormRules: FormRules<typeof editForm> = {
 const canCreate = computed(() => hasPerms("btn:org-unit:create"));
 const canUpdate = computed(() => hasPerms("btn:org-unit:update"));
 const canDelete = computed(() => hasPerms("btn:org-unit:delete"));
+const canMove = computed(() => hasPerms("btn:org-unit:move"));
 
 const flatNodes = computed(() => {
   const nodes: OrgUnit[] = [];
@@ -96,6 +107,39 @@ const childTypeOptions = computed(() => {
     value,
     label: orgUnitTypeLabels[value]
   }));
+});
+
+type MoveTargetNode = OrgUnit & {
+  moveDisabledReason: string | null;
+  children?: MoveTargetNode[];
+};
+
+const moveSource = computed(() =>
+  flatNodes.value.find(item => item.id === moveForm.sourceId)
+);
+const moveCurrentParent = computed(() =>
+  flatNodes.value.find(item => item.id === moveSource.value?.parentId)
+);
+const moveSelectedParent = computed(() =>
+  flatNodes.value.find(item => item.id === moveForm.newParentId)
+);
+const moveAffectedCount = computed(() =>
+  moveSource.value ? countOrgUnitSubtree(moveSource.value) : 0
+);
+const moveTargetTree = computed<MoveTargetNode[]>(() => {
+  const source = moveSource.value;
+  if (!source) return [];
+
+  const mapNode = (target: OrgUnit): MoveTargetNode => ({
+    ...target,
+    moveDisabledReason: getOrgUnitMoveTargetDisabledReason(
+      source,
+      target,
+      source.parentId ?? null
+    ),
+    children: (target.children ?? []).map(mapNode)
+  });
+  return treeData.value.map(mapNode);
 });
 
 const loadTree = async () => {
@@ -135,6 +179,12 @@ const openEditDialog = (row: OrgUnit) => {
   editForm.sort = row.sort;
   editForm.isActive = row.isActive;
   editDialogVisible.value = true;
+};
+
+const openMoveDialog = (row: OrgUnit) => {
+  moveForm.sourceId = row.id;
+  moveForm.newParentId = null;
+  moveDialogVisible.value = true;
 };
 
 const handleCreate = async () => {
@@ -218,6 +268,39 @@ const handleDelete = async (row: OrgUnit) => {
   }
 };
 
+const handleMoveTargetClick = (target: MoveTargetNode) => {
+  if (target.moveDisabledReason) return;
+  moveForm.newParentId = target.id;
+};
+
+const handleMove = async () => {
+  const source = moveSource.value;
+  if (!source || !moveForm.newParentId) {
+    ElMessage.warning("请选择新的上级组织");
+    return;
+  }
+
+  submitting.value = true;
+  try {
+    const res = await moveOrgUnit(source.id, {
+      newParentId: moveForm.newParentId
+    });
+    if (res.code === 0) {
+      ElMessage.success("组织及其下级已移动");
+      moveDialogVisible.value = false;
+      await loadTree();
+    } else {
+      ElMessage.error(res.message || "移动组织失败");
+    }
+  } catch (error) {
+    if (!isGloballyHandledAuthError(error)) {
+      ElMessage.error(getRequestErrorMessage(error, "移动组织失败"));
+    }
+  } finally {
+    submitting.value = false;
+  }
+};
+
 const canAddChild = (row: OrgUnit) =>
   canCreate.value &&
   row.isActive &&
@@ -247,7 +330,7 @@ onMounted(loadTree);
         :closable="false"
         show-icon
         title="层级规则"
-        description="公司为唯一根节点；下级可按事业部、部门、课别向下跳级创建。用户仍只归属一个组织，已有业务数据不会因组织调整而丢失。"
+        description="公司为唯一根节点；下级可按事业部、部门、课别向下跳级创建，也可将现有节点及其整棵下级移动到新的有效上级。用户和业务数据仍保留原组织 ID。"
         class="org-rule"
       />
 
@@ -284,7 +367,7 @@ onMounted(loadTree);
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="canAddChild(row)"
@@ -303,6 +386,15 @@ onMounted(loadTree);
               @click="openEditDialog(row)"
             >
               编辑
+            </el-button>
+            <el-button
+              v-if="canMove && !isRoot(row)"
+              v-perms="'btn:org-unit:move'"
+              type="primary"
+              link
+              @click="openMoveDialog(row)"
+            >
+              移动
             </el-button>
             <el-button
               v-if="canDelete && !isRoot(row)"
@@ -419,6 +511,84 @@ onMounted(loadTree);
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="moveDialogVisible"
+      title="移动组织"
+      width="min(640px, calc(100vw - 32px))"
+      destroy-on-close
+    >
+      <el-descriptions :column="1" border class="move-summary">
+        <el-descriptions-item label="移动节点">
+          {{ moveSource?.name }}（{{ moveSource?.code }}）
+        </el-descriptions-item>
+        <el-descriptions-item label="当前上级">
+          {{ moveCurrentParent?.name ?? "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="新的上级">
+          <span :class="{ 'move-placeholder': !moveSelectedParent }">
+            {{ moveSelectedParent?.name ?? "请在下方组织树中选择" }}
+          </span>
+        </el-descriptions-item>
+      </el-descriptions>
+
+      <div class="move-target-label">选择新的上级组织</div>
+      <div class="move-target-tree">
+        <el-tree
+          :data="moveTargetTree"
+          node-key="id"
+          default-expand-all
+          :expand-on-click-node="false"
+          @node-click="handleMoveTargetClick"
+        >
+          <template #default="{ data }">
+            <div
+              class="move-target-node"
+              :class="{
+                'is-disabled': data.moveDisabledReason,
+                'is-selected': data.id === moveForm.newParentId
+              }"
+            >
+              <span class="move-target-node__identity">
+                <span>{{ data.name }}</span>
+                <code>{{ data.code }}</code>
+                <el-tag size="small" effect="plain">
+                  {{ orgUnitTypeLabels[data.unitType as OrgUnitType] }}
+                </el-tag>
+              </span>
+              <span
+                v-if="data.moveDisabledReason"
+                class="move-target-node__reason"
+              >
+                {{ data.moveDisabledReason }}
+              </span>
+            </div>
+          </template>
+        </el-tree>
+      </div>
+
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="`将同时移动 ${moveAffectedCount} 个组织节点`"
+        description="移动后，按组织子树计算的数据可见范围会立即变化；用户归属、验收规格和历史文件仍保留原组织 ID。"
+        class="move-warning"
+      />
+
+      <template #footer>
+        <el-button @click="moveDialogVisible = false">取消</el-button>
+        <el-button
+          v-perms="'btn:org-unit:move'"
+          type="primary"
+          :loading="submitting"
+          :disabled="!moveForm.newParentId"
+          @click="handleMove"
+        >
+          确认移动
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -469,5 +639,70 @@ onMounted(loadTree);
   margin-left: 10px;
   font-size: 12px;
   color: var(--app-text-secondary);
+}
+
+.move-summary {
+  margin-bottom: 16px;
+}
+
+.move-placeholder {
+  color: var(--app-text-secondary);
+}
+
+.move-target-label {
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.move-target-tree {
+  max-height: 300px;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+}
+
+.move-target-node {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.move-target-node.is-selected {
+  color: var(--org-accent);
+  background: color-mix(in srgb, var(--org-accent) 10%, transparent);
+}
+
+.move-target-node.is-disabled {
+  color: var(--app-text-secondary);
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.move-target-node__identity {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.move-target-node__identity code {
+  font-size: 11px;
+}
+
+.move-target-node__reason {
+  margin-left: 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.move-warning {
+  margin-top: 16px;
 }
 </style>
