@@ -181,3 +181,26 @@ test("角色弹窗使用类型切换、资源分组、搜索和仅看已选控�
   assert.match(source, /permission-resource-group/);
   assert.doesNotMatch(source, /<el-tree/);
 });
+
+test("角色弹窗使用紧凑密度并为范围配置保留可见空间", () => {
+  const source = readFileSync(
+    fileURLToPath(
+      new URL(
+        "../src/views/config/auth-roles/components/RoleFormDialog.vue",
+        import.meta.url
+      )
+    ),
+    "utf8"
+  );
+
+  assert.match(source, /:rows="2"/);
+  assert.match(
+    source,
+    /\.permission-resource-list\s*\{[\s\S]*?max-height:\s*300px/
+  );
+  assert.match(source, /\.permission-option\s*\{[\s\S]*?min-height:\s*40px/);
+  assert.match(
+    source,
+    /\.role-form-dialog \.el-form-item\)[\s\S]*?margin-bottom:\s*12px/
+  );
+});

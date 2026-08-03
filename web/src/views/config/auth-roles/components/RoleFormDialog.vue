@@ -218,7 +218,7 @@ const handleOpened = () => {
           :model-value="modelValue.description"
           :disabled="readOnly"
           type="textarea"
-          :rows="3"
+          :rows="2"
           maxlength="500"
           show-word-limit
           @update:model-value="description => updateForm({ description })"
@@ -436,11 +436,24 @@ const handleOpened = () => {
 
 :global(.role-form-dialog .el-dialog__body) {
   min-height: 0;
+  padding: 10px 16px 0;
   overflow-y: auto;
 }
 
+:global(.role-form-dialog .el-dialog__header) {
+  padding: 12px 16px 8px;
+}
+
+:global(.role-form-dialog .el-dialog__footer) {
+  padding: 8px 16px 12px;
+}
+
+:global(.role-form-dialog .el-form-item) {
+  margin-bottom: 12px;
+}
+
 .readonly-alert {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .permission-count {
@@ -460,7 +473,7 @@ const handleOpened = () => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
-  padding: 6px;
+  padding: 4px;
   background: var(--app-fill-light);
   border-bottom: 1px solid var(--app-border);
 }
@@ -471,8 +484,8 @@ const handleOpened = () => {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 4px 10px;
   color: var(--app-text-secondary);
   cursor: pointer;
   background: transparent;
@@ -507,7 +520,7 @@ const handleOpened = () => {
   gap: 16px;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--app-border);
 }
 
@@ -516,8 +529,8 @@ const handleOpened = () => {
 }
 
 .permission-resource-list {
-  max-height: 360px;
-  padding: 8px;
+  max-height: 300px;
+  padding: 6px;
   overflow: auto;
   background: var(--app-fill-light);
 }
@@ -530,7 +543,7 @@ const handleOpened = () => {
 }
 
 .permission-resource-group + .permission-resource-group {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .permission-resource-group__header {
@@ -538,8 +551,8 @@ const handleOpened = () => {
   gap: 12px;
   align-items: center;
   justify-content: space-between;
-  min-height: 40px;
-  padding: 5px 10px 5px 12px;
+  min-height: 34px;
+  padding: 3px 8px 3px 10px;
   background: var(--app-fill-light);
   border-bottom: 1px solid var(--app-border);
 }
@@ -575,14 +588,14 @@ const handleOpened = () => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 8px;
-  padding: 4px 10px 6px;
+  padding: 2px 8px 4px;
 }
 
 .permission-option {
   width: 100%;
   height: auto;
-  min-height: 48px;
-  padding: 6px 4px;
+  min-height: 40px;
+  padding: 4px;
   margin-right: 0;
   white-space: normal;
 }
