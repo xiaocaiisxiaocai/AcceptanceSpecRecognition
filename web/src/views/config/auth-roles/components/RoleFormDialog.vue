@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { ElTree, type FormInstance, type FormRules } from "element-plus";
+import { type FormInstance, type FormRules } from "element-plus";
 import type { AuthPermission } from "@/api/auth-permission";
 import type {
   RoleFormModel,
@@ -12,6 +12,14 @@ import {
   validateScopeOrgUnitIds
 } from "../roleScope";
 import { isProtectedBuiltInRole } from "../roleProtection";
+import {
+  buildPermissionEditorView,
+  normalizePermissionCodes,
+  permissionTypeDefinitions,
+  replacePermissionGroupSelection,
+  type PermissionResourceGroup,
+  type PermissionTypeValue
+} from "../permissionEditor";
 
 const props = defineProps<{
   visible: boolean;
@@ -30,14 +38,9 @@ const emit = defineEmits<{
 }>();
 
 const formRef = ref<FormInstance>();
-const treeRef = ref<InstanceType<typeof ElTree>>();
-const permissionTypeLabels: Record<number, string> = {
-  3: "菜单",
-  0: "页面",
-  1: "按钮",
-  2: "接口"
-};
-const permissionTypeOrder = [3, 0, 1, 2];
+const activePermissionType = ref<PermissionTypeValue>(1);
+const permissionKeyword = ref("");
+const selectedOnly = ref(false);
 
 const title = computed(() =>
   props.mode === "create" ? "创建角色" : "编辑角色"
@@ -45,72 +48,66 @@ const title = computed(() =>
 const readOnly = computed(
   () => props.mode === "edit" && isProtectedBuiltInRole(props.modelValue)
 );
-const permissionCodes = computed(
-  () => new Set(props.permissions.map(item => item.code))
+const permissionEditorView = computed(() =>
+  buildPermissionEditorView({
+    permissions: props.permissions,
+    selectedCodes: props.modelValue.permissionCodes,
+    activeType: activePermissionType.value,
+    keyword: permissionKeyword.value,
+    selectedOnly: selectedOnly.value
+  })
 );
-const treeData = computed(() =>
-  permissionTypeOrder
-    .map(type => ({
-      id: `group:${type}`,
-      label: permissionTypeLabels[type],
-      disabled: readOnly.value,
-      children: props.permissions
-        .filter(item => item.permissionType === type)
-        .sort((a, b) => a.code.localeCompare(b.code))
-        .map(item => ({
-          id: item.code,
-          label: item.name,
-          code: item.code,
-          disabled: readOnly.value
-        }))
-    }))
-    .filter(group => group.children.length > 0)
+const selectedPermissionCount = computed(
+  () => normalizePermissionCodes(props.modelValue.permissionCodes).length
 );
 
 const updateForm = (patch: Partial<RoleFormModel>) => {
   emit("update:modelValue", { ...props.modelValue, ...patch });
 };
 
-const syncCheckedKeys = () => {
-  void nextTick(() =>
-    treeRef.value?.setCheckedKeys(props.modelValue.permissionCodes)
-  );
-};
-
 watch(
-  () => [props.visible, props.permissions, props.modelValue.permissionCodes],
-  syncCheckedKeys,
-  { deep: true }
+  () => props.visible,
+  visible => {
+    if (!visible) return;
+    permissionKeyword.value = "";
+    selectedOnly.value = false;
+    if (
+      !props.permissions.some(
+        permission => permission.permissionType === activePermissionType.value
+      )
+    ) {
+      activePermissionType.value =
+        permissionTypeDefinitions.find(type =>
+          props.permissions.some(
+            permission => permission.permissionType === type.value
+          )
+        )?.value ?? 1;
+    }
+  }
 );
 
-const handlePermissionCheck = (
-  _data: unknown,
-  state: { checkedKeys: Array<string | number> }
-) => {
-  if (readOnly.value) {
-    syncCheckedKeys();
-    return;
-  }
-
+const handlePermissionToggle = (code: string, selected: boolean) => {
+  if (readOnly.value) return;
   updateForm({
-    permissionCodes: state.checkedKeys
-      .map(String)
-      .filter(code => permissionCodes.value.has(code))
+    permissionCodes: replacePermissionGroupSelection(
+      props.modelValue.permissionCodes,
+      [code],
+      selected
+    )
   });
 };
 
-const selectAll = () => {
-  updateForm({ permissionCodes: props.permissions.map(item => item.code) });
-};
-
-const clearAll = () => {
-  updateForm({ permissionCodes: [] });
-};
-
-const setExpanded = (expanded: boolean) => {
-  treeData.value.forEach(group => {
-    const node = treeRef.value?.getNode(group.id);
-    if (node) node.expanded = expanded;
+const handlePermissionGroupSelection = (
+  group: PermissionResourceGroup,
+  selected: boolean
+) => {
+  if (readOnly.value) return;
+  updateForm({
+    permissionCodes: replacePermissionGroupSelection(
+      props.modelValue.permissionCodes,
+      group.codes,
+      selected
+    )
   });
 };
 
@@ -170,7 +167,6 @@ const handleSubmit = async () => {
 };
 
 const handleOpened = () => {
-  syncCheckedKeys();
   formRef.value?.clearValidate();
 };
 </script>
@@ -179,7 +175,8 @@ const handleOpened = () => {
   <el-dialog
     :model-value="visible"
     :title="title"
-    width="min(860px, calc(100vw - 32px))"
+    class="role-form-dialog"
+    width="min(960px, calc(100vw - 32px))"
     destroy-on-close
     @update:model-value="value => emit('update:visible', value)"
     @opened="handleOpened"
@@ -240,37 +237,110 @@ const handleOpened = () => {
         <template #label>
           权限
           <span class="permission-count"
-            >({{ modelValue.permissionCodes.length }})</span
+            >({{ selectedPermissionCount }}/{{ permissions.length }})</span
           >
         </template>
-        <div class="permission-panel">
-          <div class="permission-actions">
-            <el-button text :disabled="readOnly" @click="selectAll"
-              >全选</el-button
-            >
-            <el-button text :disabled="readOnly" @click="clearAll"
-              >清空</el-button
-            >
-            <el-button text @click="setExpanded(true)">展开</el-button>
-            <el-button text @click="setExpanded(false)">折叠</el-button>
-          </div>
-          <el-tree
-            ref="treeRef"
-            class="permission-tree"
-            :data="treeData"
-            node-key="id"
-            show-checkbox
-            default-expand-all
-            :expand-on-click-node="false"
-            @check="handlePermissionCheck"
+        <div class="permission-panel" data-testid="permission-editor">
+          <div
+            class="permission-type-tabs"
+            role="tablist"
+            aria-label="权限类型"
           >
-            <template #default="{ data }">
-              <span class="permission-node">
-                <span>{{ data.label }}</span>
-                <code v-if="data.code">{{ data.code }}</code>
+            <button
+              v-for="type in permissionEditorView.types"
+              :key="type.value"
+              type="button"
+              role="tab"
+              class="permission-type-tab"
+              :class="{ 'is-active': activePermissionType === type.value }"
+              :aria-selected="activePermissionType === type.value"
+              :data-testid="`permission-type-${type.value}`"
+              @click="activePermissionType = type.value"
+            >
+              <span>{{ type.label }}</span>
+              <span class="permission-type-tab__count">
+                {{ type.selectedCount }}/{{ type.totalCount }}
               </span>
-            </template>
-          </el-tree>
+            </button>
+          </div>
+
+          <div class="permission-toolbar">
+            <el-input
+              v-model="permissionKeyword"
+              clearable
+              class="permission-search"
+              placeholder="搜索名称、编码、资源或动作"
+              data-testid="permission-search"
+            />
+            <el-checkbox
+              v-model="selectedOnly"
+              data-testid="permission-selected-only"
+            >
+              仅看已选
+            </el-checkbox>
+          </div>
+
+          <div class="permission-resource-list">
+            <el-empty
+              v-if="permissionEditorView.groups.length === 0"
+              description="没有匹配的权限"
+              :image-size="64"
+            />
+            <section
+              v-for="group in permissionEditorView.groups"
+              :key="group.resource"
+              class="permission-resource-group"
+              :data-testid="`permission-resource-${group.resource}`"
+            >
+              <header class="permission-resource-group__header">
+                <div class="permission-resource-group__title">
+                  <strong>{{ group.label }}</strong>
+                  <code>{{ group.resource }}</code>
+                  <span>{{ group.selectedCount }}/{{ group.totalCount }}</span>
+                </div>
+                <div class="permission-resource-group__actions">
+                  <el-button
+                    text
+                    size="small"
+                    :disabled="
+                      readOnly || group.selectedCount === group.totalCount
+                    "
+                    @click="handlePermissionGroupSelection(group, true)"
+                  >
+                    全选
+                  </el-button>
+                  <el-button
+                    text
+                    size="small"
+                    :disabled="readOnly || group.selectedCount === 0"
+                    @click="handlePermissionGroupSelection(group, false)"
+                  >
+                    清空
+                  </el-button>
+                </div>
+              </header>
+              <div class="permission-option-grid">
+                <el-checkbox
+                  v-for="item in group.items"
+                  :key="item.code"
+                  :model-value="item.selected"
+                  :disabled="readOnly"
+                  class="permission-option"
+                  :data-permission-code="item.code"
+                  @change="
+                    value => handlePermissionToggle(item.code, Boolean(value))
+                  "
+                >
+                  <span class="permission-option__content">
+                    <span class="permission-option__name">
+                      {{ item.primaryLabel }}
+                    </span>
+                    <code>{{ item.secondaryLabel }}</code>
+                  </span>
+                </el-checkbox>
+              </div>
+            </section>
+          </div>
         </div>
       </el-form-item>
       <el-form-item label="验收规格范围" prop="scopeType" required>
@@ -351,6 +421,24 @@ const handleOpened = () => {
 </template>
 
 <style scoped>
+:global(.role-form-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 32px);
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+:global(.role-form-dialog .el-dialog__header),
+:global(.role-form-dialog .el-dialog__footer) {
+  flex: none;
+}
+
+:global(.role-form-dialog .el-dialog__body) {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .readonly-alert {
   margin-bottom: 16px;
 }
@@ -363,36 +451,190 @@ const handleOpened = () => {
 .permission-panel {
   width: 100%;
   overflow: hidden;
+  background: var(--el-bg-color);
   border: 1px solid var(--app-border);
   border-radius: 8px;
 }
 
-.permission-actions {
-  display: flex;
-  flex-wrap: wrap;
-  padding: 4px 8px;
+.permission-type-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px;
   background: var(--app-fill-light);
   border-bottom: 1px solid var(--app-border);
 }
 
-.permission-tree {
-  max-height: 340px;
-  padding: 8px 10px;
-  overflow: auto;
+.permission-type-tab {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease;
 }
 
-.permission-node {
+.permission-type-tab:hover {
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+}
+
+.permission-type-tab.is-active {
+  font-weight: 600;
+  color: var(--el-color-primary);
+  background: var(--el-bg-color);
+  border-color: var(--el-color-primary-light-5);
+}
+
+.permission-type-tab__count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-secondary);
+}
+
+.permission-toolbar {
   display: flex;
-  gap: 10px;
+  gap: 16px;
   align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.permission-search {
+  width: min(420px, 100%);
+}
+
+.permission-resource-list {
+  max-height: 360px;
+  padding: 8px;
+  overflow: auto;
+  background: var(--app-fill-light);
+}
+
+.permission-resource-group {
+  overflow: hidden;
+  background: var(--el-bg-color);
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+}
+
+.permission-resource-group + .permission-resource-group {
+  margin-top: 8px;
+}
+
+.permission-resource-group__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 5px 10px 5px 12px;
+  background: var(--app-fill-light);
+  border-bottom: 1px solid var(--app-border);
+}
+
+.permission-resource-group__title {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
   min-width: 0;
 }
 
-.permission-node code {
+.permission-resource-group__title strong {
+  flex: none;
+  color: var(--app-text-primary);
+}
+
+.permission-resource-group__title code,
+.permission-resource-group__title span {
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+
+.permission-resource-group__actions {
+  display: flex;
+  flex: none;
+}
+
+.permission-resource-group__actions :deep(.el-button + .el-button) {
+  margin-left: 2px;
+}
+
+.permission-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 8px;
+  padding: 4px 10px 6px;
+}
+
+.permission-option {
+  width: 100%;
+  height: auto;
+  min-height: 48px;
+  padding: 6px 4px;
+  margin-right: 0;
+  white-space: normal;
+}
+
+.permission-option :deep(.el-checkbox__label) {
+  min-width: 0;
+  padding-left: 8px;
+}
+
+.permission-option__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.permission-option__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text-primary);
+  white-space: nowrap;
+}
+
+.permission-option code {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11px;
   color: var(--app-text-secondary);
   white-space: nowrap;
+}
+
+@media (width <= 720px) {
+  .permission-type-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .permission-toolbar {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .permission-search,
+  .permission-option-grid {
+    width: 100%;
+  }
+
+  .permission-option-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -19,7 +19,7 @@ test("common 内置角色允许管理员维护，admin 内置角色继续受保�
   );
 });
 
-test("受保护的管理员角色权限树不可继续勾选", () => {
+test("受保护的管理员角色权限选择器不可继续勾选或批量修改", () => {
   const dialogSource = readFileSync(
     fileURLToPath(
       new URL(
@@ -30,9 +30,13 @@ test("受保护的管理员角色权限树不可继续勾选", () => {
     "utf8"
   );
 
-  assert.match(dialogSource, /disabled:\s*readOnly\.value/);
   assert.match(
     dialogSource,
-    /if \(readOnly\.value\) \{[\s\S]*?syncCheckedKeys\(\);[\s\S]*?return;/
+    /const handlePermissionToggle[\s\S]*?if \(readOnly\.value\) return;/
   );
+  assert.match(
+    dialogSource,
+    /const handlePermissionGroupSelection[\s\S]*?if \(readOnly\.value\) return;/
+  );
+  assert.match(dialogSource, /:disabled="readOnly"/);
 });
