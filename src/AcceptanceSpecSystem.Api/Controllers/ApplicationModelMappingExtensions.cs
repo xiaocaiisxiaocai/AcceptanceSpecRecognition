@@ -138,6 +138,9 @@ internal static class ApplicationModelMappingExtensions
             AffectedSpecCount = item.AffectedSpecCount,
             MatchCount = item.MatchCount,
             ConfirmationToken = item.ConfirmationToken,
+            SamplePage = item.SamplePage,
+            SamplePageSize = item.SamplePageSize,
+            SampleTotal = item.SampleTotal,
             Samples = item.Samples.Select(sample => new SpecRemarkReplaceSampleDto
             {
                 SpecId = sample.SpecId,

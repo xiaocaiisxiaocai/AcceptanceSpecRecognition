@@ -1,11 +1,11 @@
-﻿using AcceptanceSpecSystem.Application.Models;
+﻿using System.Data;
+using System.Security.Cryptography;
+using System.Text;
+using AcceptanceSpecSystem.Application.Models;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using System.Data;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -18,7 +18,6 @@ public sealed class AcceptanceSpecAppService
     private const string ManualFileHash = "manual_entry_placeholder";
     private const int RemarkMaxLength = 2000;
     private const int RemarkPreviewLength = 160;
-    private const int RemarkPreviewSampleLimit = 5;
 
     private readonly IUnitOfWork _unitOfWork;
     private readonly AcceptanceSpecQueryService _acceptanceSpecQueryService;
@@ -222,16 +221,22 @@ public sealed class AcceptanceSpecAppService
         SpecAccessContext scope,
         string searchText,
         string replacementText,
+        int page,
+        int pageSize,
         CancellationToken cancellationToken = default)
     {
         EnsureExactDepartmentScope(scope);
+        if (page < 1)
+            throw new ApplicationServiceException(400, "预览页码必须大于0");
+        if (pageSize is < 1 or > 100)
+            throw new ApplicationServiceException(400, "每页预览数量必须在1到100之间");
         var snapshot = await BuildRemarkReplaceSnapshotAsync(
             scope,
             searchText,
             replacementText,
             trackEntities: false,
             cancellationToken);
-        return MapRemarkReplacePreview(snapshot);
+        return MapRemarkReplacePreview(snapshot, page, pageSize);
     }
 
     public async Task<SpecRemarkReplaceResultModel> ExecuteRemarkReplaceAsync(
@@ -545,26 +550,37 @@ public sealed class AcceptanceSpecAppService
     }
 
     private static SpecRemarkReplacePreviewModel MapRemarkReplacePreview(
-        RemarkReplaceSnapshot snapshot) => new()
+        RemarkReplaceSnapshot snapshot,
+        int page,
+        int pageSize)
     {
-        AffectedSpecCount = snapshot.Specs.Count,
-        MatchCount = snapshot.MatchCount,
-        ConfirmationToken = snapshot.ConfirmationToken,
-        Samples = snapshot.Specs
-            .Take(RemarkPreviewSampleLimit)
-            .Select(spec => new SpecRemarkReplaceSampleModel
-            {
-                SpecId = spec.Id,
-                Project = spec.Project,
-                BeforePreview = TruncateRemarkPreview(spec.Remark!),
-                AfterPreview = TruncateRemarkPreview(
-                    spec.Remark!.Replace(
-                        snapshot.SearchText,
-                        snapshot.ReplacementText,
-                        StringComparison.Ordinal))
-            })
-            .ToList()
-    };
+        var skip = (long)(page - 1) * pageSize;
+        IEnumerable<AcceptanceSpec> pageSpecs = skip >= snapshot.Specs.Count
+            ? []
+            : snapshot.Specs.Skip((int)skip).Take(pageSize);
+        return new SpecRemarkReplacePreviewModel
+        {
+            AffectedSpecCount = snapshot.Specs.Count,
+            MatchCount = snapshot.MatchCount,
+            ConfirmationToken = snapshot.ConfirmationToken,
+            SamplePage = page,
+            SamplePageSize = pageSize,
+            SampleTotal = snapshot.Specs.Count,
+            Samples = pageSpecs
+                .Select(spec => new SpecRemarkReplaceSampleModel
+                {
+                    SpecId = spec.Id,
+                    Project = spec.Project,
+                    BeforePreview = TruncateRemarkPreview(spec.Remark!),
+                    AfterPreview = TruncateRemarkPreview(
+                        spec.Remark!.Replace(
+                            snapshot.SearchText,
+                            snapshot.ReplacementText,
+                            StringComparison.Ordinal))
+                })
+                .ToList()
+        };
+    }
 
     private static int CountOccurrences(string value, string searchText)
     {

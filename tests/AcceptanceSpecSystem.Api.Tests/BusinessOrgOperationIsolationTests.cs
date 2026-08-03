@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
@@ -381,6 +381,51 @@ public sealed class BusinessOrgOperationIsolationTests
             .Select(spec => spec.Remark)
             .ToListAsync();
         remarks.Should().OnlyContain(remark => remark!.Contains(replaceFixture.SearchText));
+    }
+
+    [Fact]
+    public async Task RemarkBatchReplacePreview_ShouldPageThroughAllAffectedSpecs()
+    {
+        await using var factory = new ApiWebApplicationFactory();
+        var fixture = await SeedDepartmentsAsync(factory);
+        var searchText = $"分页预览{Guid.NewGuid():N}";
+        await SeedRemarkReplacePreviewPageAsync(factory, fixture.DepartmentAId, searchText, 12);
+        using var client = factory.CreateClient();
+
+        using var firstResponse = await client.PostAsync(
+            "/api/specs/remark-replace/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                searchText,
+                replacementText = "已替换",
+                page = 1,
+                pageSize = 10
+            }));
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var firstBody = await firstResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        firstBody.Data.GetProperty("affectedSpecCount").GetInt32().Should().Be(12);
+        firstBody.Data.GetProperty("sampleTotal").GetInt32().Should().Be(12);
+        firstBody.Data.GetProperty("samplePage").GetInt32().Should().Be(1);
+        firstBody.Data.GetProperty("samplePageSize").GetInt32().Should().Be(10);
+        firstBody.Data.GetProperty("samples").GetArrayLength().Should().Be(10);
+
+        using var secondResponse = await client.PostAsync(
+            "/api/specs/remark-replace/preview",
+            ApiClientJson.ToJsonContent(new
+            {
+                orgUnitId = fixture.DepartmentAId,
+                searchText,
+                replacementText = "已替换",
+                page = 2,
+                pageSize = 10
+            }));
+        secondResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var secondBody = await secondResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        secondBody.Data.GetProperty("samplePage").GetInt32().Should().Be(2);
+        secondBody.Data.GetProperty("samples").GetArrayLength().Should().Be(2);
+        secondBody.Data.GetProperty("confirmationToken").GetString()
+            .Should().Be(firstBody.Data.GetProperty("confirmationToken").GetString());
     }
 
     [Fact]
@@ -972,21 +1017,56 @@ public sealed class BusinessOrgOperationIsolationTests
             specs[2].Id);
     }
 
+    private static async Task SeedRemarkReplacePreviewPageAsync(
+        ApiWebApplicationFactory factory,
+        int orgUnitId,
+        string searchText,
+        int count)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminId = await db.SystemUsers
+            .Where(user => user.Username == "admin")
+            .Select(user => user.Id)
+            .SingleAsync();
+        var customer = new Customer
+        {
+            Name = $"备注分页客户-{Guid.NewGuid():N}",
+            CreatedAt = DateTime.UtcNow
+        };
+        var file = CreateOwnedWordFile("remark-preview-page.docx", adminId, orgUnitId);
+        db.AddRange(customer, file);
+        await db.SaveChangesAsync();
+
+        var specs = Enumerable.Range(1, count)
+            .Select(index => CreateOwnedSpec(
+                customer.Id,
+                file.Id,
+                adminId,
+                orgUnitId,
+                $"分页项目{index:D2}",
+                "规格",
+                $"备注包含 {searchText}"))
+            .ToArray();
+        db.AcceptanceSpecs.AddRange(specs);
+        await db.SaveChangesAsync();
+    }
+
     private static WordFile CreateOwnedWordFile(
         string fileName,
         int userId,
         int orgUnitId) => new()
-    {
-        FileName = fileName,
-        FilePath = fileName,
-        FileHash = Guid.NewGuid().ToString("N"),
-        FileType = UploadedFileType.WordDocx,
-        FileContent = [1],
-        CreatedByUserId = userId,
-        CompanyId = 1,
-        OwnerOrgUnitId = orgUnitId,
-        UploadedAt = DateTime.UtcNow
-    };
+        {
+            FileName = fileName,
+            FilePath = fileName,
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileType = UploadedFileType.WordDocx,
+            FileContent = [1],
+            CreatedByUserId = userId,
+            CompanyId = 1,
+            OwnerOrgUnitId = orgUnitId,
+            UploadedAt = DateTime.UtcNow
+        };
 
     private static AcceptanceSpec CreateOwnedSpec(
         int customerId,
@@ -996,16 +1076,16 @@ public sealed class BusinessOrgOperationIsolationTests
         string project,
         string specification,
         string remark) => new()
-    {
-        CustomerId = customerId,
-        Project = project,
-        Specification = specification,
-        Remark = remark,
-        WordFileId = wordFileId,
-        CreatedByUserId = userId,
-        OwnerOrgUnitId = orgUnitId,
-        ImportedAt = DateTime.UtcNow
-    };
+        {
+            CustomerId = customerId,
+            Project = project,
+            Specification = specification,
+            Remark = remark,
+            WordFileId = wordFileId,
+            CreatedByUserId = userId,
+            OwnerOrgUnitId = orgUnitId,
+            ImportedAt = DateTime.UtcNow
+        };
 
     private static OrgUnit CreateDepartment(OrgUnit root, string name, DateTime now) => new()
     {

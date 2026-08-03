@@ -157,10 +157,16 @@ export interface SpecSemanticSearchResponse {
   groups: SpecSemanticSearchGroup[];
 }
 
-export interface SpecRemarkReplacePreviewRequest {
+export interface SpecRemarkReplaceRequest {
   orgUnitId: number;
   searchText: string;
   replacementText: string;
+}
+
+export interface SpecRemarkReplacePreviewRequest
+  extends SpecRemarkReplaceRequest {
+  page: number;
+  pageSize: number;
 }
 
 export interface SpecRemarkReplaceSample {
@@ -174,11 +180,14 @@ export interface SpecRemarkReplacePreviewResponse {
   affectedSpecCount: number;
   matchCount: number;
   confirmationToken: string;
+  samplePage: number;
+  samplePageSize: number;
+  sampleTotal: number;
   samples: SpecRemarkReplaceSample[];
 }
 
 export interface SpecRemarkReplaceExecuteRequest
-  extends SpecRemarkReplacePreviewRequest {
+  extends SpecRemarkReplaceRequest {
   expectedAffectedSpecCount: number;
   expectedMatchCount: number;
   confirmationToken: string;

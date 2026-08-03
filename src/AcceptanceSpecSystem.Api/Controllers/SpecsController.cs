@@ -238,6 +238,8 @@ public class SpecsController : BaseApiController
                 scope.ToAccessContext(),
                 request.SearchText,
                 request.ReplacementText,
+                request.Page,
+                request.PageSize,
                 cancellationToken);
             return Success(result.ToDto());
         }

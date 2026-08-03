@@ -78,6 +78,12 @@ public sealed class SpecRemarkReplacePreviewModel
 
     public string ConfirmationToken { get; set; } = string.Empty;
 
+    public int SamplePage { get; set; }
+
+    public int SamplePageSize { get; set; }
+
+    public int SampleTotal { get; set; }
+
     public List<SpecRemarkReplaceSampleModel> Samples { get; set; } = [];
 }
 

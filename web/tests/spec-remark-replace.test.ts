@@ -31,6 +31,16 @@ test("备注批量替换应先预览再确认执行", () => {
   assert.match(dialogSource, /重新预览/);
 });
 
+test("备注批量替换预览应分页展示全部受影响规格", () => {
+  assert.match(apiSource, /page: number/);
+  assert.match(apiSource, /pageSize: number/);
+  assert.match(apiSource, /sampleTotal: number/);
+  assert.match(dialogSource, /previewPageSize/);
+  assert.match(dialogSource, /el-pagination/);
+  assert.match(dialogSource, /@current-change="handlePreviewPageChange"/);
+  assert.match(dialogSource, /本页[\s\S]*preview\.sampleTotal/);
+});
+
 test("替换成功后应通知规格表刷新相关搜索结果", () => {
   assert.match(tableSource, /handleRemarkReplaceSuccess/);
   assert.match(tableSource, /reloadSemanticSearchIfNeeded/);

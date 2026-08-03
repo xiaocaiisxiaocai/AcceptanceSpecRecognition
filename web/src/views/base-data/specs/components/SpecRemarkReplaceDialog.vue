@@ -32,6 +32,7 @@ const form = reactive({
   replacementText: ""
 });
 const preview = ref<SpecRemarkReplacePreviewResponse | null>(null);
+const previewPageSize = 10;
 const previewLoading = ref(false);
 const executeLoading = ref(false);
 
@@ -54,7 +55,7 @@ const invalidatePreview = () => {
   preview.value = null;
 };
 
-const handlePreview = async () => {
+const handlePreview = async (page = 1) => {
   if (!form.searchText.trim()) {
     ElMessage.warning("请输入要查找的备注内容");
     return;
@@ -65,7 +66,9 @@ const handlePreview = async () => {
     const res = await previewSpecRemarkReplace({
       orgUnitId: props.orgUnitId,
       searchText: form.searchText,
-      replacementText: form.replacementText
+      replacementText: form.replacementText,
+      page,
+      pageSize: previewPageSize
     });
     if (res.code !== 0) {
       ElMessage.error(res.message);
@@ -82,6 +85,10 @@ const handlePreview = async () => {
   } finally {
     previewLoading.value = false;
   }
+};
+
+const handlePreviewPageChange = (page: number) => {
+  void handlePreview(page);
 };
 
 const handleExecute = async () => {
@@ -183,9 +190,10 @@ const handleExecute = async () => {
 
         <el-table
           v-if="preview.samples.length"
+          v-loading="previewLoading"
           :data="preview.samples"
           border
-          max-height="300"
+          max-height="min(440px, calc(100vh - 420px))"
           class="sample-table"
         >
           <el-table-column
@@ -207,6 +215,22 @@ const handleExecute = async () => {
             show-overflow-tooltip
           />
         </el-table>
+        <div v-if="preview.samples.length" class="sample-pagination">
+          <span>
+            本页 {{ preview.samples.length }} 条，共
+            {{ preview.sampleTotal }} 条
+          </span>
+          <el-pagination
+            v-if="preview.sampleTotal > preview.samplePageSize"
+            background
+            layout="prev, pager, next"
+            :current-page="preview.samplePage"
+            :page-size="preview.samplePageSize"
+            :total="preview.sampleTotal"
+            :disabled="previewLoading"
+            @current-change="handlePreviewPageChange"
+          />
+        </div>
         <el-empty
           v-else
           description="当前部门没有可替换的备注"
@@ -223,11 +247,13 @@ const handleExecute = async () => {
         v-if="!preview"
         type="primary"
         :loading="previewLoading"
-        @click="handlePreview"
+        @click="handlePreview()"
       >
         预览影响
       </el-button>
-      <el-button v-else @click="handlePreview">重新预览</el-button>
+      <el-button v-else :loading="previewLoading" @click="handlePreview()">
+        重新预览
+      </el-button>
       <el-button
         v-if="preview"
         type="danger"
@@ -301,6 +327,16 @@ const handleExecute = async () => {
   width: 100%;
 }
 
+.sample-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 @media (width <= 640px) {
   .scope-line,
   .impact-line {
@@ -316,6 +352,11 @@ const handleExecute = async () => {
   .impact-line__note {
     width: 100%;
     margin-left: 0;
+  }
+
+  .sample-pagination {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>

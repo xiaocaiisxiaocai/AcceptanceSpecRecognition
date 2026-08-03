@@ -175,7 +175,7 @@ public class UpdateSpecRequest
 /// <summary>
 /// 验收规格备注批量替换预览请求
 /// </summary>
-public class SpecRemarkReplacePreviewRequest
+public class SpecRemarkReplaceRequest
 {
     [Range(1, int.MaxValue, ErrorMessage = "部门ID必须大于0")]
     public int? OrgUnitId { get; set; }
@@ -189,9 +189,21 @@ public class SpecRemarkReplacePreviewRequest
 }
 
 /// <summary>
+/// 验收规格备注批量替换预览请求
+/// </summary>
+public sealed class SpecRemarkReplacePreviewRequest : SpecRemarkReplaceRequest
+{
+    [Range(1, int.MaxValue, ErrorMessage = "预览页码必须大于0")]
+    public int Page { get; set; } = 1;
+
+    [Range(1, 100, ErrorMessage = "每页预览数量必须在1到100之间")]
+    public int PageSize { get; set; } = 10;
+}
+
+/// <summary>
 /// 验收规格备注批量替换执行请求
 /// </summary>
-public sealed class SpecRemarkReplaceExecuteRequest : SpecRemarkReplacePreviewRequest
+public sealed class SpecRemarkReplaceExecuteRequest : SpecRemarkReplaceRequest
 {
     [Range(0, int.MaxValue, ErrorMessage = "预期影响规格数不能小于0")]
     public int ExpectedAffectedSpecCount { get; set; }
@@ -211,6 +223,12 @@ public sealed class SpecRemarkReplacePreviewResponse
     public int MatchCount { get; set; }
 
     public string ConfirmationToken { get; set; } = string.Empty;
+
+    public int SamplePage { get; set; }
+
+    public int SamplePageSize { get; set; }
+
+    public int SampleTotal { get; set; }
 
     public List<SpecRemarkReplaceSampleDto> Samples { get; set; } = [];
 }
