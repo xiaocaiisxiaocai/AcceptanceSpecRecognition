@@ -23,7 +23,14 @@ import { isMessageBoxCancel } from "@/utils/message-box";
 import RoleFormDialog from "./components/RoleFormDialog.vue";
 import { isProtectedBuiltInRole } from "./roleProtection";
 import type { RoleFormModel, ScopeType } from "./roleForm.types";
-import { normalizeScopeOrgUnitIds, validateScopeOrgUnitIds } from "./roleScope";
+import {
+  buildSpecDataScopes,
+  normalizeScopeOrgUnitIds,
+  resolveRoleScopeOrgUnitIds,
+  resolveScopeOrgUnitIds,
+  supportsDynamicPrimaryOrgSubtree,
+  validateScopeOrgUnitIds
+} from "./roleScope";
 
 defineOptions({
   name: "AuthRolesConfig"
@@ -101,12 +108,6 @@ const normalizeStringList = (values: string[]) => {
   return [...new Set(values.map(item => item.trim()).filter(item => !!item))];
 };
 
-const normalizeNumberList = (values: number[]) => {
-  return [
-    ...new Set(values.filter(item => Number.isInteger(item) && item > 0))
-  ];
-};
-
 const getDefaultScopeOrgId = () => {
   const root = orgUnits.value.find(
     item => item.unitType === 0 && item.parentId == null && item.isActive
@@ -115,27 +116,6 @@ const getDefaultScopeOrgId = () => {
 
   const firstActive = orgUnits.value.find(item => item.isActive);
   return firstActive?.id;
-};
-
-const resolveScopeOrgUnitIds = (
-  scopeType: ScopeType,
-  orgUnitIds?: number[]
-) => {
-  const normalized = normalizeScopeOrgUnitIds(scopeType, orgUnitIds ?? []);
-  if ((scopeType === 1 || scopeType === 2) && normalized.length === 0) {
-    const defaultOrgId = getDefaultScopeOrgId();
-    return defaultOrgId ? [defaultOrgId] : [];
-  }
-
-  if ((scopeType === 1 || scopeType === 2) && normalized.length > 1) {
-    return normalized.slice(0, 1);
-  }
-
-  if (scopeType === 0 || scopeType === 4) {
-    return [];
-  }
-
-  return normalized;
 };
 
 const normalizeScopeType = (scopeType?: number) => {
@@ -227,9 +207,11 @@ const applyRoleToEditForm = (role: AuthRole) => {
   editForm.isActive = role.isActive;
   editForm.permissionCodes = [...(role.permissionCodes ?? [])];
   editForm.scopeType = normalizedScopeType;
-  editForm.scopeOrgUnitIds = resolveScopeOrgUnitIds(
+  editForm.scopeOrgUnitIds = resolveRoleScopeOrgUnitIds(
+    role,
     normalizedScopeType,
-    specScope?.orgUnitIds
+    specScope?.orgUnitIds ?? [],
+    getDefaultScopeOrgId()
   );
   ensureScopeNodeSelection(editForm);
 };
@@ -267,34 +249,12 @@ const validateRoleForm = (form: RoleFormModel, isCreate: boolean) => {
 
   const scopeError = validateScopeOrgUnitIds(
     form.scopeType,
-    form.scopeOrgUnitIds
+    form.scopeOrgUnitIds,
+    supportsDynamicPrimaryOrgSubtree(form)
   );
   if (scopeError) return scopeError;
 
   return null;
-};
-
-const buildDataScopes = (form: RoleFormModel) => {
-  const orgUnitIds = normalizeNumberList(form.scopeOrgUnitIds);
-  if (form.scopeType === 1 || form.scopeType === 2) {
-    return [
-      {
-        resource: "spec",
-        scopeType: form.scopeType,
-        orgUnitIds: orgUnitIds.slice(0, 1)
-      }
-    ];
-  }
-  if (form.scopeType === 3) {
-    return [
-      {
-        resource: "spec",
-        scopeType: form.scopeType,
-        orgUnitIds
-      }
-    ];
-  }
-  return [{ resource: "spec", scopeType: form.scopeType, orgUnitIds: [] }];
 };
 
 const handleCreate = async () => {
@@ -310,7 +270,10 @@ const handleCreate = async () => {
     description: createForm.description.trim(),
     isActive: createForm.isActive,
     permissionCodes: normalizeStringList(createForm.permissionCodes),
-    dataScopes: buildDataScopes(createForm)
+    dataScopes: buildSpecDataScopes(
+      createForm.scopeType,
+      createForm.scopeOrgUnitIds
+    )
   };
 
   submitLoading.value = true;
@@ -347,7 +310,10 @@ const handleUpdate = async () => {
     description: editForm.description.trim(),
     isActive: editForm.isActive,
     permissionCodes: normalizeStringList(editForm.permissionCodes),
-    dataScopes: buildDataScopes(editForm)
+    dataScopes: buildSpecDataScopes(
+      editForm.scopeType,
+      editForm.scopeOrgUnitIds
+    )
   };
 
   submitLoading.value = true;
@@ -399,10 +365,18 @@ const formatScopeSummary = (role: AuthRole) => {
 
   const normalizedScopeType = normalizeScopeType(scope.scopeType);
   const label = scopeTypeLabel(normalizedScopeType);
+  if (
+    normalizedScopeType === 2 &&
+    supportsDynamicPrimaryOrgSubtree(role) &&
+    normalizeScopeOrgUnitIds(normalizedScopeType, scope.orgUnitIds).length === 0
+  ) {
+    return `${label}：当前用户主组织及子树`;
+  }
   if (normalizedScopeType === 1 || normalizedScopeType === 2) {
     const scopeOrgIds = resolveScopeOrgUnitIds(
       normalizedScopeType,
-      scope.orgUnitIds
+      scope.orgUnitIds,
+      getDefaultScopeOrgId()
     );
     const org = scopeOrgIds[0]
       ? orgUnitMap.value.get(scopeOrgIds[0])

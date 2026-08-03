@@ -9,6 +9,7 @@ import type {
 } from "../roleForm.types";
 import {
   normalizeScopeOrgUnitIds,
+  supportsDynamicPrimaryOrgSubtree,
   validateScopeOrgUnitIds
 } from "../roleScope";
 import { isProtectedBuiltInRole } from "../roleProtection";
@@ -47,6 +48,11 @@ const title = computed(() =>
 );
 const readOnly = computed(
   () => props.mode === "edit" && isProtectedBuiltInRole(props.modelValue)
+);
+const allowDynamicPrimaryOrgSubtree = computed(
+  () =>
+    props.modelValue.scopeType === 2 &&
+    supportsDynamicPrimaryOrgSubtree(props.modelValue)
 );
 const permissionEditorView = computed(() =>
   buildPermissionEditorView({
@@ -139,7 +145,8 @@ const formRules: FormRules<RoleFormModel> = {
       validator: (_rule, value: number[], callback) => {
         const message = validateScopeOrgUnitIds(
           props.modelValue.scopeType,
-          value
+          value,
+          allowDynamicPrimaryOrgSubtree.value
         );
         if (message) return callback(new Error(message));
         callback();
@@ -363,25 +370,37 @@ const handleOpened = () => {
         label="组织节点"
         prop="scopeOrgUnitIds"
       >
-        <el-select
+        <div
           v-if="needsSingleOrg(modelValue.scopeType)"
-          :model-value="modelValue.scopeOrgUnitIds[0] ?? null"
-          clearable
-          filterable
-          :disabled="readOnly"
-          class="dialog-select dialog-select--320"
-          @update:model-value="
-            value => updateForm({ scopeOrgUnitIds: value ? [value] : [] })
-          "
+          class="scope-org-editor"
         >
-          <el-option
-            v-for="option in orgUnitOptions"
-            :key="option.value"
-            :label="option.label"
-            :value="option.value"
-            :disabled="option.disabled"
-          />
-        </el-select>
+          <el-select
+            :model-value="modelValue.scopeOrgUnitIds[0] ?? null"
+            clearable
+            filterable
+            :disabled="readOnly"
+            class="dialog-select dialog-select--320"
+            :placeholder="
+              allowDynamicPrimaryOrgSubtree
+                ? '留空时按用户主组织及子树生效'
+                : '请选择组织节点'
+            "
+            @update:model-value="
+              value => updateForm({ scopeOrgUnitIds: value ? [value] : [] })
+            "
+          >
+            <el-option
+              v-for="option in orgUnitOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+              :disabled="option.disabled"
+            />
+          </el-select>
+          <span v-if="allowDynamicPrimaryOrgSubtree" class="scope-org-hint">
+            留空表示按每个被分配用户的主组织及其子树动态确定范围
+          </span>
+        </div>
         <el-select
           v-else
           :model-value="modelValue.scopeOrgUnitIds"
@@ -454,6 +473,18 @@ const handleOpened = () => {
 
 .readonly-alert {
   margin-bottom: 12px;
+}
+
+.scope-org-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scope-org-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-secondary);
 }
 
 .permission-count {

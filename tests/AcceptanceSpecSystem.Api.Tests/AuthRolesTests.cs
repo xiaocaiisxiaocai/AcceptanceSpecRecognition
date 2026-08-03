@@ -57,6 +57,40 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_WhenCustomRoleUsesEmptyOrgSubtree_ShouldReturnBadRequest()
+    {
+        var roleCode = $"scope-{Guid.NewGuid():N}"[..18];
+
+        var response = await _client.PostAsync(
+            "/api/auth-roles",
+            ApiClientJson.ToJsonContent(new
+            {
+                code = roleCode,
+                name = "空子树测试角色",
+                description = "自定义角色不能使用动态主组织范围",
+                isActive = true,
+                permissionCodes = Array.Empty<string>(),
+                dataScopes = new[]
+                {
+                    new
+                    {
+                        resource = "spec",
+                        scopeType = 2,
+                        orgUnitIds = Array.Empty<int>()
+                    }
+                }
+            }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("必须选择一个组织节点");
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await dbContext.AuthRoles.AnyAsync(role => role.Code == roleCode)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Update_WhenAdminRoleBuiltIn_ShouldReturnBadRequest()
     {
         var updatedName = $"管理员-{Guid.NewGuid():N}"[..12];
@@ -101,14 +135,16 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
     [Fact]
     public async Task Update_WhenCommonRoleBuiltIn_ShouldPersistAdministratorChangesAcrossSeedRuns()
     {
-        using var scope = _factory.Services.CreateScope();
+        using var isolatedFactory = new ApiWebApplicationFactory();
+        using var client = isolatedFactory.CreateClient();
+        using var scope = isolatedFactory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var commonRoleId = await dbContext.AuthRoles
             .Where(role => role.Code == "common")
             .Select(role => role.Id)
             .SingleAsync();
 
-        var originalResponse = await _client.GetAsync($"/api/auth-roles/{commonRoleId}");
+        var originalResponse = await client.GetAsync($"/api/auth-roles/{commonRoleId}");
         originalResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var originalBody = await originalResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
         var originalRole = originalBody.Data!;
@@ -117,7 +153,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
 
         try
         {
-            var updateResponse = await _client.PutAsync(
+            var updateResponse = await client.PutAsync(
                 $"/api/auth-roles/{commonRoleId}",
                 ApiClientJson.ToJsonContent(new
                 {
@@ -138,9 +174,9 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
 
             updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-            await AuthUserSeedService.EnsureSeedUsersAsync(_factory.Services, NullLogger.Instance);
+            await AuthUserSeedService.EnsureSeedUsersAsync(isolatedFactory.Services, NullLogger.Instance);
 
-            var persistedResponse = await _client.GetAsync($"/api/auth-roles/{commonRoleId}");
+            var persistedResponse = await client.GetAsync($"/api/auth-roles/{commonRoleId}");
             persistedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
             var persistedBody = await persistedResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
             persistedBody.Data!.Description.Should().Be(customizedDescription);
@@ -152,7 +188,7 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
         }
         finally
         {
-            await _client.PutAsync(
+            var restoreResponse = await client.PutAsync(
                 $"/api/auth-roles/{commonRoleId}",
                 ApiClientJson.ToJsonContent(new
                 {
@@ -162,7 +198,96 @@ public class AuthRolesTests : IClassFixture<ApiWebApplicationFactory>
                     permissionCodes = originalRole.PermissionCodes,
                     dataScopes = originalRole.DataScopes
                 }));
+            restoreResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         }
+    }
+
+    [Fact]
+    public async Task Update_WhenCommonRoleUsesDynamicPrimaryOrgSubtree_ShouldPreserveEmptyNodes()
+    {
+        using var isolatedFactory = new ApiWebApplicationFactory();
+        using var client = isolatedFactory.CreateClient();
+        using var scope = isolatedFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var commonRoleId = await dbContext.AuthRoles
+            .Where(role => role.Code == "common")
+            .Select(role => role.Id)
+            .SingleAsync();
+
+        var originalResponse = await client.GetAsync($"/api/auth-roles/{commonRoleId}");
+        originalResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var originalBody = await originalResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
+        var originalRole = originalBody.Data!;
+        originalRole.DataScopes.Should().ContainSingle(scopeDto =>
+            scopeDto.Resource == "spec" &&
+            scopeDto.ScopeType == DataScopeType.OrgSubtree &&
+            scopeDto.OrgUnitIds.Count == 0);
+
+        var updateResponse = await client.PutAsync(
+            $"/api/auth-roles/{commonRoleId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = originalRole.Name,
+                description = originalRole.Description,
+                isActive = originalRole.IsActive,
+                permissionCodes = originalRole.PermissionCodes,
+                dataScopes = originalRole.DataScopes
+            }));
+
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var persistedResponse = await client.GetAsync($"/api/auth-roles/{commonRoleId}");
+        persistedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var persistedBody = await persistedResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
+        persistedBody.Data!.DataScopes.Should().ContainSingle(scopeDto =>
+            scopeDto.Resource == "spec" &&
+            scopeDto.ScopeType == DataScopeType.OrgSubtree &&
+            scopeDto.OrgUnitIds.Count == 0);
+    }
+
+    [Theory]
+    [InlineData("spec", 1)]
+    [InlineData("other", 2)]
+    public async Task Update_WhenCommonRoleUsesUnsupportedEmptyScope_ShouldReturnBadRequest(
+        string resource,
+        int scopeType)
+    {
+        using var isolatedFactory = new ApiWebApplicationFactory();
+        using var client = isolatedFactory.CreateClient();
+        using var scope = isolatedFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var commonRoleId = await dbContext.AuthRoles
+            .Where(role => role.Code == "common")
+            .Select(role => role.Id)
+            .SingleAsync();
+
+        var originalResponse = await client.GetAsync($"/api/auth-roles/{commonRoleId}");
+        originalResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var originalBody = await originalResponse.ReadAsAsync<ApiResponse<AuthRoleDto>>();
+        var originalRole = originalBody.Data!;
+
+        var updateResponse = await client.PutAsync(
+            $"/api/auth-roles/{commonRoleId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                name = originalRole.Name,
+                description = originalRole.Description,
+                isActive = originalRole.IsActive,
+                permissionCodes = originalRole.PermissionCodes,
+                dataScopes = new[]
+                {
+                    new
+                    {
+                        resource,
+                        scopeType,
+                        orgUnitIds = Array.Empty<int>()
+                    }
+                }
+            }));
+
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await updateResponse.ReadAsAsync<ApiResponse<JsonElement>>();
+        body.Message.Should().Contain("必须选择一个组织节点");
     }
 
     [Fact]
