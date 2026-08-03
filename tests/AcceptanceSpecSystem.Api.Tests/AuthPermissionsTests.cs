@@ -443,8 +443,10 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissionCodes.Should().NotContain("api:auth:routes");
         permissionCodes.Should().Contain("api:org-unit:create");
         permissionCodes.Should().Contain("api:org-unit:delete");
+        permissionCodes.Should().Contain("api:org-unit:move");
         permissionCodes.Should().Contain("btn:org-unit:create");
         permissionCodes.Should().Contain("btn:org-unit:delete");
+        permissionCodes.Should().Contain("btn:org-unit:move");
 
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -507,8 +509,10 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().NotContain("api:auth:routes");
         permissions.Should().Contain("api:org-unit:create");
         permissions.Should().Contain("api:org-unit:delete");
+        permissions.Should().Contain("api:org-unit:move");
         permissions.Should().Contain("btn:org-unit:create");
         permissions.Should().Contain("btn:org-unit:delete");
+        permissions.Should().Contain("btn:org-unit:move");
     }
 
     [Fact]
@@ -574,6 +578,8 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:system-user:delete");
         permissions.Should().Contain("api:auth-role:read");
         permissions.Should().Contain("api:org-unit:read");
+        permissions.Should().NotContain("api:org-unit:move");
+        permissions.Should().NotContain("btn:org-unit:move");
         permissions.Should().NotContain("api:machine-model:models");
         permissions.Should().NotContain("btn:machine-model:models");
         permissions.Should().NotContain("btn:matching:preview");

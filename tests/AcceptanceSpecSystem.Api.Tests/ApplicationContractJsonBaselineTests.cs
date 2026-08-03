@@ -57,6 +57,12 @@ public class ApplicationContractJsonBaselineTests
             "clientId", "frontendRoute", "createdAt", "details");
     }
 
+    [Fact]
+    public void MoveOrgUnitRequest_ShouldKeepCamelCaseJsonPropertyName()
+    {
+        AssertPropertyNames(new MoveOrgUnitRequest(), "newParentId");
+    }
+
     private static void AssertPropertyNames<T>(T value, params string[] expectedNames)
     {
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(value, WebJsonOptions));

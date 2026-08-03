@@ -98,3 +98,12 @@ public class UpdateOrgUnitRequest
 
     public bool IsActive { get; set; } = true;
 }
+
+/// <summary>
+/// 移动组织节点请求。
+/// </summary>
+public class MoveOrgUnitRequest
+{
+    [Range(1, int.MaxValue, ErrorMessage = "请选择新的上级组织")]
+    public int NewParentId { get; set; }
+}
