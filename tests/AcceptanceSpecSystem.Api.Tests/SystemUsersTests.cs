@@ -93,6 +93,35 @@ public class SystemUsersTests : IClassFixture<ApiWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_WithChineseUsername_ShouldCreateAndLogin()
+    {
+        var rootOrgUnitId = await GetRootOrgUnitIdAsync();
+        var username = $"中文用户{Guid.NewGuid():N}"[..16];
+
+        var createResp = await _client.PostAsync(
+            "/api/system-users",
+            ApiClientJson.ToJsonContent(new
+            {
+                username,
+                password = "User@1234567",
+                nickname = username,
+                avatar = "",
+                roleCode = "common",
+                orgUnitId = rootOrgUnitId,
+                isActive = true
+            }));
+
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        created.Data!.GetProperty("username").GetString().Should().Be(username);
+
+        using var loginRequest = AuthCookieTestHelper.CreateLoginRequest(
+            username, "User@1234567");
+        using var loginResp = await _client.SendAsync(loginRequest);
+        loginResp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Create_WithLegacyRolesArray_ShouldReturnBadRequest()
     {
         var rootOrgUnitId = await GetRootOrgUnitIdAsync();

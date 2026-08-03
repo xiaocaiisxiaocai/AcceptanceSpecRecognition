@@ -171,7 +171,7 @@ public sealed class SystemUserAppService : ISystemUserAppService
             throw new ApplicationServiceException(400, "用户名不能为空");
 
         if (!IsValidUsername(normalizedUsername))
-            throw new ApplicationServiceException(400, "用户名仅支持字母、数字、点、下划线、中划线，且长度为3-64");
+            throw new ApplicationServiceException(400, "用户名支持中文、字母、数字、点、下划线和中划线，且长度为3-64");
 
         ValidateNewPassword(request.Password, "密码");
 

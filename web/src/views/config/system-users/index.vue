@@ -58,8 +58,6 @@ const resetPasswordDialogVisible = ref(false);
 const createForm = reactive({
   username: "",
   password: "",
-  nickname: "",
-  avatar: "",
   roleCode: "",
   orgUnitId: null as number | null,
   isActive: true
@@ -90,8 +88,8 @@ const createFormRules: FormRules<typeof createForm> = {
   username: [
     requiredTrimmedRule("请输入用户名"),
     {
-      pattern: /^[A-Za-z0-9._-]{3,64}$/,
-      message: "用户名仅支持字母、数字、点、下划线、中划线，长度3-64",
+      pattern: /^[\p{L}\p{N}._-]{3,64}$/u,
+      message: "用户名支持中文、字母、数字、点、下划线和中划线，长度3-64",
       trigger: ["blur", "change"]
     }
   ],
@@ -104,13 +102,11 @@ const createFormRules: FormRules<typeof createForm> = {
       trigger: ["blur", "change"]
     }
   ],
-  nickname: [requiredTrimmedRule("请输入昵称")],
   roleCode: [requiredSelectionRule("请选择一个角色")],
   orgUnitId: [requiredSelectionRule("请选择一个组织")]
 };
 
 const editFormRules: FormRules<typeof editForm> = {
-  nickname: [requiredTrimmedRule("请输入昵称")],
   roleCode: [requiredSelectionRule("请选择一个角色")],
   orgUnitId: [requiredSelectionRule("请选择一个组织")]
 };
@@ -280,8 +276,6 @@ const openCreateDialog = () => {
   const defaultOrgId = getDefaultOrgId();
   createForm.username = "";
   createForm.password = "";
-  createForm.nickname = "";
-  createForm.avatar = "";
   createForm.roleCode = getDefaultRoleCode();
   createForm.orgUnitId = defaultOrgId ?? null;
   createForm.isActive = true;
@@ -304,14 +298,13 @@ const handleCreate = async () => {
 
   const username = createForm.username.trim();
   const password = createForm.password;
-  const nickname = createForm.nickname.trim();
   const roleCode = createForm.roleCode.trim();
 
   const payload: CreateSystemUserRequest = {
     username,
     password,
-    nickname,
-    avatar: createForm.avatar.trim() || "",
+    nickname: username,
+    avatar: "",
     roleCode,
     orgUnitId: createForm.orgUnitId,
     isActive: createForm.isActive
@@ -478,7 +471,7 @@ onMounted(initPage);
               <el-form-item label="关键词">
                 <el-input
                   v-model="queryParams.keyword"
-                  placeholder="用户名/昵称"
+                  placeholder="用户名"
                   clearable
                   @keyup.enter="handleSearch"
                 />
@@ -513,7 +506,6 @@ onMounted(initPage);
       <el-table v-loading="loading" :data="tableData" stripe>
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="username" label="用户名" min-width="140" />
-        <el-table-column prop="nickname" label="昵称" min-width="120" />
         <el-table-column label="角色" min-width="220">
           <template #default="{ row }">
             <el-tag
@@ -621,7 +613,7 @@ onMounted(initPage);
           <el-input
             v-model="createForm.username"
             maxlength="64"
-            placeholder="3-64位，支持字母/数字/._-"
+            placeholder="3-64个字符，支持中文、字母、数字和._-"
           />
         </el-form-item>
         <el-form-item label="密码" prop="password">
@@ -631,12 +623,6 @@ onMounted(initPage);
             show-password
             placeholder="4到200位"
           />
-        </el-form-item>
-        <el-form-item label="昵称" prop="nickname">
-          <el-input v-model="createForm.nickname" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="头像">
-          <el-input v-model="createForm.avatar" maxlength="500" />
         </el-form-item>
         <el-form-item label="角色" prop="roleCode">
           <el-select
@@ -697,12 +683,6 @@ onMounted(initPage);
       >
         <el-form-item label="用户名">
           <el-input :model-value="editForm.username" disabled />
-        </el-form-item>
-        <el-form-item label="昵称" prop="nickname">
-          <el-input v-model="editForm.nickname" maxlength="100" />
-        </el-form-item>
-        <el-form-item label="头像">
-          <el-input v-model="editForm.avatar" maxlength="500" />
         </el-form-item>
         <el-form-item label="角色" prop="roleCode">
           <el-select
