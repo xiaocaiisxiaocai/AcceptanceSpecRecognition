@@ -42,6 +42,8 @@ export function useSmartStructureRecognition() {
     options: {
       enableLlmAssistance?: boolean;
       llmServiceId?: number;
+      /** 冲突场景可先暂存结果，待用户确认最终列后再发布给页面。 */
+      publishResult?: boolean;
     } = {}
   ) => {
     const requestVersion = ++recognitionRequestVersion;
@@ -112,7 +114,9 @@ export function useSmartStructureRecognition() {
         return null;
       }
 
-      recognitionResult.value = res.data;
+      if (options.publishResult !== false) {
+        recognitionResult.value = res.data;
+      }
       return res.data;
     } catch (error) {
       if (!isCurrentRequest()) {
@@ -133,6 +137,22 @@ export function useSmartStructureRecognition() {
         recognitionAttempted.value = true;
       }
     }
+  };
+
+  const publishRecognitionResult = (
+    result: SmartConfigRecognizeResult,
+    expectedFileId = activeRecognitionFileId.value
+  ) => {
+    if (
+      expectedFileId == null ||
+      result.fileId !== expectedFileId ||
+      activeRecognitionFileId.value !== expectedFileId
+    ) {
+      return false;
+    }
+
+    recognitionResult.value = result;
+    return true;
   };
 
   const replaceRecognizedTables = (
@@ -253,6 +273,7 @@ export function useSmartStructureRecognition() {
     confirmingTableIndex,
     recognitionResult,
     recognizedTables,
+    publishRecognitionResult,
     replaceRecognizedTables,
     summary,
     lastConfirmResult,

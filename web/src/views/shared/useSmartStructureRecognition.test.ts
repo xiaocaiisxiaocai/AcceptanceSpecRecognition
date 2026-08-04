@@ -256,6 +256,25 @@ describe("useSmartStructureRecognition", () => {
     expect(state.recognitionAttempted.value).toBe(true);
   });
 
+  it("字段冲突确认前应暂存识别结果，确认后才发布匹配列", async () => {
+    apiMocks.recognizeSmartConfig.mockReset().mockResolvedValue({
+      code: 0,
+      data: result(10, "待确认字段冲突")
+    });
+    const state = useSmartStructureRecognition();
+
+    const pendingResult = await state.recognize(10, 1, {
+      publishResult: false
+    });
+
+    expect(pendingResult?.tables[0]?.remarkColumnIndex).toBe(3);
+    expect(state.recognitionResult.value).toBeNull();
+    expect(state.recognizedTables.value).toEqual([]);
+
+    expect(state.publishRecognitionResult(pendingResult!)).toBe(true);
+    expect(state.recognizedTables.value[0]?.remarkColumnIndex).toBe(3);
+  });
+
   it("reset 换文件后忽略旧文件更晚返回的确认结果", async () => {
     const requestA = deferred<any>();
     apiMocks.recognizeSmartConfig

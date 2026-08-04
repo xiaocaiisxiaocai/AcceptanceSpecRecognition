@@ -43,7 +43,7 @@ test("智能填充识别成功后应进入独立识别确认步骤", () => {
   assert.match(source, /SMART_FILL_STEP_RECOGNITION_REVIEW/);
   assert.match(
     source,
-    /batchTableConfigs\.value = configs;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW/
+    /const applyPublishedSmartRecognitionResult[\s\S]*batchTableConfigs\.value = configs;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW/
   );
   assert.match(
     source,
@@ -55,7 +55,7 @@ test("智能填充识别成功后应进入独立识别确认步骤", () => {
 test("识别失败应停留在上传步骤并保留重试入口", () => {
   assert.match(
     source,
-    /currentStep\.value = SMART_FILL_STEP_UPLOAD_SCOPE;[\s\S]*const result = await recognizeSmartStructure[\s\S]*if \(!result\) return;/
+    /currentStep\.value = SMART_FILL_STEP_UPLOAD_SCOPE;[\s\S]*const result = await recognizeSmartStructure[\s\S]*if \(!result \|\| uploadedFile\.value\?\.fileId !== sourceFileId\) return;/
   );
   assert.match(
     source,
@@ -66,12 +66,13 @@ test("识别失败应停留在上传步骤并保留重试入口", () => {
 test("识别成功但暂时不能生成填充配置时仍应进入确认页手动处理", () => {
   assert.match(
     source,
-    /if \(configs\.length === 0\) \{[\s\S]*识别结果需要补充列配置，请在确认页手动处理[\s\S]*\}[\s\S]*batchTableConfigs\.value = configs;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW/
+    /if \(configs\.length === 0\) \{[\s\S]*识别结果需要补充列配置，请在确认页手动处理[\s\S]*\}[\s\S]*applyPublishedSmartRecognitionResult\(result\.tables, configs\)/
   );
-  assert.doesNotMatch(
-    source,
-    /if \(configs\.length === 0\) \{[\s\S]{0,160}return;/
-  );
+  const emptyConfigBranch = source.match(
+    /if \(configs\.length === 0\) \{[\s\S]*?\n  \}/
+  )?.[0];
+  assert.ok(emptyConfigBranch);
+  assert.doesNotMatch(emptyConfigBranch, /return;/);
 });
 
 test("智能填充上传页不应再内联展示完整逐表确认结果", () => {
@@ -164,18 +165,35 @@ test("确认后的新可用表应自动参与智能填充", () => {
   );
 });
 
-test("智能填充字段候选冲突应在识别完成后立即确认而非等待匹配前按钮", () => {
+test("智能填充字段候选冲突应先确认再发布最终匹配列", () => {
   assert.match(
     source,
     /const showInitialSmartFieldConflicts = \([\s\S]*collectSmartStructureFieldConflicts/
   );
   assert.match(
     source,
-    /const runSmartStructureRecognition[\s\S]*batchTableConfigs\.value = configs;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW;[\s\S]*showInitialSmartFieldConflicts\(result\.tables/
+    /const runSmartStructureRecognition[\s\S]*publishResult: false[\s\S]*if \(showInitialSmartFieldConflicts\(result, configs\)\) return;[\s\S]*publishSmartRecognitionResult\(result, sourceFileId\)[\s\S]*applyPublishedSmartRecognitionResult\(result\.tables, configs\)/
   );
+  assert.doesNotMatch(
+    source,
+    /batchTableConfigs\.value = configs;[\s\S]*showInitialSmartFieldConflicts/
+  );
+  assert.match(source, /pendingInitialSmartRecognitionResult\.value = result/);
   assert.match(source, /smartFieldConflictContext\.value = "initial"/);
   assert.match(
     source,
-    /handleSmartFieldConflictConfirm[\s\S]*smartFieldConflictContext\.value === "initial"[\s\S]*if \(!replaceRecognizedTables\([\s\S]*return;[\s\S]*buildSmartFillConfigsFromRecognizedTables/
+    /pendingInitialSmartRecognitionResult\.value = result;[\s\S]*currentStep\.value = SMART_FILL_STEP_RECOGNITION_REVIEW;[\s\S]*smartFieldConflictDialogVisible\.value = true/
+  );
+  assert.match(
+    source,
+    /v-if="pendingInitialSmartRecognitionResult"[\s\S]*字段候选尚未确认[\s\S]*继续选择数据列[\s\S]*v-if="!pendingInitialSmartRecognitionResult"/
+  );
+  assert.match(
+    source,
+    /handleSmartFieldConflictCancel[\s\S]*smartFieldConflictContext\.value === "initial"[\s\S]*smartFieldConflictDialogVisible\.value = false;[\s\S]*return;/
+  );
+  assert.match(
+    source,
+    /handleSmartFieldConflictConfirm[\s\S]*initialResult\?\.tables[\s\S]*smartFieldConflictContext\.value === "initial"[\s\S]*publishSmartRecognitionResult\(nextResult[\s\S]*buildSmartFillConfigsFromRecognizedTables[\s\S]*applyPublishedSmartRecognitionResult\(nextTables, configs\)/
   );
 });

@@ -34,6 +34,7 @@ import type { FileUploadResponse, TableInfo } from "@/api/document";
 import type { ColumnMappingRule } from "@/api/column-mapping-rules";
 import type {
   SmartConfigConfirmRequest,
+  SmartConfigRecognizeResult,
   SmartConfigRecognizedTable
 } from "@/api/smart-config";
 import { getCustomerList, type Customer } from "@/api/customer";
@@ -201,6 +202,7 @@ const {
   recognitionError: smartRecognitionError,
   confirmingTableIndex: smartConfirmingTableIndex,
   recognizedTables,
+  publishRecognitionResult: publishSmartRecognitionResult,
   replaceRecognizedTables,
   recognize: recognizeSmartStructure,
   confirm: confirmSmartStructure,
@@ -216,10 +218,17 @@ const smartBatchConfirmProgress = ref({ completed: 0, total: 0 });
 const smartFieldConflictDialogVisible = ref(false);
 const pendingSmartFieldConflicts = ref<SmartStructureFieldConflictItem[]>([]);
 const smartFieldConflictContext = ref<"initial" | "batch" | null>(null);
+const pendingInitialSmartRecognitionResult =
+  ref<SmartConfigRecognizeResult | null>(null);
+
+const clearPendingInitialSmartRecognition = () => {
+  pendingInitialSmartRecognitionResult.value = null;
+};
 
 watch(
   () => uploadedFile.value?.fileId,
   () => {
+    clearPendingInitialSmartRecognition();
     smartConfirmDrafts.value = {};
     smartBatchConfirmRunning.value = false;
     smartBatchConfirmingTableIndex.value = null;
@@ -587,6 +596,10 @@ watch(
     resetExecutionState();
     batchTableConfigs.value = [];
     batchPreviewResults.value = [];
+    clearPendingInitialSmartRecognition();
+    smartFieldConflictDialogVisible.value = false;
+    pendingSmartFieldConflicts.value = [];
+    smartFieldConflictContext.value = null;
     resetSmartStructure();
     activeSmartStructureTab.value = undefined;
     advancedMode.value = false;
@@ -767,19 +780,22 @@ const runSmartStructureRecognition = async () => {
   resetExecutionState();
   batchTableConfigs.value = [];
   batchPreviewResults.value = [];
+  clearPendingInitialSmartRecognition();
   currentStep.value = SMART_FILL_STEP_UPLOAD_SCOPE;
+  const sourceFileId = uploadedFile.value.fileId;
 
   const result = await recognizeSmartStructure(
-    uploadedFile.value.fileId,
+    sourceFileId,
     matchScope.value.customerId,
     {
       enableLlmAssistance: enableStructureLlmAssistance.value,
       llmServiceId: enableStructureLlmAssistance.value
         ? structureLlmServiceId.value
-        : undefined
+        : undefined,
+      publishResult: false
     }
   );
-  if (!result) return;
+  if (!result || uploadedFile.value?.fileId !== sourceFileId) return;
 
   const configs = buildSmartFillConfigsFromRecognizedTables({
     isExcelFile: isExcelFile.value,
@@ -790,39 +806,47 @@ const runSmartStructureRecognition = async () => {
     ElMessage.warning("识别结果需要补充列配置，请在确认页手动处理");
   }
 
-  batchTableConfigs.value = configs;
-  activeSmartStructureTab.value =
-    configs.find(config => {
-      const table = result.tables.find(
-        item => item.tableIndex === config.tableIndex
-      );
-      return config.selected && table?.decision !== "AutoApply";
-    })?.tableIndex ??
-    configs[0]?.tableIndex ??
-    result.tables[0]?.tableIndex;
-  currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
-  showInitialSmartFieldConflicts(result.tables, configs);
+  if (showInitialSmartFieldConflicts(result, configs)) return;
+  if (!publishSmartRecognitionResult(result, sourceFileId)) return;
+  applyPublishedSmartRecognitionResult(result.tables, configs);
   await nextTick();
   document.querySelector(".smart-fill")?.scrollIntoView({ block: "start" });
 };
 
 const showInitialSmartFieldConflicts = (
-  tables: SmartConfigRecognizedTable[],
+  result: SmartConfigRecognizeResult,
   configs: BatchTableConfigItem[]
 ) => {
   const conflicts = collectSmartStructureFieldConflicts(
-    tables,
+    result.tables,
     configs.filter(config => config.selected).map(config => config.tableIndex)
   );
   if (conflicts.length === 0) return false;
 
+  pendingInitialSmartRecognitionResult.value = result;
   pendingSmartFieldConflicts.value = conflicts;
   smartFieldConflictContext.value = "initial";
+  currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
   smartFieldConflictDialogVisible.value = true;
   return true;
 };
 
 const activeSmartStructureTab = ref<number | undefined>();
+const applyPublishedSmartRecognitionResult = (
+  tables: SmartConfigRecognizedTable[],
+  configs: BatchTableConfigItem[]
+) => {
+  batchTableConfigs.value = configs;
+  activeSmartStructureTab.value =
+    configs.find(config => {
+      const table = tables.find(item => item.tableIndex === config.tableIndex);
+      return config.selected && table?.decision !== "AutoApply";
+    })?.tableIndex ??
+    configs[0]?.tableIndex ??
+    tables[0]?.tableIndex;
+  currentStep.value = SMART_FILL_STEP_RECOGNITION_REVIEW;
+};
+
 const smartFillSelectableTableIndexes = computed(() =>
   batchTableConfigs.value.map(config => config.tableIndex)
 );
@@ -972,33 +996,64 @@ const confirmSelectedSmartStructuresAndContinue = async () => {
 };
 
 const handleSmartFieldConflictCancel = () => {
+  if (smartFieldConflictContext.value === "initial") {
+    smartFieldConflictDialogVisible.value = false;
+    smartFieldConflictContext.value = null;
+    return;
+  }
   smartFieldConflictDialogVisible.value = false;
   pendingSmartFieldConflicts.value = [];
   smartFieldConflictContext.value = null;
 };
 
+const reopenInitialSmartFieldConflictDialog = () => {
+  if (
+    !pendingInitialSmartRecognitionResult.value ||
+    pendingSmartFieldConflicts.value.length === 0
+  ) {
+    return;
+  }
+  smartFieldConflictContext.value = "initial";
+  smartFieldConflictDialogVisible.value = true;
+};
+
 const handleSmartFieldConflictConfirm = async (
   selections: SmartStructureFieldConflictSelection[]
 ) => {
-  const previousTables = recognizedTables.value;
+  const initialResult = pendingInitialSmartRecognitionResult.value;
+  const previousTables =
+    smartFieldConflictContext.value === "initial"
+      ? (initialResult?.tables ?? [])
+      : recognizedTables.value;
   const nextTables = previousTables.map(table =>
     applySmartStructureFieldSelectionsToTable(table, selections)
   );
   if (smartFieldConflictContext.value === "initial") {
-    if (!replaceRecognizedTables(nextTables, uploadedFile.value?.fileId)) {
+    const nextResult = initialResult
+      ? { ...initialResult, tables: nextTables }
+      : null;
+    if (
+      !nextResult ||
+      !publishSmartRecognitionResult(nextResult, uploadedFile.value?.fileId)
+    ) {
+      clearPendingInitialSmartRecognition();
       smartFieldConflictDialogVisible.value = false;
       pendingSmartFieldConflicts.value = [];
       smartFieldConflictContext.value = null;
       return;
     }
-    batchTableConfigs.value = buildSmartFillConfigsFromRecognizedTables({
+    const configs = buildSmartFillConfigsFromRecognizedTables({
       isExcelFile: isExcelFile.value,
       tables: nextTables,
       tableInfos: allTables.value
     });
+    applyPublishedSmartRecognitionResult(nextTables, configs);
+    clearPendingInitialSmartRecognition();
     smartFieldConflictDialogVisible.value = false;
     pendingSmartFieldConflicts.value = [];
     smartFieldConflictContext.value = null;
+    await nextTick();
+    document.querySelector(".smart-fill")?.scrollIntoView({ block: "start" });
     return;
   }
   const nextDrafts = { ...smartConfirmDrafts.value };
@@ -1336,13 +1391,33 @@ const retryTableMetadata = () => {
             </div>
           </div>
         </div>
+        <el-alert
+          v-if="pendingInitialSmartRecognitionResult"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="字段候选尚未确认"
+          description="请先确认冲突表头对应的数据列，确认后才会显示最终识别列和范围。"
+          class="smart-fill-pending-field-conflict"
+        >
+          <template #default>
+            <el-button
+              type="primary"
+              @click="reopenInitialSmartFieldConflictDialog"
+            >
+              继续选择数据列
+            </el-button>
+          </template>
+        </el-alert>
         <SmartStructureSummaryBanner
+          v-else
           :tables="recognizedTables"
           :loading="smartRecognizing"
           :error="smartRecognitionError"
           @retry="runSmartStructureRecognition"
         />
         <SmartStructureConfirmTabs
+          v-if="!pendingInitialSmartRecognitionResult"
           v-model:active-table-index="activeSmartStructureTab"
           :tables="recognizedTables"
           :table-infos="allTables"
