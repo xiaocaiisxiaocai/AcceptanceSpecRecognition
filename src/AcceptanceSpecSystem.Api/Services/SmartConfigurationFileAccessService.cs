@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AcceptanceSpecSystem.Api.Services;
 
 /// <summary>
-/// 使用当前登录上下文和规格数据范围裁决智能结构配置可访问的文件。
+/// 使用当前登录上下文裁决智能结构配置可访问的文件和共享基础数据。
 /// </summary>
 public sealed class SmartConfigurationFileAccessService : ISmartConfigurationFileAccessService
 {
@@ -50,25 +50,15 @@ public sealed class SmartConfigurationFileAccessService : ISmartConfigurationFil
         CancellationToken cancellationToken = default)
     {
         var scope = await ResolveScopeAsync(cancellationToken);
-        if (scope == null ||
-            !await _unitOfWork.Customers.Query().AnyAsync(item => item.Id == customerId, cancellationToken))
+        if (scope == null)
         {
             return false;
         }
 
-        if (scope.IsAll)
-        {
-            return true;
-        }
-
-        var customerSpecs = _unitOfWork.AcceptanceSpecs.Query()
-            .Where(item => item.CustomerId == customerId);
-        // Customer 没有独立归属字段，非全范围用户只能通过已有规格的数据范围证明访问权；
-        // 空客户无法证明归属时必须 fail closed，首次配置仅允许全范围用户执行。
-        return await SpecDataScopeHelper.ApplyScopeToQuery(
-                customerSpecs,
-                scope)
-            .AnyAsync(cancellationToken);
+        // 客户是共享基础数据，不应通过历史验收规格的数据范围反向限制访问。
+        // 规格和上传文件仍分别在各自查询入口执行数据范围校验。
+        return await _unitOfWork.Customers.Query()
+            .AnyAsync(item => item.Id == customerId, cancellationToken);
     }
 
     private async Task<DataScopeResult?> ResolveScopeAsync(CancellationToken cancellationToken)

@@ -37,7 +37,7 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task Recognize_WhenOwnedFileUsesCustomerOutsideSpecScope_ShouldReturnNotFound()
+    public async Task Recognize_WhenOwnedFileUsesSharedCustomerWithOutOfScopeSpecs_ShouldSucceed()
     {
         await RestrictCommonRoleToSelfAsync();
         var fileId = await UploadAsCommonAsync();
@@ -49,7 +49,9 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
             new { fileId, customerId });
         using var response = await _client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -196,7 +198,7 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
     }
 
     [Fact]
-    public async Task Confirm_WhenCommonUserOwnsFileButCustomerIsOutsideSpecScope_ShouldRejectWithoutWrites()
+    public async Task Confirm_WhenCommonUserOwnsFileAndSharedCustomerHasOutOfScopeSpecs_ShouldSaveTemplate()
     {
         await RestrictCommonRoleToSelfAsync();
         var fileId = await UploadAsCommonAsync();
@@ -210,9 +212,11 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
                 fileId,
                 tableIndex = 0,
                 customerId,
-                headers = new[] { "项目", "规格" },
+                headers = new[] { "项目", "规格", "验收", "备注" },
                 projectColumnIndex = 0,
                 specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
                 headerRowIndex = 0,
                 headerRowCount = 1,
                 dataStartRowIndex = 1,
@@ -220,15 +224,17 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
             });
         using var response = await _client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync());
         await using var scope = _factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        (await db.DocumentTemplates.AnyAsync(item => item.CustomerId == customerId)).Should().BeFalse();
+        (await db.DocumentTemplates.AnyAsync(item => item.CustomerId == customerId)).Should().BeTrue();
         (await db.ColumnMappingRules.AnyAsync(item => item.CustomerId == customerId)).Should().BeFalse();
     }
 
     [Fact]
-    public async Task Confirm_WhenNonAllScopeTargetsEmptyCustomer_ShouldFailClosed()
+    public async Task Confirm_WhenNonAllScopeTargetsSharedCustomerWithoutSpecs_ShouldSucceed()
     {
         await RestrictCommonRoleToSelfAsync();
         var fileId = await UploadAsCommonAsync();
@@ -241,6 +247,36 @@ public class SmartConfigFileDataScopeTests : IClassFixture<ApiWebApplicationFact
                 fileId,
                 tableIndex = 0,
                 customerId,
+                headers = new[] { "项目", "规格", "验收", "备注" },
+                projectColumnIndex = 0,
+                specificationColumnIndex = 1,
+                acceptanceColumnIndex = 2,
+                remarkColumnIndex = 3,
+                headerRowIndex = 0,
+                headerRowCount = 1,
+                dataStartRowIndex = 1,
+                learnedColumns = Array.Empty<object>()
+            });
+        using var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Confirm_WhenSharedCustomerDoesNotExist_ShouldReturnNotFound()
+    {
+        await RestrictCommonRoleToSelfAsync();
+        var fileId = await UploadAsCommonAsync();
+
+        using var request = CreateCommonRequest(
+            "/api/smart-config/confirm",
+            new
+            {
+                fileId,
+                tableIndex = 0,
+                customerId = int.MaxValue,
                 headers = new[] { "项目", "规格" },
                 projectColumnIndex = 0,
                 specificationColumnIndex = 1,
