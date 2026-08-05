@@ -11,6 +11,13 @@ const smartFillStyleSource = readFileSync(
   resolve(process.cwd(), "web/src/views/smart-fill/index.styles.css"),
   "utf8"
 );
+const smartFillStructurePreviewSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/smart-fill/components/SmartFillStructurePreviewPanel.vue"
+  ),
+  "utf8"
+);
 
 const reviewStart = smartFillSource.indexOf(
   'class="step-panel smart-fill-recognition-review"'
@@ -38,5 +45,28 @@ test("智能填充识别确认页移除结果概览并将重新识别移到页�
   assert.match(
     smartFillStyleSource,
     /\.smart-fill-recognition-review[\s\S]*\.smart-structure-confirm-tabs \.el-tabs__header[\s\S]*padding-right:/
+  );
+});
+
+test("智能填充识别确认页使用双栏待填充预览并在窄屏上下排列", () => {
+  assert.match(
+    smartFillSource,
+    /class="smart-fill-recognition-workspace"[\s\S]*class="smart-fill-recognition-workspace__configuration"[\s\S]*<SmartStructureConfirmTabs[\s\S]*class="smart-fill-recognition-workspace__preview"[\s\S]*<SmartFillStructurePreviewPanel/
+  );
+  assert.match(
+    smartFillSource,
+    /:config="activeSmartFillStructurePreviewConfig"/
+  );
+  assert.match(
+    smartFillStyleSource,
+    /\.smart-fill-recognition-workspace\s*{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:/
+  );
+  assert.match(
+    smartFillStyleSource,
+    /@media\s*\(width\s*<=\s*1280px\)[\s\S]*\.smart-fill-recognition-workspace\s*{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\);/
+  );
+  assert.match(
+    smartFillStructurePreviewSource,
+    /v-if="regions\.length > 1"[\s\S]*v-model="activeRegionKey"[\s\S]*<TablePreview[\s\S]*activeRegion\.mapping/
   );
 });

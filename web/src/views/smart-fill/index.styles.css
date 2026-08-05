@@ -95,10 +95,40 @@
 }
 
 .smart-fill-recognition-review {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.smart-fill-recognition-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.smart-fill-recognition-workspace__configuration {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+}
+
+.smart-fill-recognition-workspace__preview {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  box-sizing: border-box;
+  min-width: 0;
+  height: min(720px, calc(100dvh - 316px));
+  min-height: 480px;
+  padding: 12px;
+  overflow: hidden;
+  background: var(--el-bg-color);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
 }
 
 .smart-fill-recognition-toolbar {
@@ -112,7 +142,7 @@
   min-height: 40px;
 }
 
-.smart-fill-recognition-review
+.smart-fill-recognition-workspace__configuration
   :deep(.smart-structure-confirm-tabs .el-tabs__header) {
   padding-right: 112px;
 }
@@ -160,6 +190,18 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+@media (width <= 1280px) {
+  .smart-fill-recognition-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .smart-fill-recognition-workspace__preview {
+    position: static;
+    height: min(620px, 70dvh);
+    min-height: 420px;
+  }
 }
 
 .preview-blocking-alert {

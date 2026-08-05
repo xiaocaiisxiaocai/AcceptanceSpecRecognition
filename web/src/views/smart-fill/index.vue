@@ -18,6 +18,7 @@ import SmartFillPreviewStep from "./components/SmartFillPreviewStep.vue";
 import SmartFillSteps from "./components/SmartFillSteps.vue";
 import SmartFillTableStep from "./components/SmartFillTableStep.vue";
 import SmartFillUploadStep from "./components/SmartFillUploadStep.vue";
+import SmartFillStructurePreviewPanel from "./components/SmartFillStructurePreviewPanel.vue";
 import SmartStructureConfirmTabs from "@/views/shared/SmartStructureConfirmTabs.vue";
 import SmartStructureSummaryBanner from "@/views/shared/SmartStructureSummaryBanner.vue";
 import SmartStructureAiAssistControl from "@/views/shared/SmartStructureAiAssistControl.vue";
@@ -83,6 +84,7 @@ import {
   syncSmartFillConfigsToRecognizedTables
 } from "./smartFill.smartRecognition";
 import { runSmartFillConfirmSelection } from "./smartFill.confirmSelection";
+import { resolveSmartFillStructurePreviewConfig } from "./smartFill.structurePreview";
 import {
   applySmartStructureFieldSelectionsToDraft,
   applySmartStructureFieldSelectionsToTable,
@@ -815,6 +817,12 @@ const showInitialSmartFieldConflicts = (
 };
 
 const activeSmartStructureTab = ref<number | undefined>();
+const activeSmartFillStructurePreviewConfig = computed(() =>
+  resolveSmartFillStructurePreviewConfig(
+    batchTableConfigs.value,
+    activeSmartStructureTab.value
+  )
+);
 const applyPublishedSmartRecognitionResult = (
   tables: SmartConfigRecognizedTable[],
   configs: BatchTableConfigItem[]
@@ -1363,19 +1371,6 @@ const retryTableMetadata = () => {
         "
         class="step-panel smart-fill-recognition-review"
       >
-        <div
-          v-if="!pendingInitialSmartRecognitionResult"
-          class="smart-fill-recognition-toolbar"
-        >
-          <el-button
-            type="primary"
-            plain
-            :loading="smartRecognizing"
-            @click="runSmartStructureRecognition"
-          >
-            重新识别
-          </el-button>
-        </div>
         <el-alert
           v-if="pendingInitialSmartRecognitionResult"
           type="warning"
@@ -1394,36 +1389,59 @@ const retryTableMetadata = () => {
             </el-button>
           </template>
         </el-alert>
-        <SmartStructureConfirmTabs
-          v-if="!pendingInitialSmartRecognitionResult"
-          v-model:active-table-index="activeSmartStructureTab"
-          :tables="recognizedTables"
-          :table-infos="allTables"
-          :is-excel-file="isExcelFile"
-          :inline-excel-region-editor="isExcelFile"
-          :selected-table-indexes="selectedTableIndexes"
-          :selectable-table-indexes="smartFillSelectableTableIndexes"
-          :selection-disabled-reasons="smartFillSelectionDisabledReasons"
-          :file-id="uploadedFile?.fileId"
-          :customer-id="matchScope.customerId"
-          :confirming-table-index="effectiveSmartConfirmingTableIndex"
-          :show-confirm-action="false"
-          :interaction-locked="smartBatchConfirmRunning"
-          @draft-change="handleSmartStructureDraftChange"
-          @advanced="enterAdvancedMode"
-          @update:table-selected="
-            (table, selected) =>
-              handleRecognizedTableSelectionChange(table.tableIndex, selected)
-          "
-        />
-        <div class="smart-fill-entry-actions">
-          <el-button
-            v-if="showManualFallback"
-            :disabled="!uploadedFile"
-            @click="enterAdvancedMode"
-          >
-            手动处理
-          </el-button>
+        <div v-else class="smart-fill-recognition-workspace">
+          <div class="smart-fill-recognition-workspace__configuration">
+            <div class="smart-fill-recognition-toolbar">
+              <el-button
+                type="primary"
+                plain
+                :loading="smartRecognizing"
+                @click="runSmartStructureRecognition"
+              >
+                重新识别
+              </el-button>
+            </div>
+            <SmartStructureConfirmTabs
+              v-model:active-table-index="activeSmartStructureTab"
+              :tables="recognizedTables"
+              :table-infos="allTables"
+              :is-excel-file="isExcelFile"
+              :inline-excel-region-editor="isExcelFile"
+              :selected-table-indexes="selectedTableIndexes"
+              :selectable-table-indexes="smartFillSelectableTableIndexes"
+              :selection-disabled-reasons="smartFillSelectionDisabledReasons"
+              :file-id="uploadedFile?.fileId"
+              :customer-id="matchScope.customerId"
+              :confirming-table-index="effectiveSmartConfirmingTableIndex"
+              :show-confirm-action="false"
+              :interaction-locked="smartBatchConfirmRunning"
+              @draft-change="handleSmartStructureDraftChange"
+              @advanced="enterAdvancedMode"
+              @update:table-selected="
+                (table, selected) =>
+                  handleRecognizedTableSelectionChange(
+                    table.tableIndex,
+                    selected
+                  )
+              "
+            />
+            <div class="smart-fill-entry-actions">
+              <el-button
+                v-if="showManualFallback"
+                :disabled="!uploadedFile"
+                @click="enterAdvancedMode"
+              >
+                手动处理
+              </el-button>
+            </div>
+          </div>
+          <aside class="smart-fill-recognition-workspace__preview">
+            <SmartFillStructurePreviewPanel
+              :file-id="uploadedFile?.fileId"
+              :config="activeSmartFillStructurePreviewConfig"
+              :is-excel-file="isExcelFile"
+            />
+          </aside>
         </div>
       </section>
 
