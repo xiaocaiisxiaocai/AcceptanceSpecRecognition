@@ -687,7 +687,7 @@ test("任一结构确认进行中应锁定所有结构编辑入口", () => {
   assert.match(confirmCardSource, /:disabled="controlsLocked"/);
   assert.match(
     confirmCardSource,
-    /if \(!locked\) return;[\s\S]*rangeEditorVisible\.value = false;[\s\S]*inlineEditorVisible\.value = false;/
+    /if \(!locked\) return;[\s\S]*rangeEditorVisible\.value = false;/
   );
 });
 
@@ -714,7 +714,11 @@ test("待确认卡片应展示区域级问题，避免只显示状态而不说�
   assert.match(confirmCardSource, /文件结构与历史模板不一致，需要重新确认/);
   assert.match(confirmCardSource, /role="alert"/);
   assert.match(confirmCardSource, /v-for="detail in structureRecoveryDetails"/);
-  assert.match(confirmCardSource, /@click="showRangeEditor"/);
+  assert.match(
+    confirmCardSource,
+    /v-if="!readonly && !useInlineExcelEditor"[\s\S]*@click="showRangeEditor"/
+  );
+  assert.match(confirmCardSource, /请双击上方对应区域/);
   assert.match(confirmCardSource, /const visibleIssues = computed/);
   assert.match(confirmCardSource, /v-for="issue in visibleIssues"/);
 });
@@ -828,17 +832,45 @@ test("数据导入 Excel 确认页应启用同一草稿的内联行列与 A1 编
   );
   assert.match(
     confirmCardSource,
-    /v-if="useInlineExcelEditor"[\s\S]*:model-value="activeRegions"/
+    /v-if="useInlineExcelEditor"[\s\S]*class="inline-region-editor-panel"[\s\S]*<SmartStructureExcelRegionEditor[\s\S]*compact[\s\S]*:model-value="activeRegions"/
   );
-  assert.match(confirmCardSource, /<Teleport to="body">/);
+  assert.match(confirmCardSource, /v-else[\s\S]*class="range-summary-panel"/);
+  assert.doesNotMatch(confirmCardSource, /<Teleport to="body">/);
+  assert.doesNotMatch(confirmCardSource, /smart-structure-inline-drawer/);
+  assert.doesNotMatch(confirmCardSource, /inlineEditorVisible/);
+  assert.match(excelRegionEditorSource, /compact\?: boolean/);
+  assert.match(excelRegionEditorSource, /:class="\{ 'is-compact': compact \}"/);
   assert.match(
-    confirmCardSource,
-    /v-show="inlineEditorVisible"[\s\S]*role="dialog"[\s\S]*SmartStructureExcelRegionEditor/
+    excelRegionEditorSource,
+    /\.excel-region-editor\.is-compact\s*\{[\s\S]*width:\s*min\(100%,\s*980px\)[\s\S]*font-size:\s*12px/
   );
-  assert.match(confirmCardSource, /inlineEditorVisible\.value = false/);
-  assert.doesNotMatch(
-    confirmCardSource,
-    /inlineEditorVisible\.value = !inlineEditorVisible\.value/
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-editor\.is-compact \.excel-region-endpoint-row\.is-start,[\s\S]*\.excel-region-editor\.is-compact \.excel-region-endpoint-row\.is-end\s*\{[\s\S]*grid-template-columns:\s*56px minmax\(0,\s*1fr\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<header\s+v-if="!compact"\s+class="excel-region-card__header"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /v-else[\s\S]*class="excel-region-card__number is-gutter"[\s\S]*regionIndex \+ 1/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /v-if="compact"[\s\S]*class="excel-region-card__compact-remove"[\s\S]*:disabled="disabled \|\| drafts\.length <= 1"[\s\S]*@click="removeRegion\(regionIndex\)"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<el-button\s+v-if="!compact"[\s\S]*:aria-expanded="detailsExpanded"[\s\S]*展开更多配置/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-editor\.is-compact \.excel-region-card\s*\{[\s\S]*width:\s*calc\(100% - 28px\)[\s\S]*margin-left:\s*28px/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-editor\.is-compact \.excel-region-card__number\.is-gutter\s*\{[\s\S]*position:\s*absolute[\s\S]*top:\s*50%[\s\S]*left:\s*-28px/
   );
   assert.match(confirmCardSource, /@update:model-value="handleRangesSave"/);
   assert.match(
@@ -878,22 +910,79 @@ test("Excel 单表头归一化必须计入结构变更，避免 AutoApply 跳过
   );
 });
 
-test("右侧抽屉应圈定焦点、恢复触发按钮并锁定背景滚动", () => {
-  assert.match(confirmCardSource, /onBeforeUnmount/);
-  assert.match(confirmCardSource, /const handleInlineDrawerKeydown/);
-  assert.match(confirmCardSource, /event\.key !== "Tab"/);
-  assert.match(confirmCardSource, /inlineDrawerTriggerRef/);
-  assert.match(confirmCardSource, /document\.body\.style\.overflow = "hidden"/);
-  assert.match(confirmCardSource, /restoreInlineDrawerEnvironment/);
-  assert.match(confirmCardSource, /@keydown="handleInlineDrawerKeydown"/);
-  assert.match(confirmCardSource, /@touchmove\.prevent/);
+test("主页面应常驻紧凑编辑器并移除重复的 Excel 右侧抽屉", () => {
+  assert.match(confirmCardSource, /ref="inlineEditorPanelRef"/);
+  assert.doesNotMatch(confirmCardSource, /const handleInlineDrawerKeydown/);
+  assert.doesNotMatch(confirmCardSource, /inlineDrawerTriggerRef/);
+  assert.doesNotMatch(confirmCardSource, /restoreInlineDrawerEnvironment/);
+  assert.doesNotMatch(confirmCardSource, /smart-structure-inline-drawer/);
+  assert.doesNotMatch(confirmCardSource, /调整范围抽屉/);
+});
+
+test("主页面识别详情应默认折叠且保留模板异常与字段映射", () => {
+  assert.match(confirmCardSource, /const hasRecognitionDetails = computed/);
   assert.match(
     confirmCardSource,
-    /resetState\(\);[\s\S]*inlineEditorVisible\.value = true;[\s\S]*await nextTick\(\);[\s\S]*inlineDrawerRef\.value\?\.focus\(\)/
+    /<details\s+v-if="hasRecognitionDetails"\s+class="recognition-details">[\s\S]*<summary[\s\S]*识别详情[\s\S]*class="structure-recovery-alert"[\s\S]*class="region-field-list"[\s\S]*<\/details>/
+  );
+  assert.doesNotMatch(confirmCardSource, /<details[^>]*\sopen(?:\s|>)/);
+});
+
+test("主页面紧凑 A1 坐标保持只读", () => {
+  const endpointInputs = excelRegionEditorSource.match(/<el-input[\s\S]*?\/>/g);
+  assert.ok(endpointInputs && endpointInputs.length >= 2);
+  assert.ok(
+    endpointInputs
+      .slice(0, 2)
+      .every(input => input.includes(':readonly="compact"'))
+  );
+  assert.ok(
+    endpointInputs
+      .slice(0, 2)
+      .every(input => input.includes(':tabindex="compact ? -1 : undefined"'))
   );
   assert.match(
-    confirmCardSource,
-    /\.smart-structure-inline-drawer__body\s*\{[\s\S]*overscroll-behavior:\s*contain/
+    excelRegionEditorSource,
+    /const handleA1EndpointInput =[\s\S]*if \(props\.compact\) return;/
+  );
+});
+
+test("双击主页面区域应在摘要下方展开且只展开当前区域配置", () => {
+  assert.match(
+    excelRegionEditorSource,
+    /const selectedCompactRegionId = ref<string \| null>\(null\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /const selectedCompactRegionIndex = computed[\s\S]*findIndex[\s\S]*selectedCompactRegionId\.value/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<article[\s\S]*@dblclick="openCompactRegionDetails\(draft\.regionId\)"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /const openCompactRegionDetails =[\s\S]*selectedCompactRegionId\.value === regionId[\s\S]*\? null[\s\S]*: regionId/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /<section[\s\S]*v-if="compact && selectedCompactDraft && selectedCompactRegionIndex >= 0"[\s\S]*class="excel-region-compact-details"[\s\S]*当前配置：区域[\s\S]*数据起始行[\s\S]*数据结束行[\s\S]*v-for="definition in fieldDefinitions"[\s\S]*definition\.label[\s\S]*definition\.required[\s\S]*仅规格表（没有独立项目列）[\s\S]*<\/section>/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /class="excel-region-compact-details__close"[\s\S]*@click="closeCompactRegionDetails"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /class="excel-region-compact-details__fields"[\s\S]*class="excel-region-compact-details__field"[\s\S]*数据起始行[\s\S]*数据结束行[\s\S]*v-for="definition in fieldDefinitions"[\s\S]*class="excel-region-compact-details__specification-only"/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-compact-details__fields\s*\{[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/
+  );
+  assert.match(
+    excelRegionEditorSource,
+    /\.excel-region-compact-details__specification-only\s*\{[\s\S]*grid-row:\s*1;[\s\S]*grid-column:\s*3\s*\/\s*span 2;[\s\S]*justify-content:\s*flex-start;/
   );
 });
 
@@ -936,18 +1025,14 @@ test("内联 Excel 区域编辑器只编辑数据行，并展示列映射、A1 �
   );
 });
 
-test("Excel 范围抽屉默认按四列两行显示端点和起止单元格内容，其他配置展开后才可使用", () => {
+test("Excel 内嵌编辑器默认按四列两行显示端点和起止单元格内容，其他配置展开后才可使用", () => {
   assert.doesNotMatch(excelRegionEditorSource, />字段范围</);
   assert.doesNotMatch(
     excelRegionEditorSource,
     /分别填写项目、规格、验收和备注的起止单元格/
   );
   assert.match(excelRegionEditorSource, /const detailsExpanded = ref\(false\)/);
-  assert.match(excelRegionEditorSource, /drawerOpen\?: boolean/);
-  assert.match(
-    excelRegionEditorSource,
-    /watch\([\s\S]*\(\) => props\.drawerOpen[\s\S]*detailsExpanded\.value = false/
-  );
+  assert.doesNotMatch(excelRegionEditorSource, /drawerOpen\?: boolean/);
   const resetVersionAccessorStart = excelRegionEditorSource.indexOf(
     "() => props.resetVersion"
   );
@@ -955,13 +1040,13 @@ test("Excel 范围抽屉默认按四列两行显示端点和起止单元格内�
     "watch(",
     resetVersionAccessorStart
   );
-  const drawerOpenWatchStart = excelRegionEditorSource.indexOf(
-    "() => props.drawerOpen",
+  const fileIdWatchStart = excelRegionEditorSource.indexOf(
+    "() => props.fileId",
     resetVersionWatchStart
   );
   const resetVersionWatchSource = excelRegionEditorSource.slice(
     resetVersionWatchStart,
-    drawerOpenWatchStart
+    fileIdWatchStart
   );
   assert.match(resetVersionWatchSource, /detailsExpanded\.value = false/);
   assert.match(resetVersionWatchSource, /resetFromModel\(\)/);
@@ -976,8 +1061,9 @@ test("Excel 范围抽屉默认按四列两行显示端点和起止单元格内�
   assert.doesNotMatch(excelRegionEditorSource, /details-add/);
   assert.match(
     confirmCardSource,
-    /<SmartStructureExcelRegionEditor[\s\S]*:drawer-open="inlineEditorVisible"/
+    /class="inline-region-editor-panel"[\s\S]*<SmartStructureExcelRegionEditor[\s\S]*compact/
   );
+  assert.doesNotMatch(confirmCardSource, /smart-structure-inline-drawer__body/);
   assert.match(
     excelRegionEditorSource,
     /<span\s+v-if="detailsExpanded"\s+class="excel-region-card__rows"/

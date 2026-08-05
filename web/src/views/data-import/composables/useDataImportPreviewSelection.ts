@@ -8,6 +8,7 @@ import {
   normalizeExcelMappingByTable,
   shouldBackfillProjectFromSpecification
 } from "../dataImport.helpers";
+import { buildImportRegionKey } from "../dataImport.regions";
 import type {
   ImportPreviewGroup,
   ImportPreviewRow,
@@ -59,79 +60,107 @@ export function useDataImportPreviewSelection(
   };
 
   const importPreviewGroups = computed<ImportPreviewGroup[]>(() => {
-    return options.tableConfigs.value.map(cfg => {
+    return options.tableConfigs.value.flatMap(cfg => {
       const previewData = cfg.previewData;
       const labelPrefix = options.isExcelFile.value ? "工作表" : "表格";
       const displayName = cfg.tableInfo?.name?.trim();
-      const label = displayName
+      const tableLabel = displayName
         ? `${labelPrefix} ${cfg.tableIndex + 1}（${displayName}）`
         : `${labelPrefix} ${cfg.tableIndex + 1}`;
 
       if (!previewData) {
-        return {
-          tableIndex: cfg.tableIndex,
-          label,
-          rows: []
-        };
+        return [
+          {
+            key: buildImportRegionKey(cfg.tableIndex),
+            tableIndex: cfg.tableIndex,
+            label: tableLabel,
+            rows: []
+          }
+        ];
       }
 
       const excludedRowIndexes = getExcludedRowIndexSet(cfg.tableIndex);
-      const rows = previewData.rows
-        .map((rowValues, rowIndex) => {
-          const rowLocation = cfg.excelPreviewRowLocations?.[rowIndex];
-          const rowConfig = rowLocation
-            ? options.isExcelFile.value &&
-              "headerRowStart" in rowLocation.mapping
-              ? { ...cfg, excelMapping: rowLocation.mapping }
-              : !options.isExcelFile.value &&
-                  "headerRowIndex" in rowLocation.mapping
-                ? { ...cfg, wordMapping: rowLocation.mapping }
-                : cfg
-            : cfg;
-          const columnIndexes = options.isExcelFile.value
-            ? getExcelPreviewColumnIndexes(rowConfig)
-            : getWordPreviewColumnIndexes(rowConfig);
-          const excelMapping = options.isExcelFile.value
-            ? normalizeExcelMappingByTable(
-                cfg.tableInfo,
-                rowConfig.excelMapping
-              )
-            : null;
-          const specification = getPreviewCellValue(
+      const rows = previewData.rows.map((rowValues, rowIndex) => {
+        const rowLocation = cfg.excelPreviewRowLocations?.[rowIndex];
+        const rowConfig = rowLocation
+          ? options.isExcelFile.value && "headerRowStart" in rowLocation.mapping
+            ? { ...cfg, excelMapping: rowLocation.mapping }
+            : !options.isExcelFile.value &&
+                "headerRowIndex" in rowLocation.mapping
+              ? { ...cfg, wordMapping: rowLocation.mapping }
+              : cfg
+          : cfg;
+        const columnIndexes = options.isExcelFile.value
+          ? getExcelPreviewColumnIndexes(rowConfig)
+          : getWordPreviewColumnIndexes(rowConfig);
+        const excelMapping = options.isExcelFile.value
+          ? normalizeExcelMappingByTable(cfg.tableInfo, rowConfig.excelMapping)
+          : null;
+        const specification = getPreviewCellValue(
+          rowValues,
+          columnIndexes.specificationColumn
+        );
+        return {
+          key: `${cfg.tableIndex}:${rowLocation?.regionId ?? "default"}:${rowIndex}`,
+          tableIndex: cfg.tableIndex,
+          regionId: rowLocation?.regionId,
+          regionIndex: rowLocation?.regionIndex,
+          relativeRowIndex: rowLocation?.relativeRowIndex,
+          rowIndex,
+          displayRowNumber: options.isExcelFile.value
+            ? (rowLocation?.displayRowNumber ??
+              (excelMapping?.dataStartRow ?? 1) + rowIndex)
+            : (cfg.wordMapping?.dataStartRowIndex ?? 0) + rowIndex + 1,
+          project:
+            (rowLocation?.mapping.isSpecificationOnly ??
+            shouldBackfillProjectFromSpecification(cfg))
+              ? specification
+              : getPreviewCellValue(rowValues, columnIndexes.projectColumn),
+          specification,
+          acceptance: getPreviewCellValue(
             rowValues,
-            columnIndexes.specificationColumn
-          );
-          return {
-            key: `${cfg.tableIndex}:${rowLocation?.regionId ?? "default"}:${rowIndex}`,
-            tableIndex: cfg.tableIndex,
-            regionId: rowLocation?.regionId,
-            regionIndex: rowLocation?.regionIndex,
-            relativeRowIndex: rowLocation?.relativeRowIndex,
-            rowIndex,
-            displayRowNumber: options.isExcelFile.value
-              ? (rowLocation?.displayRowNumber ??
-                (excelMapping?.dataStartRow ?? 1) + rowIndex)
-              : (cfg.wordMapping?.dataStartRowIndex ?? 0) + rowIndex + 1,
-            project:
-              (rowLocation?.mapping.isSpecificationOnly ??
-              shouldBackfillProjectFromSpecification(cfg))
-                ? specification
-                : getPreviewCellValue(rowValues, columnIndexes.projectColumn),
-            specification,
-            acceptance: getPreviewCellValue(
-              rowValues,
-              columnIndexes.acceptanceColumn
-            ),
-            remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
-          };
-        })
-        .filter(row => !excludedRowIndexes.has(row.rowIndex));
+            columnIndexes.acceptanceColumn
+          ),
+          remark: getPreviewCellValue(rowValues, columnIndexes.remarkColumn)
+        };
+      });
 
-      return {
-        tableIndex: cfg.tableIndex,
-        label,
-        rows
-      };
+      if (options.isExcelFile.value) {
+        const regionGroups = new Map<
+          string,
+          Pick<ImportPreviewGroup, "key" | "regionId" | "regionIndex">
+        >();
+        for (const row of rows) {
+          if (!row.regionId || regionGroups.has(row.regionId)) continue;
+          regionGroups.set(row.regionId, {
+            key: buildImportRegionKey(cfg.tableIndex, row.regionId),
+            regionId: row.regionId,
+            regionIndex: row.regionIndex
+          });
+        }
+
+        if (regionGroups.size > 0) {
+          return Array.from(regionGroups.values()).map(region => ({
+            ...region,
+            tableIndex: cfg.tableIndex,
+            label: `${tableLabel}· 区域 ${(region.regionIndex ?? 0) + 1}`,
+            rows: rows.filter(
+              row =>
+                row.regionId === region.regionId &&
+                !excludedRowIndexes.has(row.rowIndex)
+            )
+          }));
+        }
+      }
+
+      return [
+        {
+          key: buildImportRegionKey(cfg.tableIndex),
+          tableIndex: cfg.tableIndex,
+          label: tableLabel,
+          rows: rows.filter(row => !excludedRowIndexes.has(row.rowIndex))
+        }
+      ];
     });
   });
 

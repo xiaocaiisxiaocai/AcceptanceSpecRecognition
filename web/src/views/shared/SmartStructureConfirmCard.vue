@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { TableInfo } from "@/api/document";
 import type {
@@ -67,93 +67,16 @@ const emit = defineEmits<{
 }>();
 
 const rangeEditorVisible = ref(false);
-const inlineEditorVisible = ref(false);
-const inlineDrawerRef = ref<HTMLElement | null>(null);
-const inlineDrawerTriggerRef = ref<HTMLElement | null>(null);
+const inlineEditorPanelRef = ref<HTMLElement | null>(null);
 const inlineEditorValidationError = ref("");
 const inlineEditorResetVersion = ref(0);
 const editableRegions = ref<SmartConfigRecognizedRegion[]>([]);
-let bodyOverflowBeforeInlineDrawer: string | null = null;
 const useInlineExcelEditor = computed(
   () => props.inlineExcelRegionEditor && props.isExcelFile
 );
 const controlsLocked = computed(() =>
   Boolean(props.readonly || props.confirmationLocked || props.interactionLocked)
 );
-
-const restoreInlineDrawerEnvironment = (restoreFocus = true) => {
-  const trigger = inlineDrawerTriggerRef.value;
-  inlineDrawerTriggerRef.value = null;
-
-  if (typeof document !== "undefined") {
-    if (bodyOverflowBeforeInlineDrawer != null) {
-      document.body.style.overflow = bodyOverflowBeforeInlineDrawer;
-      bodyOverflowBeforeInlineDrawer = null;
-    }
-  }
-
-  if (restoreFocus && trigger?.isConnected && !trigger.matches(":disabled")) {
-    void nextTick(() => trigger.focus());
-  }
-};
-
-const openInlineEditor = () => {
-  if (
-    typeof document !== "undefined" &&
-    document.activeElement instanceof HTMLElement
-  ) {
-    inlineDrawerTriggerRef.value = document.activeElement;
-  }
-  inlineEditorVisible.value = true;
-};
-
-const closeInlineEditor = () => {
-  inlineEditorVisible.value = false;
-};
-
-const handleInlineDrawerKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Escape") {
-    event.preventDefault();
-    event.stopPropagation();
-    closeInlineEditor();
-    return;
-  }
-  if (event.key !== "Tab") return;
-
-  const drawer = inlineDrawerRef.value;
-  if (!drawer) return;
-  const focusableElements = Array.from(
-    drawer.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )
-  ).filter(
-    element =>
-      element.getAttribute("aria-hidden") !== "true" &&
-      element.getClientRects().length > 0
-  );
-
-  if (focusableElements.length === 0) {
-    event.preventDefault();
-    drawer.focus();
-    return;
-  }
-
-  const first = focusableElements[0];
-  const last = focusableElements[focusableElements.length - 1];
-  const activeElement = document.activeElement;
-  const focusOutsideDrawer =
-    activeElement === drawer || !drawer.contains(activeElement);
-  if (event.shiftKey && (activeElement === first || focusOutsideDrawer)) {
-    event.preventDefault();
-    last.focus();
-  } else if (
-    !event.shiftKey &&
-    (activeElement === last || focusOutsideDrawer)
-  ) {
-    event.preventDefault();
-    first.focus();
-  }
-};
 
 const getRecognizedRegions = (): SmartConfigRecognizedRegion[] =>
   props.table.regions?.length
@@ -191,7 +114,6 @@ const resetState = () => {
   });
   rangeEditorVisible.value = false;
   inlineEditorResetVersion.value += 1;
-  inlineEditorVisible.value = false;
   inlineEditorValidationError.value = "";
 };
 
@@ -199,23 +121,7 @@ watch(() => props.table, resetState, { immediate: true });
 watch(controlsLocked, locked => {
   if (!locked) return;
   rangeEditorVisible.value = false;
-  inlineEditorVisible.value = false;
 });
-watch(inlineEditorVisible, visible => {
-  if (visible) {
-    if (
-      typeof document !== "undefined" &&
-      bodyOverflowBeforeInlineDrawer == null
-    ) {
-      bodyOverflowBeforeInlineDrawer = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-    }
-    void nextTick(() => inlineDrawerRef.value?.focus());
-    return;
-  }
-  restoreInlineDrawerEnvironment();
-});
-onBeforeUnmount(() => restoreInlineDrawerEnvironment(false));
 
 const decisionTag = computed(() =>
   getSmartStructureDecisionTag(props.table.decision)
@@ -230,10 +136,6 @@ const tableKindLabel = computed(() =>
 const tableTitle = computed(
   () => props.table.tableName || `表格 ${props.table.tableIndex + 1}`
 );
-const inlineDrawerTitleId = computed(
-  () => `smart-structure-inline-drawer-title-${props.table.tableIndex}`
-);
-
 const toExcelColumnLabel = (columnNumber: number) => {
   let value = Math.max(1, columnNumber);
   let label = "";
@@ -267,19 +169,7 @@ const handleInlineValidationChange = (error: string) => {
   inlineEditorValidationError.value = error;
 };
 
-const toggleRangeEditor = () => {
-  if (useInlineExcelEditor.value) {
-    openInlineEditor();
-    return;
-  }
-  rangeEditorVisible.value = true;
-};
-
 const showRangeEditor = () => {
-  if (useInlineExcelEditor.value) {
-    openInlineEditor();
-    return;
-  }
   rangeEditorVisible.value = true;
 };
 
@@ -298,9 +188,8 @@ const resetInlineEditor = async () => {
     return;
   }
   resetState();
-  inlineEditorVisible.value = true;
   await nextTick();
-  inlineDrawerRef.value?.focus();
+  inlineEditorPanelRef.value?.focus();
 };
 
 const buildColumnRangeSummary = (
@@ -528,7 +417,10 @@ const formatStructureRecoveryDetail = (issue: SmartConfigRecognitionIssue) => {
         "存在未被任何区域覆盖的疑似业务数据",
         "的疑似业务数据未包含在当前范围内"
       )
-      .replace("请确认范围", "请调整范围");
+      .replace(
+        "请确认范围",
+        useInlineExcelEditor.value ? "请双击上方对应区域" : "请调整范围"
+      );
   }
   return issue.message;
 };
@@ -544,6 +436,14 @@ const showRecognitionEvidence = computed(
     props.table.confidence < 0.8 ||
     allIssues.value.length > 0 ||
     semanticRecallSuggestions.value.length > 0
+);
+const hasRecognitionDetails = computed(
+  () =>
+    structureRecoveryIssues.value.length > 0 ||
+    Boolean(props.table.skipReason) ||
+    visibleIssues.value.length > 0 ||
+    semanticRecallSuggestions.value.length > 0 ||
+    showRecognitionEvidence.value
 );
 const showAdvancedFallback = computed(
   () => !useInlineExcelEditor.value && needsManualStructureFallback(props.table)
@@ -600,7 +500,9 @@ const canConfirm = computed(() =>
 const confirmDisabledReason = computed(() => {
   if (canConfirm.value || props.readonly || controlsLocked.value) return "";
   if (props.table.decision === "Reject" && !hasStructureChanges.value) {
-    return "识别结果不可用，请先调整范围或列映射后再确认";
+    return useInlineExcelEditor.value
+      ? "识别结果不可用，请先双击上方对应区域调整行列配置后再确认"
+      : "识别结果不可用，请先调整范围或列映射后再确认";
   }
   return structureValidationError.value || "请先补齐必填字段后再确认";
 });
@@ -722,7 +624,28 @@ const emitConfirm = () => {
       已勾选，待配置：{{ selectionPendingReason }}
     </div>
 
-    <div class="range-summary-panel">
+    <div
+      v-if="useInlineExcelEditor"
+      ref="inlineEditorPanelRef"
+      class="inline-region-editor-panel"
+      tabindex="-1"
+      :aria-label="`${tableTitle} 数据区域编辑`"
+    >
+      <SmartStructureExcelRegionEditor
+        compact
+        :model-value="activeRegions"
+        :table="table"
+        :table-info="tableInfo"
+        :file-id="fileId"
+        :disabled="controlsLocked"
+        :reset-version="inlineEditorResetVersion"
+        @update:model-value="handleRangesSave"
+        @validation-change="handleInlineValidationChange"
+        @reset="resetInlineEditor"
+      />
+    </div>
+
+    <div v-else class="range-summary-panel">
       <div class="range-summary-heading">
         <div>
           <div class="range-summary-title">
@@ -754,7 +677,7 @@ const emitConfirm = () => {
             size="small"
             :disabled="controlsLocked"
             :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
-            @click="toggleRangeEditor"
+            @click="showRangeEditor"
           >
             调整范围
           </el-button>
@@ -789,62 +712,6 @@ const emitConfirm = () => {
         </div>
       </div>
     </div>
-
-    <Teleport to="body">
-      <div
-        v-if="useInlineExcelEditor"
-        v-show="inlineEditorVisible"
-        class="smart-structure-inline-drawer-layer"
-      >
-        <div
-          class="smart-structure-inline-drawer-mask"
-          aria-hidden="true"
-          @click="closeInlineEditor"
-          @wheel.prevent
-          @touchmove.prevent
-        />
-        <aside
-          ref="inlineDrawerRef"
-          class="smart-structure-inline-drawer"
-          role="dialog"
-          aria-modal="true"
-          :aria-labelledby="inlineDrawerTitleId"
-          tabindex="-1"
-          @click.stop
-          @keydown="handleInlineDrawerKeydown"
-        >
-          <header class="smart-structure-inline-drawer__header">
-            <div class="smart-structure-inline-drawer__heading">
-              <strong :id="inlineDrawerTitleId">调整范围</strong>
-              <span>{{ tableTitle }}</span>
-            </div>
-            <el-button
-              type="primary"
-              plain
-              size="small"
-              aria-label="关闭调整范围抽屉"
-              @click="closeInlineEditor"
-            >
-              关闭
-            </el-button>
-          </header>
-          <div class="smart-structure-inline-drawer__body">
-            <SmartStructureExcelRegionEditor
-              :model-value="activeRegions"
-              :table="table"
-              :table-info="tableInfo"
-              :file-id="fileId"
-              :disabled="controlsLocked"
-              :drawer-open="inlineEditorVisible"
-              :reset-version="inlineEditorResetVersion"
-              @update:model-value="handleRangesSave"
-              @validation-change="handleInlineValidationChange"
-              @reset="resetInlineEditor"
-            />
-          </div>
-        </aside>
-      </div>
-    </Teleport>
 
     <div v-if="showAdvancedFallback || showConfirmAction" class="card-actions">
       <el-button
@@ -887,99 +754,113 @@ const emitConfirm = () => {
       class="structure-validation-alert"
     />
 
-    <section
-      v-if="structureRecoveryIssues.length > 0"
-      class="structure-recovery-alert"
-      role="alert"
-      aria-live="polite"
-    >
-      <div class="structure-recovery-alert__content">
-        <strong>文件结构与历史模板不一致，需要重新确认</strong>
-        <span>
-          当前文件的表头或数据位置可能发生变化。请调整范围，确认表头、数据行以及项目、规格、验收、备注列。
-        </span>
-        <ul class="structure-recovery-alert__details">
-          <li v-for="detail in structureRecoveryDetails" :key="detail">
-            {{ detail }}
-          </li>
-        </ul>
-      </div>
-      <el-button
-        v-if="!readonly"
-        type="primary"
-        :disabled="controlsLocked"
-        :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
-        @click="showRangeEditor"
-      >
-        调整范围
-      </el-button>
-    </section>
+    <details v-if="hasRecognitionDetails" class="recognition-details">
+      <summary class="recognition-details__summary">
+        <span>识别详情</span>
+        <span class="recognition-details__hint">展开查看</span>
+      </summary>
+      <div class="recognition-details__body">
+        <section
+          v-if="structureRecoveryIssues.length > 0"
+          class="structure-recovery-alert"
+          role="alert"
+          aria-live="polite"
+        >
+          <div class="structure-recovery-alert__content">
+            <strong>文件结构与历史模板不一致，需要重新确认</strong>
+            <span v-if="useInlineExcelEditor">
+              当前文件的表头或数据位置可能发生变化。请双击上方对应区域，确认数据行以及项目、规格、验收、备注列。
+            </span>
+            <span v-else>
+              当前文件的表头或数据位置可能发生变化。请调整范围，确认表头、数据行以及项目、规格、验收、备注列。
+            </span>
+            <ul class="structure-recovery-alert__details">
+              <li v-for="detail in structureRecoveryDetails" :key="detail">
+                {{ detail }}
+              </li>
+            </ul>
+          </div>
+          <el-button
+            v-if="!readonly && !useInlineExcelEditor"
+            type="primary"
+            :disabled="controlsLocked"
+            :aria-label="'调整 ' + tableTitle + ' 的识别范围'"
+            @click="showRangeEditor"
+          >
+            调整范围
+          </el-button>
+        </section>
 
-    <div v-if="table.skipReason || visibleIssues.length > 0" class="issue-list">
-      <el-tag
-        v-for="issue in visibleIssues"
-        :key="`${issue.code}-${issue.field || ''}-${issue.message}`"
-        size="small"
-        effect="plain"
-        :type="getSmartStructureIssueTagType(issue.severity)"
-      >
-        {{ issue.message }}
-      </el-tag>
-      <el-tag
-        v-if="table.skipReason && visibleIssues.length === 0"
-        size="small"
-        type="info"
-        effect="plain"
-      >
-        {{ table.skipReason }}
-      </el-tag>
-    </div>
-
-    <div
-      v-if="semanticRecallSuggestions.length > 0"
-      class="semantic-recall-list"
-    >
-      <span class="semantic-recall-label">语义召回建议</span>
-      <el-tag
-        v-for="suggestion in semanticRecallSuggestions"
-        :key="`${suggestion.source}-${suggestion.columnIndex}-${suggestion.targetField}`"
-        size="small"
-        type="warning"
-        effect="plain"
-      >
-        [{{ formatColumnCoordinate(suggestion.columnIndex) }}]
-        {{ suggestion.header || `列${suggestion.columnIndex + 1}` }}
-        -> {{ getSmartStructureFieldLabel(suggestion.targetField) }}
-        {{ formatSmartStructurePercent(suggestion.confidence) }}
-        · {{ suggestion.source || "SemanticRecall" }}
-        <template v-if="suggestion.reason">
-          · {{ suggestion.reason }}
-        </template>
-      </el-tag>
-    </div>
-
-    <div v-if="showRecognitionEvidence" class="region-field-list">
-      <div
-        v-for="region in regionFieldSummaries"
-        :key="region.id"
-        class="region-field-row"
-      >
-        <span class="region-field-label">
-          {{ region.label }}表头 {{ region.headerRange }}
-        </span>
-        <div class="field-list">
+        <div
+          v-if="table.skipReason || visibleIssues.length > 0"
+          class="issue-list"
+        >
           <el-tag
-            v-for="mapping in region.mappings"
-            :key="`${region.id}-${mapping.field}-${mapping.columnIndex}`"
+            v-for="issue in visibleIssues"
+            :key="`${issue.code}-${issue.field || ''}-${issue.message}`"
             size="small"
             effect="plain"
+            :type="getSmartStructureIssueTagType(issue.severity)"
           >
-            {{ mapping.label }}: {{ mapping.header }}
-            {{ formatSmartStructurePercent(mapping.confidence) }}
+            {{ issue.message }}
+          </el-tag>
+          <el-tag
+            v-if="table.skipReason && visibleIssues.length === 0"
+            size="small"
+            type="info"
+            effect="plain"
+          >
+            {{ table.skipReason }}
           </el-tag>
         </div>
+
+        <div
+          v-if="semanticRecallSuggestions.length > 0"
+          class="semantic-recall-list"
+        >
+          <span class="semantic-recall-label">语义召回建议</span>
+          <el-tag
+            v-for="suggestion in semanticRecallSuggestions"
+            :key="`${suggestion.source}-${suggestion.columnIndex}-${suggestion.targetField}`"
+            size="small"
+            type="warning"
+            effect="plain"
+          >
+            [{{ formatColumnCoordinate(suggestion.columnIndex) }}]
+            {{ suggestion.header || `列${suggestion.columnIndex + 1}` }}
+            -> {{ getSmartStructureFieldLabel(suggestion.targetField) }}
+            {{ formatSmartStructurePercent(suggestion.confidence) }}
+            · {{ suggestion.source || "SemanticRecall" }}
+            <template v-if="suggestion.reason">
+              · {{ suggestion.reason }}
+            </template>
+          </el-tag>
+        </div>
+
+        <div v-if="showRecognitionEvidence" class="region-field-list">
+          <div
+            v-for="region in regionFieldSummaries"
+            :key="region.id"
+            class="region-field-row"
+          >
+            <span class="region-field-label">
+              {{ region.label }}表头 {{ region.headerRange }}
+            </span>
+            <div class="field-list">
+              <el-tag
+                v-for="mapping in region.mappings"
+                :key="`${region.id}-${mapping.field}-${mapping.columnIndex}`"
+                size="small"
+                effect="plain"
+              >
+                {{ mapping.label }}: {{ mapping.header }}
+                {{ formatSmartStructurePercent(mapping.confidence) }}
+              </el-tag>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
+    </details>
 
     <SmartStructureRangeEditorDrawer
       v-if="!useInlineExcelEditor"
@@ -1062,6 +943,16 @@ const emitConfirm = () => {
   background: color-mix(in srgb, var(--app-info-bg) 72%, transparent);
   border: 1px solid var(--app-border);
   border-radius: 8px;
+}
+
+.inline-region-editor-panel {
+  margin: 10px 0;
+  outline: none;
+  scroll-margin-top: 12px;
+}
+
+.inline-region-editor-panel :deep(.excel-region-editor) {
+  margin: 0;
 }
 
 .range-summary-heading {
@@ -1164,6 +1055,38 @@ const emitConfirm = () => {
   color: var(--app-text-secondary);
 }
 
+.recognition-details {
+  margin: 10px 0;
+  background: color-mix(in srgb, var(--app-info-bg) 45%, transparent);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+}
+
+.recognition-details__summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+}
+
+.recognition-details__summary::marker {
+  color: var(--app-primary);
+}
+
+.recognition-details__hint {
+  font-weight: 400;
+  color: var(--app-text-placeholder);
+}
+
+.recognition-details__body {
+  padding: 0 10px 10px;
+}
+
 .structure-recovery-alert {
   display: flex;
   gap: 16px;
@@ -1250,73 +1173,6 @@ const emitConfirm = () => {
   justify-content: flex-end;
 }
 
-.smart-structure-inline-drawer-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 1900;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.smart-structure-inline-drawer-mask {
-  position: absolute;
-  inset: 0;
-  background: rgb(15 23 42 / 38%);
-  backdrop-filter: blur(1px);
-}
-
-.smart-structure-inline-drawer {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  width: min(1120px, 92vw);
-  height: 100%;
-  outline: none;
-  background: var(--app-bg-card);
-  box-shadow: var(--app-shadow-overlay);
-}
-
-.smart-structure-inline-drawer__header {
-  display: flex;
-  flex: none;
-  gap: 16px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.smart-structure-inline-drawer__heading {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.smart-structure-inline-drawer__heading strong {
-  font-size: 16px;
-  color: var(--app-text-primary);
-}
-
-.smart-structure-inline-drawer__heading span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  white-space: nowrap;
-}
-
-.smart-structure-inline-drawer__body {
-  flex: 1;
-  min-height: 0;
-  padding: 12px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.smart-structure-inline-drawer__body :deep(.excel-region-editor) {
-  margin: 0;
-}
-
 @media (width <= 768px) {
   .card-header,
   .card-actions,
@@ -1368,10 +1224,6 @@ const emitConfirm = () => {
   .structure-recovery-alert :deep(.el-button) {
     width: 100%;
     margin-left: 0;
-  }
-
-  .smart-structure-inline-drawer {
-    width: 100vw;
   }
 }
 </style>

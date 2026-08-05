@@ -115,7 +115,10 @@ export type ImportPreviewRow = {
 };
 
 export type ImportPreviewGroup = {
+  key: string;
   tableIndex: number;
+  regionId?: string;
+  regionIndex?: number;
   label: string;
   rows: ImportPreviewRow[];
 };
