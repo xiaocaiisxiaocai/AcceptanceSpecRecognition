@@ -50,7 +50,7 @@ export const collectSmartFillBackfillCandidates = (
         originalRemark: bestMatch.remark,
         overrideAcceptance: selection.overrideAcceptance,
         overrideRemark: selection.overrideRemark,
-        decision: "skip"
+        decision: "overwrite"
       });
     }
   }

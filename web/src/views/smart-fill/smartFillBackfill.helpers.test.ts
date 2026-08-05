@@ -56,7 +56,7 @@ const table = (
 });
 
 describe("collectSmartFillBackfillCandidates", () => {
-  it("跨 Sheet 汇总普通可填充和已确认记录，排除精确直达、未确认、未选择及无匹配，并默认跳过", () => {
+  it("跨 Sheet 汇总普通可填充和已确认记录，排除精确直达、未确认、未选择及无匹配，并默认覆盖已有", () => {
     const results = [
       table(0, [
         row(0, match(10, "autoApply", "embeddingTop1"), "high"),
@@ -104,7 +104,7 @@ describe("collectSmartFillBackfillCandidates", () => {
       "fillable",
       "review"
     ]);
-    expect(candidates.every(item => item.decision === "skip")).toBe(true);
+    expect(candidates.every(item => item.decision === "overwrite")).toBe(true);
     expect(candidates[1].overrideRemark).toBe("当前备注");
   });
 });
