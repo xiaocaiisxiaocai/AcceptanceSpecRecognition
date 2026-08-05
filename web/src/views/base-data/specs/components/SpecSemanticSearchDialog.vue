@@ -7,6 +7,7 @@ import {
   type SpecSemanticSearchRequest,
   type SpecSemanticSearchResponse
 } from "@/api/spec";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import { waitForRuntimeAiSelection } from "@/utils/runtime-ai-selection-loader";
 import { buildSemanticSearchScopeKey } from "./specSemanticSearchScope";
 
@@ -226,11 +227,6 @@ const resetSearch = () => {
 
 const formatScore = (value: number) => `${(value * 100).toFixed(1)}%`;
 
-const formatImportedAt = (value?: string) => {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-};
-
 const scoreTagType = (value: number) => {
   if (value >= 0.9) return "success";
   if (value >= 0.75) return "warning";
@@ -425,7 +421,7 @@ defineExpose({
                   />
                   <el-table-column label="导入时间" width="180">
                     <template #default="{ row }">
-                      {{ formatImportedAt(row.importedAt) }}
+                      {{ formatApiUtcDateTime(row.importedAt) }}
                     </template>
                   </el-table-column>
                   <el-table-column

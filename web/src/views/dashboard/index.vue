@@ -11,6 +11,7 @@ import {
 } from "@/api/dashboard";
 import { getOrgUnitFlat, type OrgUnit } from "@/api/org-unit";
 import { useUserStoreHook } from "@/store/modules/user";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import { formatExecutionHistoryDateTime } from "@/views/other/execution-history/executionHistory.formatters";
 import DashboardSparkline from "./components/DashboardSparkline.vue";
 import { createDashboardRequestGate } from "./dashboard-request-gate";
@@ -204,12 +205,7 @@ const taskTypeText = (taskType: string) =>
   taskType === "batch-reply" ? "批量回复" : "智能填充";
 
 const formatDateTime = (value: string | undefined) => {
-  if (!value) return "-";
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleString("zh-CN", {
+  return formatApiUtcDateTime(value, "zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

@@ -85,7 +85,7 @@ test("验收规格列表应展示更新时间并对历史数据回退导入时�
   );
   assert.match(
     specTableSource,
-    /formatDateTime\(row\.updatedAt \?\? row\.importedAt\)/
+    /formatApiUtcDateTime\(row\.updatedAt \?\? row\.importedAt\)/
   );
 });
 

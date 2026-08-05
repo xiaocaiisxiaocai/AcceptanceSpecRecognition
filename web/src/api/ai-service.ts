@@ -1,4 +1,5 @@
 import { http } from "@/utils/http";
+import { parseApiUtcDateTime } from "@/utils/date-time";
 import type { ApiResponse, PagedData, PagedRequest } from "./customer";
 
 export enum AiServiceType {
@@ -95,11 +96,9 @@ export const sortAiServicesByPriority = (services: AiServiceConfig[]) =>
       return priorityDiff;
     }
 
-    const aTime = Date.parse(a.updatedAt || a.createdAt || "");
-    const bTime = Date.parse(b.updatedAt || b.createdAt || "");
-    return (
-      (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
-    );
+    const aTime = parseApiUtcDateTime(a.updatedAt || a.createdAt)?.getTime();
+    const bTime = parseApiUtcDateTime(b.updatedAt || b.createdAt)?.getTime();
+    return (bTime ?? 0) - (aTime ?? 0);
   });
 
 const baseUrl = "/api/ai-services";

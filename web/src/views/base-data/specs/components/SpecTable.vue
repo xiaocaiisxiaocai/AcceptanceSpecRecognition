@@ -21,6 +21,7 @@ import {
 } from "@/api/spec";
 import type { BusinessOrgOption } from "@/api/org-unit";
 import { hasPerms } from "@/utils/auth";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import {
   requiredSelectionRule,
   requiredTrimmedRule,
@@ -143,13 +144,6 @@ const actionColumnWidth = computed(() => {
   if (visibleActionCount === 2) return 130;
   return 170;
 });
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
-};
 
 const buildRequestParams = (): SpecListRequest => {
   const params: SpecListRequest = {
@@ -715,7 +709,7 @@ const scopeBreadcrumbItems = computed(() =>
         />
         <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
-            {{ formatDateTime(row.updatedAt ?? row.importedAt) }}
+            {{ formatApiUtcDateTime(row.updatedAt ?? row.importedAt) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" :width="actionColumnWidth" fixed="right">
@@ -872,7 +866,7 @@ const scopeBreadcrumbItems = computed(() =>
           {{ detailData.referenceCount }}
         </el-descriptions-item>
         <el-descriptions-item label="导入时间">{{
-          new Date(detailData.importedAt).toLocaleString()
+          formatApiUtcDateTime(detailData.importedAt)
         }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>

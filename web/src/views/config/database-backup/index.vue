@@ -14,6 +14,7 @@ import {
   type DatabaseBackupOptions
 } from "@/api/database-backup";
 import { hasPerms } from "@/utils/auth";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import { ensurePermission } from "@/utils/permission-guard";
 import { requiredTrimmedRule, validateForm } from "@/utils/form-rules";
 
@@ -70,9 +71,9 @@ const scheduleText = computed(() => {
 const lastRunText = computed(() => {
   const status = info.value?.status;
   if (!status?.lastStartedAt) return "无执行记录";
-  const started = formatDateTime(status.lastStartedAt);
+  const started = formatApiUtcDateTime(status.lastStartedAt);
   const finished = status.lastFinishedAt
-    ? formatDateTime(status.lastFinishedAt)
+    ? formatApiUtcDateTime(status.lastFinishedAt)
     : "运行中";
   return `${started} 至 ${finished}`;
 });
@@ -176,13 +177,6 @@ const runNow = async () => {
   } finally {
     running.value = false;
   }
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
 };
 
 const formatFileSize = (value?: number | null) => {
@@ -356,7 +350,7 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="创建时间" width="220">
           <template #default="{ row }">
-            {{ formatDateTime(row.createdAt) }}
+            {{ formatApiUtcDateTime(row.createdAt) }}
           </template>
         </el-table-column>
         <template #empty>

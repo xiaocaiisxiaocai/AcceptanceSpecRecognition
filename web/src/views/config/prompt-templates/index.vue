@@ -15,6 +15,7 @@ import {
   type PromptTemplatePreviewResponse
 } from "@/api/prompt-template";
 import { hasPerms } from "@/utils/auth";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import {
   getRequestErrorMessage,
   isGloballyHandledAuthError
@@ -289,11 +290,7 @@ onMounted(loadData);
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="180">
           <template #default="{ row }">
-            {{
-              new Date(
-                (row.updatedAt ?? row.createdAt) as string
-              ).toLocaleString()
-            }}
+            {{ formatApiUtcDateTime(row.updatedAt ?? row.createdAt) }}
           </template>
         </el-table-column>
         <el-table-column

@@ -8,6 +8,7 @@ import {
 } from "element-plus";
 import { storageLocal } from "@pureadmin/utils";
 import { hasPerms, userKey, type DataInfo } from "@/utils/auth";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import {
   createSystemUser,
   deleteSystemUser,
@@ -439,13 +440,6 @@ const canDisable = (row: SystemUser) => {
   );
 };
 
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
-};
-
 const formatRoleLabel = (roleCode?: string) => {
   if (!roleCode) return "-";
   const roleName = roleNameMap.value.get(roleCode);
@@ -548,7 +542,7 @@ onMounted(initPage);
         </el-table-column>
         <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
-            {{ formatDateTime(row.updatedAt ?? row.createdAt) }}
+            {{ formatApiUtcDateTime(row.updatedAt ?? row.createdAt) }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="300" fixed="right">

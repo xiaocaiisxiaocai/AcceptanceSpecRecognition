@@ -16,6 +16,7 @@ import {
   type MachineModelListRequest
 } from "@/api/machine-model";
 import { hasPerms } from "@/utils/auth";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 import {
   getRequestErrorMessage,
   isGloballyHandledAuthError
@@ -264,7 +265,7 @@ onMounted(() => {
           <el-table-column prop="name" label="机型名称" min-width="200" />
           <el-table-column prop="createdAt" label="创建时间" width="180">
             <template #default="{ row }">{{
-              new Date(row.createdAt).toLocaleString()
+              formatApiUtcDateTime(row.createdAt)
             }}</template>
           </el-table-column>
           <el-table-column

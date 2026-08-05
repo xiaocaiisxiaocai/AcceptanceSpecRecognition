@@ -17,6 +17,7 @@ import {
   type AuditLogListItem
 } from "@/api/audit-log";
 import { hasPerms } from "@/utils/auth";
+import { parseApiUtcDateTime, toApiUtcDateTime } from "@/utils/date-time";
 import {
   getRequestErrorMessage,
   isGloballyHandledAuthError
@@ -35,8 +36,8 @@ const advancedFiltersVisible = ref(false);
 const deleteDialogVisible = ref(false);
 const tableData = ref<AuditLogListItem[]>([]);
 const total = ref(0);
-const queryRange = ref<string[]>([]);
-const deleteForm = reactive({ range: [] as string[] });
+const queryRange = ref<Date[]>([]);
+const deleteForm = reactive({ range: [] as Date[] });
 const deleteFormRef = ref<FormInstance>();
 const deleteFormRules: FormRules<typeof deleteForm> = {
   range: [requiredSelectionRule("请选择删除时间范围")]
@@ -116,8 +117,8 @@ const formatUser = (username?: string | null) => {
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseApiUtcDateTime(value);
+  if (!date) return value;
   const pad = (part: number) => String(part).padStart(2, "0");
   return (
     [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join(
@@ -177,8 +178,8 @@ const loadData = async () => {
       username: queryParams.username || undefined,
       requestMethod: queryParams.requestMethod || undefined,
       keyword: queryParams.keyword || undefined,
-      from: from || undefined,
-      to: to || undefined
+      from: toApiUtcDateTime(from),
+      to: toApiUtcDateTime(to)
     });
 
     if (res.code === 0) {
@@ -248,8 +249,8 @@ const handleDeleteByRange = async () => {
 
     deleting.value = true;
     const res = await deleteAuditLogsByRange({
-      from: from || undefined,
-      to: to || undefined
+      from: toApiUtcDateTime(from),
+      to: toApiUtcDateTime(to)
     });
     if (res.code === 0) {
       ElMessage.success(res.message || "删除成功");
@@ -334,7 +335,7 @@ onMounted(loadData);
                   class="audit-date-filter"
                   type="datetimerange"
                   unlink-panels
-                  value-format="YYYY-MM-DDTHH:mm:ss"
+                  format="YYYY-MM-DD HH:mm:ss"
                   start-placeholder="开始时间"
                   end-placeholder="结束时间"
                 />
@@ -560,7 +561,7 @@ onMounted(loadData);
             v-model="deleteForm.range"
             type="datetimerange"
             unlink-panels
-            value-format="YYYY-MM-DDTHH:mm:ss"
+            format="YYYY-MM-DD HH:mm:ss"
             start-placeholder="开始时间"
             end-placeholder="结束时间"
           />

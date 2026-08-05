@@ -57,8 +57,9 @@ test("AI服务排序规则应由共享 API helper 统一维护", () => {
   );
   assert.match(
     aiServiceApiSource,
-    /Date\.parse\(a\.updatedAt \|\| a\.createdAt \|\| ""\)/
+    /parseApiUtcDateTime\(a\.updatedAt \|\| a\.createdAt\)\?\.getTime\(\)/
   );
+  assert.doesNotMatch(aiServiceApiSource, /Date\.parse\(/);
 });
 
 test("AI服务操作列应保持固定宽度并且操作不换行", () => {

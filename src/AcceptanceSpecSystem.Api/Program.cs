@@ -7,6 +7,7 @@ using AcceptanceSpecSystem.Api.Controllers;
 using AcceptanceSpecSystem.Api.Middleware;
 using AcceptanceSpecSystem.Api.Models;
 using AcceptanceSpecSystem.Api.Options;
+using AcceptanceSpecSystem.Api.Serialization;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Application;
 using AcceptanceSpecSystem.Application.Options;
@@ -54,6 +55,7 @@ builder.Services.AddControllers(options =>
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
     });
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {

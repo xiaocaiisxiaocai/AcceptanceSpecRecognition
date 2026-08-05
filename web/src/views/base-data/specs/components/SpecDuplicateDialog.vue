@@ -4,6 +4,7 @@ import type {
   SpecDuplicateDetectionResult,
   SpecDuplicateGroup
 } from "@/api/spec";
+import { formatApiUtcDateTime } from "@/utils/date-time";
 
 const props = defineProps<{
   modelValue: boolean;
@@ -26,11 +27,6 @@ const hasAnyGroup = computed(() => {
   if (!result) return false;
   return result.exactGroupCount > 0 || result.similarGroupCount > 0;
 });
-
-const formatImportedAt = (value?: string) => {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-};
 
 const formatScore = (value: number) => `${(value * 100).toFixed(1)}%`;
 
@@ -150,7 +146,7 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     />
                     <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
-                        {{ formatImportedAt(row.importedAt) }}
+                        {{ formatApiUtcDateTime(row.importedAt) }}
                       </template>
                     </el-table-column>
                   </el-table>
@@ -226,7 +222,7 @@ const scoreTagType = (group: SpecDuplicateGroup) => {
                     />
                     <el-table-column label="导入时间" width="180">
                       <template #default="{ row }">
-                        {{ formatImportedAt(row.importedAt) }}
+                        {{ formatApiUtcDateTime(row.importedAt) }}
                       </template>
                     </el-table-column>
                   </el-table>

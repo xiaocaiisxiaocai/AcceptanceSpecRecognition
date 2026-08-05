@@ -67,11 +67,13 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
     {
         var customerId = await CreateCustomerAsync(_client, "更新时间-客户");
         var processId = await CreateProcessAsync(_client, "更新时间-制程");
+        var businessOrgUnitId = await GetBusinessOrgUnitIdAsync();
 
         var createResponse = await _client.PostAsync(
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId,
                 customerId,
                 processId,
                 project = "首次导入项目",
@@ -106,6 +108,8 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var list = await listResponse.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
         var listedSpec = list.Data!.Items.Single(item => item.GetProperty("id").GetInt32() == specId);
+        listedSpec.GetProperty("importedAt").GetString().Should().EndWith("Z");
+        listedSpec.GetProperty("updatedAt").GetString().Should().EndWith("Z");
         listedSpec.GetProperty("importedAt").GetDateTime().Should().Be(importedAt);
         listedSpec.GetProperty("updatedAt").GetDateTime().Should().BeOnOrAfter(updateStartedAt);
     }
@@ -180,5 +184,17 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
                 remark = $"{project}备注"
             }));
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private async Task<int> GetBusinessOrgUnitIdAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await dbContext.OrgUnits
+            .Where(orgUnit =>
+                orgUnit.ParentId != null &&
+                !dbContext.OrgUnits.Any(child => child.ParentId == orgUnit.Id))
+            .Select(orgUnit => orgUnit.Id)
+            .FirstAsync();
     }
 }

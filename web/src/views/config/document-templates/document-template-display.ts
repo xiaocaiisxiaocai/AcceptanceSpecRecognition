@@ -1,10 +1,7 @@
 import type { DocumentTemplateRegion } from "@/api/document-templates";
 import { toExcelColumnLabel } from "@/views/shared/smart-structure-recognition";
 
-const explicitTimezonePattern = /(?:Z|[+-]\d{2}:\d{2})$/i;
-
-export const normalizeApiUtcDateTime = (value: string) =>
-  explicitTimezonePattern.test(value) ? value : `${value}Z`;
+export { normalizeApiUtcDateTime } from "@/utils/date-time";
 
 export const formatTemplateColumnRange = (
   columnIndex: number | null | undefined,
