@@ -170,6 +170,22 @@ public sealed class AiServiceReadinessApiTests
             .Should().Be(AiServiceReadinessState.Unknown);
     }
 
+    [Fact]
+    public void Registry_ShouldAllowExplicitAttemptUntilServiceIsKnownUnavailable()
+    {
+        var registry = new AiServiceReadinessRegistry(
+            TimeProvider.System,
+            Microsoft.Extensions.Options.Options.Create(new AiServiceReadinessOptions()));
+
+        registry.CanAttempt(42, CoreAiServicePurpose.Llm).Should().BeTrue();
+        registry.TryMarkChecking(42, CoreAiServicePurpose.Llm, out _).Should().BeTrue();
+        registry.CanAttempt(42, CoreAiServicePurpose.Llm).Should().BeTrue();
+
+        registry.ReportUnavailable(42, CoreAiServicePurpose.Llm);
+
+        registry.CanAttempt(42, CoreAiServicePurpose.Llm).Should().BeFalse();
+    }
+
     private static async Task<JsonElement> ReadSelectionAsync(HttpClient client, string purpose)
     {
         using var response = await client.GetAsync($"/api/ai-services/selection?purpose={purpose}");

@@ -16,6 +16,25 @@ public sealed class SmartConfigurationRecognizeResult
     public int FileId { get; init; }
 
     public List<SmartConfigurationRecognizedTable> Tables { get; init; } = [];
+
+    public SmartConfigurationAiAssistSummary AiAssist { get; init; } = new();
+}
+
+public sealed class SmartConfigurationAiAssistSummary
+{
+    public bool Requested { get; init; }
+
+    public string Status { get; init; } = "notNeeded";
+
+    public string? Reason { get; init; }
+
+    public int AttemptedCalls { get; init; }
+
+    public int SuccessfulCalls { get; init; }
+
+    public int FallbackCalls { get; init; }
+
+    public long ElapsedMs { get; init; }
 }
 
 public sealed record SmartConfigurationRecognizedTable

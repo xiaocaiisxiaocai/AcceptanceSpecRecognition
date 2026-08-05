@@ -128,6 +128,67 @@ describe("useSmartStructureRecognition", () => {
     }
   });
 
+  it("后端明确报告 AI 降级时向用户说明原因", async () => {
+    aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
+      code: 0,
+      data: { status: "available", serviceId: 42 }
+    });
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: {
+        ...result(9, "规则兜底"),
+        aiAssist: {
+          requested: true,
+          status: "fallback",
+          reason: "invalidOutput",
+          attemptedCalls: 1,
+          successfulCalls: 0,
+          fallbackCalls: 1,
+          elapsedMs: 900
+        }
+      }
+    });
+    messageMocks.warning.mockClear();
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(9, 1, { enableLlmAssistance: true });
+
+    expect(messageMocks.warning).toHaveBeenCalledWith(
+      "AI 返回格式异常，本次已保留规则识别结果"
+    );
+  });
+
+  it("后端报告无需调用 AI 时不显示失败提示", async () => {
+    aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
+      code: 0,
+      data: { status: "available", serviceId: 42 }
+    });
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: {
+        ...result(9, "规则完成"),
+        aiAssist: {
+          requested: true,
+          status: "notNeeded",
+          attemptedCalls: 0,
+          successfulCalls: 0,
+          fallbackCalls: 0,
+          elapsedMs: 0
+        }
+      }
+    });
+    messageMocks.warning.mockClear();
+    messageMocks.success.mockClear();
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(9, 1, { enableLlmAssistance: true });
+
+    expect(messageMocks.warning).not.toHaveBeenCalled();
+    expect(messageMocks.success).toHaveBeenCalledWith(
+      "规则识别已满足要求，本次无需调用 AI"
+    );
+  });
+
   it("reset 会取消 checking 等待且不泄漏降级提示或旧识别请求", async () => {
     vi.useFakeTimers();
     try {
@@ -177,40 +238,31 @@ describe("useSmartStructureRecognition", () => {
     expect(state.recognizing.value).toBe(false);
   });
 
-  it("有限等待结束后仍为 checking 才降级为规则识别", async () => {
-    vi.useFakeTimers();
-    try {
-      aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
-        code: 0,
-        data: { status: "checking" }
-      });
-      apiMocks.recognizeSmartConfig.mockResolvedValue({
-        code: 0,
-        data: result(9, "规则识别")
-      });
-      messageMocks.warning.mockClear();
-      const state = useSmartStructureRecognition();
+  it("checking 已携带明确服务时立即交给识别请求确认", async () => {
+    aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
+      code: 0,
+      data: { status: "checking", serviceId: 42 }
+    });
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: result(9, "AI 识别")
+    });
+    messageMocks.warning.mockClear();
+    const state = useSmartStructureRecognition();
 
-      const pending = state.recognize(9, 1, {
-        enableLlmAssistance: true
-      });
-      await vi.advanceTimersByTimeAsync(1750);
-      await pending;
+    await state.recognize(9, 1, {
+      enableLlmAssistance: true
+    });
 
-      expect(aiServiceMocks.getAiServiceSelection).toHaveBeenCalledTimes(6);
-      expect(apiMocks.recognizeSmartConfig).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enableLlmAssistance: false,
-          llmServiceId: undefined
-        }),
-        { signal: expect.any(AbortSignal) }
-      );
-      expect(messageMocks.warning).toHaveBeenCalledWith(
-        "AI 服务仍在检测中，本次先使用规则识别"
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(aiServiceMocks.getAiServiceSelection).toHaveBeenCalledTimes(1);
+    expect(apiMocks.recognizeSmartConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableLlmAssistance: true,
+        llmServiceId: 42
+      }),
+      { signal: expect.any(AbortSignal) }
+    );
+    expect(messageMocks.warning).not.toHaveBeenCalled();
   });
 
   it("reset 后发起新文件识别时忽略更晚返回的旧请求", async () => {

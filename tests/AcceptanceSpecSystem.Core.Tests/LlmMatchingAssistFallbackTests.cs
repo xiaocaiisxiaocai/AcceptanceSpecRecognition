@@ -2,6 +2,7 @@
 using System.Reflection;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
+using AcceptanceSpecSystem.Core.Documents.Intelligence.Structure;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
@@ -19,6 +20,76 @@ public class LlmMatchingAssistFallbackTests
     private const string ApprovedSourceSpecification = "AGV Dock-Bay";
     private const string ApprovedBestProject = "PanelLine";
     private const string ApprovedBestSpecification = "AGV Dock Bay";
+
+    [Fact]
+    public async Task RecallAsync_WhenStructuredPayloadIsInvalid_ShouldRetryOnceOnSameService()
+    {
+        var chat = new SequenceChatCompletionService(
+            "not-json",
+            """{"suggestions":[{"columnIndex":1,"header":"管控要求","targetField":"Specification","confidence":0.88,"reason":"语义一致"}]}""");
+        var service = new LlmMatchingAssistService(
+            new StaticPromptTemplateProvider("表头：{{headersJson}}\n未映射列：{{unmappedHeadersJson}}\n仅返回 JSON"),
+            new FixedAiServiceSelector(CreateConfig(7, "llm-structured")),
+            new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+            {
+                [7] = chat
+            }),
+            NullLogger<LlmMatchingAssistService>.Instance,
+            runtimeAvailability: new CheckingRuntimeAvailability());
+
+        var result = await service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            Headers = ["项目", "管控要求", "验收结果"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ],
+            LlmServiceId = 7
+        });
+
+        result.Should().NotBeNull();
+        result!.Suggestions.Should().ContainSingle();
+        chat.CallCount.Should().Be(2);
+        chat.LastPrompt.Should().Contain("上一次输出未通过结构化校验");
+        chat.LastExecutionSettings.Should().BeOfType<Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings>()
+            .Which.ResponseFormat.Should().BeAssignableTo<Type>();
+    }
+
+    [Fact]
+    public async Task RecallAsync_WhenExplicitServiceIsKnownUnavailable_ShouldNotCallProvider()
+    {
+        var chat = new SequenceChatCompletionService("""{"suggestions":[]}""");
+        var service = new LlmMatchingAssistService(
+            new StaticPromptTemplateProvider("表头：{{headersJson}}\n未映射列：{{unmappedHeadersJson}}\n仅返回 JSON"),
+            new FixedAiServiceSelector(CreateConfig(8, "llm-unavailable")),
+            new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+            {
+                [8] = chat
+            }),
+            NullLogger<LlmMatchingAssistService>.Instance,
+            runtimeAvailability: new KnownUnavailableRuntimeAvailability());
+
+        var action = () => service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            Headers = ["项目", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ],
+            LlmServiceId = 8
+        });
+
+        await action.Should().ThrowAsync<AiServiceUnavailableException>();
+        chat.CallCount.Should().Be(0);
+    }
 
     [Fact]
     public async Task AdjudicateAsync_WhenFirstServiceReturnsSchemaCompatibleButSemanticallyInvalidPayload_ShouldFallbackToNextService()
@@ -466,6 +537,20 @@ public class LlmMatchingAssistFallbackTests
         }
     }
 
+    private sealed class CheckingRuntimeAvailability : IAiServiceRuntimeAvailability
+    {
+        public bool IsAvailable(int serviceId, AiServicePurpose purpose) => false;
+
+        public bool CanAttempt(int serviceId, AiServicePurpose purpose) => true;
+    }
+
+    private sealed class KnownUnavailableRuntimeAvailability : IAiServiceRuntimeAvailability
+    {
+        public bool IsAvailable(int serviceId, AiServicePurpose purpose) => false;
+
+        public bool CanAttempt(int serviceId, AiServicePurpose purpose) => false;
+    }
+
     private sealed class SingleFlightPromptTemplateProvider : IPromptTemplateProvider
     {
         private readonly string _content;
@@ -705,6 +790,42 @@ public class LlmMatchingAssistFallbackTests
             yield return new StreamingChatMessageContent(AuthorRole.Assistant, _response);
             await Task.CompletedTask;
         }
+    }
+
+    private sealed class SequenceChatCompletionService(params string[] responses) : IChatCompletionService
+    {
+        private readonly Queue<string> _responses = new(responses);
+
+        public IReadOnlyDictionary<string, object?> Attributes => new Dictionary<string, object?>();
+
+        public int CallCount { get; private set; }
+
+        public string LastPrompt { get; private set; } = string.Empty;
+
+        public PromptExecutionSettings? LastExecutionSettings { get; private set; }
+
+        public Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Kernel? kernel = null,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            LastPrompt = chatHistory.Last().Content ?? string.Empty;
+            LastExecutionSettings = executionSettings;
+            IReadOnlyList<ChatMessageContent> result =
+            [
+                new ChatMessageContent(AuthorRole.Assistant, _responses.Dequeue())
+            ];
+            return Task.FromResult(result);
+        }
+
+        public IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Kernel? kernel = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingRuntimeStatusReporter : IAiServiceRuntimeStatusReporter

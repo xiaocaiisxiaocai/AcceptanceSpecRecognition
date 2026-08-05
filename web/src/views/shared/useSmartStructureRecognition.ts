@@ -5,6 +5,7 @@ import {
   recognizeSmartConfig,
   type SmartConfigConfirmRequest,
   type SmartConfigConfirmResult,
+  type SmartConfigAiAssistSummary,
   type SmartConfigRecognizeResult,
   type SmartConfigRecognizedTable
 } from "@/api/smart-config";
@@ -15,6 +16,33 @@ import {
   buildSmartConfigConfirmRequest,
   createSmartStructureSummary
 } from "./smart-structure-recognition";
+
+const showAiAssistStatus = (summary?: SmartConfigAiAssistSummary) => {
+  if (!summary?.requested) return;
+
+  if (summary.status === "applied") {
+    ElMessage.success("AI 辅助已应用到本次识别结果");
+    return;
+  }
+  if (summary.status === "notNeeded") {
+    ElMessage.success("规则识别已满足要求，本次无需调用 AI");
+    return;
+  }
+
+  const message =
+    summary.reason === "invalidOutput"
+      ? "AI 返回格式异常，本次已保留规则识别结果"
+      : summary.reason === "timeout" || summary.reason === "checkingTimeout"
+        ? "AI 响应超时，本次已保留规则识别结果"
+        : summary.reason === "unavailable"
+          ? "AI 服务当前不可用，本次已保留规则识别结果"
+          : "AI 增强调用失败，本次已保留规则识别结果";
+  ElMessage.warning(
+    summary.status === "partial"
+      ? `AI 部分未应用：${message.replace(/^AI\s*/, "")}`
+      : message
+  );
+};
 
 export function useSmartStructureRecognition() {
   const recognizing = ref(false);
@@ -70,10 +98,18 @@ export function useSmartStructureRecognition() {
       if (enableLlmAssistance) {
         try {
           const selection = await waitForRuntimeAiSelection("llm", {
-            signal: currentSelectionController.signal
+            signal: currentSelectionController.signal,
+            acceptCheckingWithServiceId: true
           });
           if (!isCurrentRequest()) return null;
           if (isRuntimeAiSelectionAvailable(selection)) {
+            llmServiceId = selection.serviceId;
+          } else if (
+            selection.status === "checking" &&
+            selection.serviceId != null
+          ) {
+            // 探测窗口结束后仍 checking 时，明确服务交由受超时保护的业务调用确认，
+            // 避免把“尚未探测完成”误判为“服务不可用”。
             llmServiceId = selection.serviceId;
           } else {
             enableLlmAssistance = false;
@@ -113,6 +149,8 @@ export function useSmartStructureRecognition() {
       if (!isCurrentRequest() || res.data.fileId !== fileId) {
         return null;
       }
+
+      showAiAssistStatus(res.data.aiAssist);
 
       if (options.publishResult !== false) {
         recognitionResult.value = res.data;

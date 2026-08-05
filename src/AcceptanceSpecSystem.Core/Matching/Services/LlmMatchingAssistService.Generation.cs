@@ -22,7 +22,8 @@ public partial class LlmMatchingAssistService
         int? serviceId,
         string errorMessage,
         Func<LlmMatchingAssistService, string, bool> isAcceptablePayload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Type? responseFormat = null)
     {
         var candidates = await GetCachedCandidatesAsync(AiServicePurpose.Llm, serviceId, cancellationToken);
         if (candidates.Count == 0)
@@ -39,31 +40,54 @@ public partial class LlmMatchingAssistService
                 var chat = _factory.CreateChatCompletionService(cfg);
                 var history = new ChatHistory();
                 history.AddUserMessage(prompt);
-                var settings = CreatePromptExecutionSettings(cfg);
+                var settings = CreatePromptExecutionSettings(cfg, responseFormat);
+                var maxAttempts = responseFormat == null ? 1 : 2;
 
-                var message = await chat.GetChatMessageContentAsync(history, settings, cancellationToken: cancellationToken);
-                var raw = SanitizeLlmOutput(message.Content);
-                sawRawResponse = true;
-
-                if (isAcceptablePayload(this, raw))
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
                 {
+                    var message = await chat.GetChatMessageContentAsync(
+                        history,
+                        settings,
+                        cancellationToken: cancellationToken);
+                    var raw = SanitizeLlmOutput(message.Content);
+                    sawRawResponse = true;
+
+                    if (isAcceptablePayload(this, raw))
+                    {
+                        _runtimeStatusReporter.ReportAvailableIfCurrent(
+                            cfg.Id,
+                            AiServicePurpose.Llm,
+                            readinessGeneration);
+                        return raw;
+                    }
+
                     _runtimeStatusReporter.ReportAvailableIfCurrent(
                         cfg.Id,
                         AiServicePurpose.Llm,
                         readinessGeneration);
-                    return raw;
+                    errors.Add($"{cfg.Name}: invalid_payload");
+                    _logger.LogWarning(
+                        "LLM 输出未通过解析校验: {Name}, attempt={Attempt}/{MaxAttempts}; 输出摘要: {Summary}",
+                        cfg.Name,
+                        attempt,
+                        maxAttempts,
+                        SensitiveLogFormatter.DescribePayload(raw));
+                    if (attempt < maxAttempts)
+                    {
+                        history.AddAssistantMessage(raw);
+                        history.AddUserMessage(
+                            "上一次输出未通过结构化校验。请修正格式，只返回符合既定 JSON Schema 的 JSON 对象，不要附加解释或 Markdown。");
+                    }
                 }
 
-                // 服务已成功返回内容，说明端点和模型可用；这里只是本次输出未满足
-                // 场景 JSON 契约，不能污染运行时可用性缓存。
-                _runtimeStatusReporter.ReportAvailableIfCurrent(
-                    cfg.Id,
-                    AiServicePurpose.Llm,
-                    readinessGeneration);
-                errors.Add($"{cfg.Name}: invalid_payload");
-                _logger.LogWarning("LLM 输出未通过解析校验，尝试下一个服务: {Name}; 输出摘要: {Summary}",
-                    cfg.Name,
-                    SensitiveLogFormatter.DescribePayload(raw));
+                if (responseFormat == null)
+                {
+                    // 非结构化旧场景保持原有候选服务回退语义。
+                    _runtimeStatusReporter.ReportAvailableIfCurrent(
+                        cfg.Id,
+                        AiServicePurpose.Llm,
+                        readinessGeneration);
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -86,6 +110,8 @@ public partial class LlmMatchingAssistService
 
         if (sawRawResponse)
         {
+            if (responseFormat != null)
+                throw new AiStructuredOutputException($"{errorMessage}：结构化输出无效");
             return null;
         }
 

@@ -45,6 +45,10 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         var table = body.Data.GetProperty("tables").EnumerateArray().Single();
         CountingColumnSemanticRecallService.CallCount.Should().Be(0);
         GetSemanticRecallSuggestions(table).Should().BeEmpty();
+        var aiAssist = body.Data.GetProperty("aiAssist");
+        aiAssist.GetProperty("requested").GetBoolean().Should().BeTrue();
+        aiAssist.GetProperty("status").GetString().Should().Be("notNeeded");
+        aiAssist.GetProperty("attemptedCalls").GetInt32().Should().Be(0);
     }
 
     [Fact]
@@ -75,6 +79,10 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         suggestion.GetProperty("targetField").GetString().Should().Be("Specification");
         suggestion.GetProperty("source").GetString().Should().Be("SemanticRecall");
         suggestion.GetProperty("confidence").GetDouble().Should().BeApproximately(0.88, 0.001);
+        var aiAssist = body.Data.GetProperty("aiAssist");
+        aiAssist.GetProperty("status").GetString().Should().Be("applied");
+        aiAssist.GetProperty("attemptedCalls").GetInt32().Should().BeGreaterThanOrEqualTo(1);
+        aiAssist.GetProperty("successfulCalls").GetInt32().Should().BeGreaterThanOrEqualTo(1);
     }
 
     [Fact]
@@ -125,6 +133,9 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         table.GetProperty("specificationColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
         table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
         GetSemanticRecallSuggestions(table).Should().BeEmpty();
+        var aiAssist = body.Data.GetProperty("aiAssist");
+        aiAssist.GetProperty("status").GetString().Should().Be("fallback");
+        aiAssist.GetProperty("reason").GetString().Should().Be("invalidOutput");
     }
 
     [Fact]
@@ -173,6 +184,10 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         body.Data.GetProperty("tables").EnumerateArray().Should().HaveCount(3);
         FailingColumnSemanticRecallService.CallCount.Should().Be(1);
+        var aiAssist = body.Data.GetProperty("aiAssist");
+        aiAssist.GetProperty("status").GetString().Should().Be("fallback");
+        aiAssist.GetProperty("reason").GetString().Should().Be("callFailed");
+        aiAssist.GetProperty("fallbackCalls").GetInt32().Should().Be(1);
     }
 
     [Fact]
@@ -194,8 +209,10 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
         }));
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         BlockingColumnSemanticRecallService.WasCancelled.Should().BeTrue();
         BlockingColumnSemanticRecallService.CancelledAfter.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        body.Data.GetProperty("aiAssist").GetProperty("reason").GetString().Should().Be("timeout");
     }
 
     private static IReadOnlyList<JsonElement> GetSemanticRecallSuggestions(JsonElement table)
