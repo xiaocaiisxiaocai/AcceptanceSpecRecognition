@@ -26,8 +26,16 @@ const getBackfillCandidateRowKey = (row: SmartFillBackfillCandidate) =>
 const formatFinalValue = (value: string | undefined) =>
   value === "" ? "（清空）" : value || "-";
 
+const formatOriginalValue = (value: string | undefined) => value || "-";
+
+const getOriginalAcceptance = (row: SmartFillBackfillCandidate) =>
+  formatOriginalValue(row.originalAcceptance);
+
 const getFinalAcceptance = (row: SmartFillBackfillCandidate) =>
   formatFinalValue(row.overrideAcceptance ?? row.originalAcceptance);
+
+const getOriginalRemark = (row: SmartFillBackfillCandidate) =>
+  formatOriginalValue(row.originalRemark);
 
 const getFinalRemark = (row: SmartFillBackfillCandidate) =>
   formatFinalValue(row.overrideRemark ?? row.originalRemark);
@@ -92,17 +100,45 @@ const getFinalRemark = (row: SmartFillBackfillCandidate) =>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="替换后验收标准" min-width="260">
+        <el-table-column label="验收标准（原值 → 新值）" min-width="260">
           <template #default="{ row }">
-            <div class="backfill-change">
-              {{ getFinalAcceptance(row) }}
+            <div class="backfill-comparison">
+              <div class="backfill-change__old">
+                <span class="backfill-change__label">原</span>
+                <span class="backfill-change__value">
+                  {{ getOriginalAcceptance(row) }}
+                </span>
+              </div>
+              <div
+                class="backfill-change__new"
+                :class="{ 'is-changed': row.overrideAcceptance !== undefined }"
+              >
+                <span class="backfill-change__label">新</span>
+                <span class="backfill-change__value">
+                  {{ getFinalAcceptance(row) }}
+                </span>
+              </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="替换后备注" min-width="220">
+        <el-table-column label="备注（原值 → 新值）" min-width="220">
           <template #default="{ row }">
-            <div class="backfill-change">
-              {{ getFinalRemark(row) }}
+            <div class="backfill-comparison">
+              <div class="backfill-change__old">
+                <span class="backfill-change__label">原</span>
+                <span class="backfill-change__value">
+                  {{ getOriginalRemark(row) }}
+                </span>
+              </div>
+              <div
+                class="backfill-change__new"
+                :class="{ 'is-changed': row.overrideRemark !== undefined }"
+              >
+                <span class="backfill-change__label">新</span>
+                <span class="backfill-change__value">
+                  {{ getFinalRemark(row) }}
+                </span>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -124,3 +160,58 @@ const getFinalRemark = (row: SmartFillBackfillCandidate) =>
     </template>
   </el-dialog>
 </template>
+
+<style scoped lang="scss">
+.backfill-comparison {
+  display: grid;
+  gap: 5px;
+  padding: 2px 0;
+}
+
+.backfill-change__old,
+.backfill-change__new {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  line-height: 20px;
+}
+
+.backfill-change__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.backfill-change__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backfill-change__old {
+  color: var(--el-text-color-secondary);
+
+  .backfill-change__label {
+    color: var(--el-text-color-secondary);
+    background: var(--el-fill-color-light);
+  }
+}
+
+.backfill-change__new {
+  color: var(--el-text-color-primary);
+
+  .backfill-change__label {
+    color: var(--el-color-primary);
+    background: var(--el-color-primary-light-9);
+  }
+
+  &.is-changed .backfill-change__value {
+    font-weight: 600;
+    color: var(--el-color-primary);
+  }
+}
+</style>
