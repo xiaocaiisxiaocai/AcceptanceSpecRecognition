@@ -88,6 +88,7 @@ internal static class ApplicationModelMappingExtensions
             Specification = item.Specification,
             Acceptance = item.Acceptance,
             Remark = item.Remark,
+            ReferenceCount = item.ReferenceCount,
             ImportedAt = item.ImportedAt,
             UpdatedAt = item.UpdatedAt,
             OwnerOrgUnitId = item.OwnerOrgUnitId,

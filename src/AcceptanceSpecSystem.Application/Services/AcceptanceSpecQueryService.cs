@@ -242,6 +242,7 @@ public sealed class AcceptanceSpecQueryService
             Specification = spec.Specification,
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
+            ReferenceCount = spec.ReferenceCount,
             ImportedAt = spec.ImportedAt,
             UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,

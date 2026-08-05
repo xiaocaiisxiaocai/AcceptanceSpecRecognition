@@ -141,6 +141,11 @@ public sealed partial class MatchingWorkflowSupportService
                 cancellationToken: cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            await IncrementAcceptanceSpecReferenceCountsAsync(
+                taskResult,
+                specDict,
+                cancellationToken);
+
             await PersistExcelExecutionAsync(wordFile, renderedContent, cancellationToken);
             await PersistDownloadArtifactAsync(
                 taskId,

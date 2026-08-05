@@ -225,6 +225,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
+            entity.Property(e => e.ReferenceCount).HasDefaultValue(0L);
             entity.HasIndex(e => new
             {
                 e.CustomerId,

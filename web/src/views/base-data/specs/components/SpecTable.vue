@@ -707,6 +707,12 @@ const scopeBreadcrumbItems = computed(() =>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
+        <el-table-column
+          prop="referenceCount"
+          label="引用次数"
+          width="88"
+          align="center"
+        />
         <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
             {{ formatDateTime(row.updatedAt ?? row.importedAt) }}
@@ -861,6 +867,9 @@ const scopeBreadcrumbItems = computed(() =>
           <div class="whitespace-pre-wrap">
             {{ detailData.remark || "-" }}
           </div>
+        </el-descriptions-item>
+        <el-descriptions-item label="引用次数">
+          {{ detailData.referenceCount }}
         </el-descriptions-item>
         <el-descriptions-item label="导入时间">{{
           new Date(detailData.importedAt).toLocaleString()

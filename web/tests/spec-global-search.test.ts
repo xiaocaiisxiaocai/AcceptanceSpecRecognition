@@ -89,6 +89,17 @@ test("验收规格列表应展示更新时间并对历史数据回退导入时�
   );
 });
 
+test("验收规格列表和详情应展示引用次数", () => {
+  assert.match(
+    specTableSource,
+    /<el-table-column[\s\S]{0,160}prop="referenceCount"[\s\S]{0,160}label="引用次数"/
+  );
+  assert.match(
+    specTableSource,
+    /<el-descriptions-item label="引用次数">[\s\S]{0,80}detailData\.referenceCount/
+  );
+});
+
 test("验收规格批量删除应要求输入删除数量并防止选择变化后误删", () => {
   const handlerStart = specTableSource.indexOf(
     "const handleBatchDelete = async () =>"

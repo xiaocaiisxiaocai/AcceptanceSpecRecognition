@@ -1,5 +1,6 @@
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
+using Microsoft.EntityFrameworkCore;
 using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 
 namespace AcceptanceSpecSystem.Application.Services;
@@ -103,9 +104,10 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         var specLookup = specIds.Length == 0
             ? new Dictionary<int, AcceptanceSpec>()
-            : (await _unitOfWork.AcceptanceSpecs.FindAsync(
-                    spec => specIds.Contains(spec.Id),
-                    cancellationToken))
+            : (await _unitOfWork.AcceptanceSpecs
+                    .Query(asNoTracking: false)
+                    .Where(spec => specIds.Contains(spec.Id))
+                    .ToListAsync(cancellationToken))
                 .ToDictionary(spec => spec.Id);
 
         foreach (var item in normalizedItems)
@@ -159,13 +161,29 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 var spec = specLookup[item.SpecId.GetValueOrDefault()];
                 if (item.Decision == BackfillDecision.Overwrite)
                 {
-                    spec.Project = RequireText(item.SourceProject, "覆盖规格的项目不能为空");
-                    spec.Specification = RequireText(item.SourceSpecification, "覆盖规格的规格不能为空");
+                    var updatedProject = RequireText(item.SourceProject, "覆盖规格的项目不能为空");
+                    var updatedSpecification = RequireText(item.SourceSpecification, "覆盖规格的规格不能为空");
+                    AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                        spec,
+                        updatedProject,
+                        updatedSpecification,
+                        item.OverrideAcceptance,
+                        item.OverrideRemark);
+                    spec.Project = updatedProject;
+                    spec.Specification = updatedSpecification;
                     spec.Acceptance = item.OverrideAcceptance;
                     spec.Remark = item.OverrideRemark;
                 }
                 else
                 {
+                    var updatedAcceptance = item.OverrideAcceptance ?? spec.Acceptance;
+                    var updatedRemark = item.OverrideRemark ?? spec.Remark;
+                    AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                        spec,
+                        spec.Project,
+                        spec.Specification,
+                        updatedAcceptance,
+                        updatedRemark);
                     if (item.OverrideAcceptance != null)
                     {
                         spec.Acceptance = item.OverrideAcceptance;
@@ -178,7 +196,6 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 }
 
                 spec.UpdatedAt = DateTime.UtcNow;
-                _unitOfWork.AcceptanceSpecs.Update(spec);
                 await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
                 response.UpdatedCount++;
                 continue;

@@ -21,13 +21,23 @@ public sealed partial class DocumentImportAppService
         string? acceptance,
         string? remark)
     {
+        var normalizedProject = project?.Trim() ?? string.Empty;
+        var normalizedSpecification = specification?.Trim() ?? string.Empty;
+        var normalizedAcceptance = NormalizeNullable(acceptance);
+        var normalizedRemark = NormalizeNullable(remark);
+        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+            existingSpec,
+            normalizedProject,
+            normalizedSpecification,
+            normalizedAcceptance,
+            normalizedRemark);
         existingSpec.CustomerId = customerId;
         existingSpec.ProcessId = processId;
         existingSpec.MachineModelId = machineModelId;
-        existingSpec.Project = project?.Trim() ?? string.Empty;
-        existingSpec.Specification = specification?.Trim() ?? string.Empty;
-        existingSpec.Acceptance = NormalizeNullable(acceptance);
-        existingSpec.Remark = NormalizeNullable(remark);
+        existingSpec.Project = normalizedProject;
+        existingSpec.Specification = normalizedSpecification;
+        existingSpec.Acceptance = normalizedAcceptance;
+        existingSpec.Remark = normalizedRemark;
         existingSpec.WordFileId = wordFileId;
         existingSpec.UpdatedAt = DateTime.UtcNow;
     }
@@ -41,11 +51,19 @@ public sealed partial class DocumentImportAppService
         string? acceptance,
         string? remark)
     {
+        var normalizedAcceptance = NormalizeNullable(acceptance);
+        var normalizedRemark = NormalizeNullable(remark);
+        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+            existingSpec,
+            existingSpec.Project,
+            existingSpec.Specification,
+            normalizedAcceptance,
+            normalizedRemark);
         existingSpec.CustomerId = customerId;
         existingSpec.ProcessId = processId;
         existingSpec.MachineModelId = machineModelId;
-        existingSpec.Acceptance = NormalizeNullable(acceptance);
-        existingSpec.Remark = NormalizeNullable(remark);
+        existingSpec.Acceptance = normalizedAcceptance;
+        existingSpec.Remark = normalizedRemark;
         existingSpec.WordFileId = wordFileId;
         existingSpec.UpdatedAt = DateTime.UtcNow;
     }

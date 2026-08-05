@@ -24,6 +24,8 @@ public sealed class AcceptanceSpecSummary
 
     public string? Remark { get; set; }
 
+    public long ReferenceCount { get; set; }
+
     public DateTime ImportedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }

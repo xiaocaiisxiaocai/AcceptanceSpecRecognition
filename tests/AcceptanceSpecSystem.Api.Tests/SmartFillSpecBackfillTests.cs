@@ -61,6 +61,7 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
         updated.Specification.Should().Be("覆盖后规格");
         updated.Acceptance.Should().Be("覆盖后验收");
         updated.Remark.Should().Be("覆盖后备注");
+        updated.ReferenceCount.Should().Be(0);
         (await db.EmbeddingCaches.AnyAsync(cache => cache.SpecId == setup.SpecId))
             .Should().BeFalse();
     }
@@ -556,6 +557,7 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
             Specification = "原规格",
             Acceptance = "原验收",
             Remark = "原备注",
+            ReferenceCount = 7,
             WordFileId = wordFile.Id,
             OwnerOrgUnitId = rootOrgUnitId,
             CreatedByUserId = 1,
