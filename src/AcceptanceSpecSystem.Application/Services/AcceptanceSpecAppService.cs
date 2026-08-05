@@ -161,6 +161,7 @@ public sealed class AcceptanceSpecAppService
             Specification = spec.Specification,
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
+            ReferenceCount = spec.ReferenceCount,
             ImportedAt = spec.ImportedAt,
             UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,
@@ -184,13 +185,22 @@ public sealed class AcceptanceSpecAppService
         if (!scope.CanAccess(spec))
             throw new ApplicationServiceException(403, "无权操作该规格");
 
-        spec.Project = NormalizeRequiredText(project, "项目名称不能为空");
-        spec.Specification = NormalizeRequiredText(specification, "规格内容不能为空");
-        spec.Acceptance = NormalizeOptionalText(acceptance);
-        spec.Remark = NormalizeOptionalText(remark);
+        var normalizedProject = NormalizeRequiredText(project, "项目名称不能为空");
+        var normalizedSpecification = NormalizeRequiredText(specification, "规格内容不能为空");
+        var normalizedAcceptance = NormalizeOptionalText(acceptance);
+        var normalizedRemark = NormalizeOptionalText(remark);
+        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+            spec,
+            normalizedProject,
+            normalizedSpecification,
+            normalizedAcceptance,
+            normalizedRemark);
+        spec.Project = normalizedProject;
+        spec.Specification = normalizedSpecification;
+        spec.Acceptance = normalizedAcceptance;
+        spec.Remark = normalizedRemark;
         spec.UpdatedAt = DateTime.UtcNow;
 
-        _unitOfWork.AcceptanceSpecs.Update(spec);
         await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -276,10 +286,17 @@ public sealed class AcceptanceSpecAppService
             var now = DateTime.UtcNow;
             foreach (var spec in snapshot.Specs)
             {
-                spec.Remark = spec.Remark!.Replace(
+                var updatedRemark = spec.Remark!.Replace(
                     snapshot.SearchText,
                     snapshot.ReplacementText,
                     StringComparison.Ordinal);
+                AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                    spec,
+                    spec.Project,
+                    spec.Specification,
+                    spec.Acceptance,
+                    updatedRemark);
+                spec.Remark = updatedRemark;
                 spec.UpdatedAt = now;
             }
 

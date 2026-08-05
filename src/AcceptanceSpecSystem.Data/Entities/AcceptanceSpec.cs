@@ -46,6 +46,11 @@ public class AcceptanceSpec
     public string? Remark { get; set; }
 
     /// <summary>
+    /// 当前版本的验收标准或备注被智能填充最终采用的行次数
+    /// </summary>
+    public long ReferenceCount { get; set; }
+
+    /// <summary>
     /// 数据归属组织节点ID（用于数据范围控制）
     /// </summary>
     public int? OwnerOrgUnitId { get; set; }

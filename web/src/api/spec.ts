@@ -14,6 +14,7 @@ export interface AcceptanceSpec {
   specification: string;
   acceptance?: string;
   remark?: string;
+  referenceCount: number;
   importedAt: string;
   updatedAt?: string | null;
   ownerOrgUnitId?: number | null;

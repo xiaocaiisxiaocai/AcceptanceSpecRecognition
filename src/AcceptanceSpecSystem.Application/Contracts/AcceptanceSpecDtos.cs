@@ -63,6 +63,11 @@ public class AcceptanceSpecDto
     public string? Remark { get; set; }
 
     /// <summary>
+    /// 当前版本被智能填充最终采用的行次数
+    /// </summary>
+    public long ReferenceCount { get; set; }
+
+    /// <summary>
     /// 导入时间
     /// </summary>
     public DateTime ImportedAt { get; set; }

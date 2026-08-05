@@ -345,6 +345,10 @@ public sealed partial class MatchingWorkflowSupportService
                         saveImmediately: false,
                         cancellationToken: cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    await IncrementAcceptanceSpecReferenceCountsAsync(
+                        taskResult,
+                        specDict,
+                        cancellationToken);
                     // 文件产物和数据库写入均已准备完成后进入不可取消提交边界，避免客户端取消造成
                     // “数据库已提交但随后按失败路径删除下载产物”的不一致状态。
                     await _unitOfWork.CommitTransactionAsync(CancellationToken.None);
