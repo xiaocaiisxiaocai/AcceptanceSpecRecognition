@@ -95,9 +95,26 @@
 }
 
 .smart-fill-recognition-review {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.smart-fill-recognition-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 40px;
+}
+
+.smart-fill-recognition-review
+  :deep(.smart-structure-confirm-tabs .el-tabs__header) {
+  padding-right: 112px;
 }
 
 /*
@@ -143,39 +160,6 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.smart-fill-recognition-context {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 14px 16px;
-  background: var(--app-bg-card);
-  border: 1px solid var(--app-border);
-  border-radius: 8px;
-}
-
-.smart-fill-recognition-context__title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--app-text-primary);
-}
-
-.smart-fill-recognition-context__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin-top: 5px;
-  font-size: 13px;
-  color: var(--app-text-secondary);
-}
-
-@media (width <= 640px) {
-  .smart-fill-recognition-context {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 
 .preview-blocking-alert {

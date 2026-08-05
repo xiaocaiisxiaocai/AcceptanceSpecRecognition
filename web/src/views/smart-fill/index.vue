@@ -248,22 +248,6 @@ const resetMatchScope = () => {
   selectedCustomerIdForRules.value = undefined;
 };
 
-const selectedScopeSummary = computed(() => {
-  const customer = customers.value.find(
-    item => item.id === matchScope.value.customerId
-  )?.name;
-  if (!customer) return "";
-
-  const process = processes.value.find(
-    item => item.id === matchScope.value.processId
-  )?.name;
-  const model = machineModels.value.find(
-    item => item.id === matchScope.value.machineModelId
-  )?.name;
-
-  return `当前匹配范围：${[customer, process, model].filter(Boolean).join(" / ")}`;
-});
-
 const loadScopeOptions = async () => {
   const request = scopeOptionsGate.begin();
   loadingScopeOptions.value = true;
@@ -1379,20 +1363,11 @@ const retryTableMetadata = () => {
         "
         class="step-panel smart-fill-recognition-review"
       >
-        <div class="smart-fill-recognition-context">
-          <div>
-            <div class="smart-fill-recognition-context__title">
-              结构识别结果
-            </div>
-            <div class="smart-fill-recognition-context__meta">
-              <span>{{ uploadedFile?.fileName }}</span>
-              <span v-if="selectedScopeSummary">{{
-                selectedScopeSummary
-              }}</span>
-            </div>
-          </div>
+        <div
+          v-if="!pendingInitialSmartRecognitionResult"
+          class="smart-fill-recognition-toolbar"
+        >
           <el-button
-            class="smart-fill-recognition-context__retry"
             type="primary"
             plain
             :loading="smartRecognizing"
