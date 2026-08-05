@@ -56,6 +56,8 @@ describe("smartFill structure preview", () => {
       headerRowCount: 2,
       dataStartRowIndex: 6,
       dataEndRowIndex: 107,
+      previewRows: 102,
+      sourceRowNumberStart: 11,
       mapping: {
         projectColumn: 2,
         specificationColumn: 3,
@@ -91,6 +93,7 @@ describe("smartFill structure preview", () => {
             dataEndRow: 8
           },
           {
+            regionId: "primary",
             regionIndex: 1,
             projectColumnIndex: 4,
             specificationColumnIndex: 5,
@@ -107,18 +110,22 @@ describe("smartFill structure preview", () => {
 
     expect(regions).toHaveLength(2);
     expect(regions[0]).toMatchObject({
-      key: "primary",
+      key: "3:0:primary",
       label: "区域 1",
       headerRowIndex: 0,
       dataStartRowIndex: 1,
-      dataEndRowIndex: 7
+      dataEndRowIndex: 7,
+      previewRows: 7,
+      sourceRowNumberStart: 2
     });
     expect(regions[1]).toMatchObject({
-      key: "3:1",
+      key: "3:1:primary",
       label: "区域 2",
       headerRowIndex: 9,
       dataStartRowIndex: 11,
       dataEndRowIndex: 19,
+      previewRows: 9,
+      sourceRowNumberStart: 12,
       mapping: {
         projectColumn: 4,
         specificationColumn: 5,
@@ -126,5 +133,6 @@ describe("smartFill structure preview", () => {
         remarkColumn: undefined
       }
     });
+    expect(new Set(regions.map(region => region.key)).size).toBe(2);
   });
 });

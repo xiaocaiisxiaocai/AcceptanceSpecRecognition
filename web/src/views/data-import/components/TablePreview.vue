@@ -27,18 +27,29 @@ const DEFAULT_PREVIEW_ROWS = 50;
 const MAX_PREVIEW_CACHE_SIZE = 80;
 const previewDataCache = new Map<string, TableData>();
 
-const props = defineProps<{
-  fileId?: number;
-  tableIndex: number;
-  previewRows?: number;
-  headerRowIndex?: number;
-  headerRowCount?: number;
-  dataStartRowIndex?: number;
-  dataEndRowIndex?: number;
-  previewLoader?: TablePreviewLoader;
-  /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
-  mapping?: ColumnMapping;
-}>();
+const props = withDefaults(
+  defineProps<{
+    fileId?: number;
+    tableIndex: number;
+    previewRows?: number;
+    headerRowIndex?: number;
+    headerRowCount?: number;
+    dataStartRowIndex?: number;
+    dataEndRowIndex?: number;
+    previewLoader?: TablePreviewLoader;
+    /** 当前列映射（用于“映射预览”：把原表格映射成 项目/规格/验收/备注 四列） */
+    mapping?: ColumnMapping;
+    /** 是否让少量预览列自动铺满容器；默认保留宽表横向滚动。 */
+    fitColumns?: boolean;
+    /** 映射预览中各列的可选固定宽度；未指定的列继续自适应填充。 */
+    mappedColumnWidths?: Array<number | undefined>;
+    /** 显示源文件行号时，对应第一条数据的 1-based 行号。 */
+    rowNumberStart?: number;
+  }>(),
+  {
+    fitColumns: false
+  }
+);
 
 const emit = defineEmits<{
   (e: "loaded", data: TableData): void;
@@ -107,6 +118,8 @@ const shouldShowHorizontalScrollHint = computed(
 const previewColumnMinWidth = computed(() =>
   displayColumnCount.value >= 10 ? 140 : 120
 );
+const getPreviewColumnMinWidth = (colIndex: number) =>
+  props.mappedColumnWidths?.[colIndex] ?? previewColumnMinWidth.value;
 
 const buildPreviewCacheKey = (query: {
   previewRows: number;
@@ -255,16 +268,28 @@ defineExpose({
           :data="displayRows"
           border
           stripe
-          :fit="false"
+          :fit="fitColumns"
           height="100%"
           size="small"
         >
+          <el-table-column
+            v-if="rowNumberStart !== undefined"
+            label="行号"
+            width="64"
+            align="center"
+            :resizable="false"
+          >
+            <template #default="{ $index }">
+              {{ rowNumberStart + (tableData.rowOffset ?? 0) + $index }}
+            </template>
+          </el-table-column>
           <el-table-column
             v-for="(header, colIndex) in displayHeaders"
             :key="colIndex"
             :label="header || `列${colIndex + 1}`"
             :prop="String(colIndex)"
-            :min-width="previewColumnMinWidth"
+            :width="mappedColumnWidths?.[colIndex]"
+            :min-width="getPreviewColumnMinWidth(colIndex)"
             :resizable="false"
             show-overflow-tooltip
           >

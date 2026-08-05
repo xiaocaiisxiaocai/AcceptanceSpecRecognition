@@ -10,8 +10,12 @@ export interface SmartFillStructurePreviewRegion {
   headerRowCount: number;
   dataStartRowIndex: number;
   dataEndRowIndex?: number;
+  previewRows: number;
+  sourceRowNumberStart: number;
   mapping: ColumnMapping;
 }
+
+const MAX_PREVIEW_ROWS = 500;
 
 const toRegionConfig = (
   config: BatchTableConfigItem
@@ -48,7 +52,7 @@ export const buildSmartFillStructurePreviewRegions = (
       )
     : [toRegionConfig(config)];
 
-  return sourceRegions.map(region => {
+  return sourceRegions.map((region, position) => {
     const headerRowStart = region.headerRowStart ?? rowBase;
     const headerRowCount = Math.max(1, region.headerRowCount ?? 1);
     const dataStartRow = region.dataStartRow ?? headerRowStart + headerRowCount;
@@ -58,16 +62,21 @@ export const buildSmartFillStructurePreviewRegions = (
       region.dataEndRow === undefined
         ? undefined
         : Math.max(dataStartRowIndex, region.dataEndRow - rowBase);
+    const regionRowCount =
+      dataEndRowIndex === undefined
+        ? Math.max(1, config.tableInfo.rowCount - dataStartRowIndex)
+        : dataEndRowIndex - dataStartRowIndex + 1;
 
     return {
-      key:
-        region.regionId?.trim() || `${config.tableIndex}:${region.regionIndex}`,
-      label: `区域 ${region.regionIndex + 1}`,
+      key: `${config.tableIndex}:${position}:${region.regionId?.trim() || "region"}`,
+      label: `区域 ${position + 1}`,
       regionIndex: region.regionIndex,
       headerRowIndex,
       headerRowCount,
       dataStartRowIndex,
       dataEndRowIndex,
+      previewRows: Math.min(MAX_PREVIEW_ROWS, regionRowCount),
+      sourceRowNumberStart: dataStartRow,
       mapping: {
         projectColumn: region.projectColumnIndex,
         specificationColumn: region.specificationColumnIndex,

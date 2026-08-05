@@ -69,4 +69,20 @@ test("智能填充识别确认页使用双栏待填充预览并在窄屏上下�
     smartFillStructurePreviewSource,
     /v-if="regions\.length > 1"[\s\S]*v-model="activeRegionKey"[\s\S]*<TablePreview[\s\S]*activeRegion\.mapping/
   );
+  assert.match(
+    smartFillStructurePreviewSource,
+    /<TablePreview[\s\S]*:fit-columns="true"/
+  );
+  assert.match(
+    smartFillStructurePreviewSource,
+    /:mapped-column-widths="\[140, undefined, 112, 112\]"/
+  );
+  assert.match(
+    smartFillStructurePreviewSource,
+    /:preview-rows="activeRegion\.previewRows"/
+  );
+  assert.match(
+    smartFillStructurePreviewSource,
+    /:row-number-start="activeRegion\.sourceRowNumberStart"/
+  );
 });

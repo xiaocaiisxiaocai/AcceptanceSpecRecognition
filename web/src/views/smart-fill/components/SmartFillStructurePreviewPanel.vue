@@ -80,7 +80,11 @@ const tableLabel = computed(
         :header-row-count="activeRegion.headerRowCount"
         :data-start-row-index="activeRegion.dataStartRowIndex"
         :data-end-row-index="activeRegion.dataEndRowIndex"
+        :preview-rows="activeRegion.previewRows"
         :mapping="activeRegion.mapping"
+        :fit-columns="true"
+        :mapped-column-widths="[140, undefined, 112, 112]"
+        :row-number-start="activeRegion.sourceRowNumberStart"
       />
     </div>
   </section>
