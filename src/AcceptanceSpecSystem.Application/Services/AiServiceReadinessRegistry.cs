@@ -170,6 +170,9 @@ public sealed class AiServiceReadinessRegistry : IAiServiceRuntimeStatusReporter
     public bool IsAvailable(int serviceId, CoreAiServicePurpose purpose) =>
         GetSnapshot(serviceId, purpose).State == AiServiceReadinessState.Available;
 
+    public bool CanAttempt(int serviceId, CoreAiServicePurpose purpose) =>
+        GetSnapshot(serviceId, purpose).State != AiServiceReadinessState.Unavailable;
+
     public long ConfigurationVersion => Interlocked.Read(ref _configurationVersion);
 
     public void Invalidate(int serviceId)

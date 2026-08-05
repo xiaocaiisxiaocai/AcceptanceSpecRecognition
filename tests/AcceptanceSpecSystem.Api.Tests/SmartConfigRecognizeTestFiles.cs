@@ -70,6 +70,19 @@ internal static class SmartConfigRecognizeTestFiles
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         content.Add(fileContent, "file", fileName);
 
+        using var contextResponse = await client.GetAsync("/api/org-units/business-context");
+        var contextText = await contextResponse.Content.ReadAsStringAsync();
+        contextResponse.StatusCode.Should().Be(HttpStatusCode.OK, contextText);
+        var context = JsonSerializer.Deserialize<ApiResponse<JsonElement>>(
+            contextText,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var contextData = context.Data;
+        var businessOrgUnitId = contextData.TryGetProperty("currentOrgUnitId", out var currentOrgUnitId) &&
+                                currentOrgUnitId.ValueKind == JsonValueKind.Number
+            ? currentOrgUnitId.GetInt32()
+            : contextData.GetProperty("options").EnumerateArray().First().GetProperty("id").GetInt32();
+        content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
+
         var response = await client.PostAsync("/api/documents/upload", content);
         var responseText = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);

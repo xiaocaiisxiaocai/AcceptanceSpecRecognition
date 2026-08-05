@@ -1,7 +1,9 @@
 ﻿using System.Collections.Concurrent;
+using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Diagnostics;
@@ -305,7 +307,8 @@ public partial class LlmMatchingAssistService :
             request.LlmServiceId,
             "LLM 列语义召回失败",
             static (service, payload) => service.TryParseColumnSemanticRecallResult(payload, out _),
-            cancellationToken);
+            cancellationToken,
+            typeof(ColumnSemanticRecallStructuredResponse));
 
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -315,6 +318,35 @@ public partial class LlmMatchingAssistService :
         return TryParseColumnSemanticRecallResult(raw, out var result)
             ? result
             : null;
+    }
+
+    private sealed class ColumnSemanticRecallStructuredResponse
+    {
+        public IReadOnlyList<ColumnSemanticRecallStructuredSuggestion> Suggestions { get; init; } = [];
+    }
+
+    private sealed class ColumnSemanticRecallStructuredSuggestion
+    {
+        public int ColumnIndex { get; init; }
+
+        public string Header { get; init; } = string.Empty;
+
+        [JsonConverter(typeof(JsonStringEnumConverter<ColumnSemanticRecallTargetField>))]
+        public ColumnSemanticRecallTargetField TargetField { get; init; }
+
+        [Range(0d, 1d)]
+        public double Confidence { get; init; }
+
+        public string Reason { get; init; } = string.Empty;
+    }
+
+    private enum ColumnSemanticRecallTargetField
+    {
+        Project,
+        Specification,
+        Acceptance,
+        Remark,
+        Unknown
     }
 
     public bool TryParseAdjudicationResult(string raw, out LlmEquivalenceAdjudicationResult result)

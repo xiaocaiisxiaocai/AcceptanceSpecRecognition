@@ -26,6 +26,7 @@ type RuntimeAiSelectionWaitOptions = {
   request?: SelectionRequest;
   retryDelayMs?: number;
   maxAttempts?: number;
+  acceptCheckingWithServiceId?: boolean;
 };
 
 const isCancellationError = (error: unknown, signal?: AbortSignal) =>
@@ -66,7 +67,8 @@ export const waitForRuntimeAiSelection = async (
     signal,
     request = getAiServiceSelection,
     retryDelayMs = 350,
-    maxAttempts = 6
+    maxAttempts = 16,
+    acceptCheckingWithServiceId = false
   }: RuntimeAiSelectionWaitOptions = {}
 ) => {
   let lastSelection: AiServiceSelection = { status: "checking" };
@@ -90,6 +92,9 @@ export const waitForRuntimeAiSelection = async (
 
     lastSelection = response.data;
     if (lastSelection.status !== "checking") return lastSelection;
+    if (acceptCheckingWithServiceId && lastSelection.serviceId != null) {
+      return lastSelection;
+    }
     if (attempt < Math.max(1, maxAttempts) - 1) {
       await waitForRetry(retryDelayMs, signal);
     }

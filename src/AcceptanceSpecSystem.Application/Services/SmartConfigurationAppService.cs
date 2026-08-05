@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 
 namespace AcceptanceSpecSystem.Application.Services;
 
@@ -35,8 +36,14 @@ public interface ISmartConfigurationAppService
 /// </summary>
 public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
 {
+    public const string AiAssistMeterName = "AcceptanceSpecSystem.SmartConfigurationAiAssist";
     private const int MaxConfirmedHeaderCount = 512;
     private static readonly ConcurrentDictionary<int, SemaphoreSlim> CustomerConfirmLocks = new();
+    private static readonly Meter AiAssistMeter = new(AiAssistMeterName);
+    private static readonly Counter<long> AiAssistResults =
+        AiAssistMeter.CreateCounter<long>("smart_configuration_ai_assist_results_total");
+    private static readonly Histogram<double> AiAssistDuration =
+        AiAssistMeter.CreateHistogram<double>("smart_configuration_ai_assist_duration_ms", "ms");
     private readonly IUnitOfWork _unitOfWork;
     private readonly DocumentServiceFactory _documentServiceFactory;
     private readonly IDocumentIntelligenceService _intelligenceService;
@@ -140,6 +147,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var fieldConflictMatcher = HeaderKeywordMatcher.FromRules(
             columnHeaderRuleSets.ConflictEligible);
         var tables = new List<SmartConfigurationRecognizedTable>();
+        var aiAssistTracker = new SmartConfigurationAiAssistTracker(command.EnableLlmAssistance);
         var llmAssistanceEnabled = command.EnableLlmAssistance && command.LlmServiceId.HasValue;
         var llmCallBudget = llmAssistanceEnabled
             ? Math.Max(0, _options.MaxLlmCallsPerRecognizeDocument)
@@ -154,6 +162,22 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         string? llmAssistanceIssue = command.EnableLlmAssistance && !command.LlmServiceId.HasValue
             ? "AI 增强未执行：请选择一个可用的 LLM 服务"
             : null;
+        if (command.EnableLlmAssistance && !command.LlmServiceId.HasValue)
+        {
+            aiAssistTracker.RecordConfigurationFallback("unavailable");
+        }
+
+        bool TryConsumeAndTrackBudget(ref int channelBudget)
+        {
+            if (llmCircuitOpen || !TryConsumeLlmBudget(ref llmCallBudget, ref channelBudget))
+            {
+                return false;
+            }
+
+            aiAssistTracker.RecordAttempt();
+            return true;
+        }
+
         void OpenLlmCircuit(Exception exception)
         {
             if (llmCircuitOpen)
@@ -207,9 +231,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 columnHeaderRules,
                 routingRules,
                 command.LlmServiceId,
-                () => !llmCircuitOpen && TryConsumeLlmBudget(ref llmCallBudget, ref structureAdjudicationBudget),
-                () => !llmCircuitOpen && TryConsumeLlmBudget(ref llmCallBudget, ref columnSemanticRecallBudget),
+                () => TryConsumeAndTrackBudget(ref structureAdjudicationBudget),
+                () => TryConsumeAndTrackBudget(ref columnSemanticRecallBudget),
                 OpenLlmCircuit,
+                aiAssistTracker,
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
@@ -233,16 +258,28 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
+        var aiAssist = aiAssistTracker.ToSummary();
+        var aiAssistTags = new TagList
+        {
+            { "status", aiAssist.Status },
+            { "reason", aiAssist.Reason ?? "none" }
+        };
+        AiAssistResults.Add(1, aiAssistTags);
+        AiAssistDuration.Record(aiAssist.ElapsedMs, aiAssistTags);
         _logger.LogInformation(
-            "智能结构识别请求完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, LlmEnabled={LlmEnabled}",
+            "智能结构识别请求完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, LlmEnabled={LlmEnabled}, AiAssistStatus={AiAssistStatus}, AiAssistCalls={AiAssistCalls}, AiAssistElapsedMs={AiAssistElapsedMs}",
             command.FileId,
             tables.Count,
             totalStopwatch.ElapsedMilliseconds,
-            llmAssistanceEnabled);
+            llmAssistanceEnabled,
+            aiAssist.Status,
+            aiAssist.AttemptedCalls,
+            aiAssist.ElapsedMs);
         return new SmartConfigurationRecognizeResult
         {
             FileId = command.FileId,
-            Tables = tables
+            Tables = tables,
+            AiAssist = aiAssist
         };
     }
 
@@ -3012,6 +3049,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
         Action<Exception> onLlmFailure,
+        SmartConfigurationAiAssistTracker aiAssistTracker,
         Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
@@ -3113,6 +3151,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 tryConsumeStructureAdjudicationBudget,
                 tryConsumeColumnSemanticRecallBudget,
                 onLlmFailure,
+                aiAssistTracker,
                 structureAdjudicationCache,
                 columnSemanticRecallCache,
                 cancellationToken);
@@ -3185,6 +3224,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         Func<bool> tryConsumeStructureAdjudicationBudget,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
         Action<Exception> onLlmFailure,
+        SmartConfigurationAiAssistTracker aiAssistTracker,
         Dictionary<string, DocumentStructureCandidate?> structureAdjudicationCache,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
@@ -3217,6 +3257,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             llmServiceId,
             tryConsumeColumnSemanticRecallBudget,
             onLlmFailure,
+            aiAssistTracker,
             columnSemanticRecallCache,
             cancellationToken);
         if (!healthCheck.CanAutoApply &&
@@ -3245,6 +3286,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                     mapping,
                     llmServiceId,
                     onLlmFailure,
+                    aiAssistTracker,
                     cancellationToken);
                 structureAdjudicationCache[structureCacheKey] = fused;
             }
@@ -3360,6 +3402,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         int? llmServiceId,
         Func<bool> tryConsumeColumnSemanticRecallBudget,
         Action<Exception> onLlmFailure,
+        SmartConfigurationAiAssistTracker aiAssistTracker,
         Dictionary<string, IReadOnlyList<SmartConfigurationColumnSemanticRecallSuggestion>> columnSemanticRecallCache,
         CancellationToken cancellationToken)
     {
@@ -3398,6 +3441,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             return ruleRecognized;
         }
 
+        var llmStopwatch = Stopwatch.StartNew();
         try
         {
             using var timeoutCts = CreateColumnSemanticRecallTimeout(cancellationToken);
@@ -3424,6 +3468,12 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 result?.Suggestions ?? [],
                 unmappedHeaders,
                 mapping);
+            if (result == null || (result.Suggestions.Count > 0 && suggestions.Count == 0))
+            {
+                throw new AiStructuredOutputException("列语义召回结果未通过业务校验");
+            }
+
+            aiAssistTracker.RecordSuccess(suggestions.Count > 0, llmStopwatch.ElapsedMilliseconds);
             columnSemanticRecallCache[cacheKey] = suggestions;
             return suggestions.Count == 0
                 ? ruleRecognized
@@ -3435,6 +3485,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
         catch (Exception ex)
         {
+            aiAssistTracker.RecordFailure(ex, llmStopwatch.ElapsedMilliseconds);
             onLlmFailure(ex);
             columnSemanticRecallCache[cacheKey] = [];
             _logger.LogWarning(
@@ -3629,8 +3680,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         ColumnMappingResult mapping,
         int? llmServiceId,
         Action<Exception> onLlmFailure,
+        SmartConfigurationAiAssistTracker aiAssistTracker,
         CancellationToken cancellationToken)
     {
+        var llmStopwatch = Stopwatch.StartNew();
         try
         {
             var ruleCandidate = SmartConfigurationRecognizedTableFactory.ToStructureCandidate(
@@ -3650,15 +3703,17 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             var llmCandidate = adjudication?.Tables.FirstOrDefault(table => table.TableIndex == tableData.TableIndex);
             if (llmCandidate != null && !IsValidHeaderStructure(llmCandidate, GetTotalRowCount(tableInfo, tableData)))
             {
-                return null;
+                throw new AiStructuredOutputException("结构裁决结果未通过业务校验");
             }
 
             var fused = DocumentStructureFusion.Merge(ruleCandidate, llmCandidate, allowLlmOverride: true);
             if (fused.Source != DocumentStructureCandidateSource.Fused)
             {
+                aiAssistTracker.RecordSuccess(false, llmStopwatch.ElapsedMilliseconds);
                 return null;
             }
 
+            aiAssistTracker.RecordSuccess(true, llmStopwatch.ElapsedMilliseconds);
             return fused;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -3667,6 +3722,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
         catch (Exception ex)
         {
+            aiAssistTracker.RecordFailure(ex, llmStopwatch.ElapsedMilliseconds);
             onLlmFailure(ex);
             _logger.LogWarning(
                 ex,
@@ -3973,7 +4029,77 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             OperationCanceledException => "所选 AI 增强服务响应超时，已停止本次文档后续 AI 调用并保留规则识别结果",
             AiServiceUnavailableException => "所选 AI 增强服务不可用，已停止本次文档后续 AI 调用并保留规则识别结果",
+            AiStructuredOutputException => "所选 AI 增强服务返回格式异常，已停止本次文档后续 AI 调用并保留规则识别结果",
             _ => "所选 AI 增强服务调用失败，已停止本次文档后续 AI 调用并保留规则识别结果"
+        };
+    }
+
+    private sealed class SmartConfigurationAiAssistTracker(bool requested)
+    {
+        private int _appliedCalls;
+        private int _attemptedCalls;
+        private int _fallbackCalls;
+        private int _successfulCalls;
+        private long _elapsedMs;
+        private string? _reason;
+
+        public void RecordAttempt() => _attemptedCalls++;
+
+        public void RecordSuccess(bool applied, long elapsedMs)
+        {
+            _successfulCalls++;
+            if (applied)
+            {
+                _appliedCalls++;
+            }
+
+            _elapsedMs += Math.Max(0, elapsedMs);
+        }
+
+        public void RecordFailure(Exception exception, long elapsedMs)
+        {
+            _fallbackCalls++;
+            _elapsedMs += Math.Max(0, elapsedMs);
+            _reason ??= ToReason(exception);
+        }
+
+        public void RecordConfigurationFallback(string reason)
+        {
+            _fallbackCalls++;
+            _reason ??= reason;
+        }
+
+        public SmartConfigurationAiAssistSummary ToSummary()
+        {
+            var status = !requested || (_attemptedCalls == 0 && _fallbackCalls == 0)
+                ? "notNeeded"
+                : _fallbackCalls > 0 && _successfulCalls > 0
+                    ? "partial"
+                    : _fallbackCalls > 0
+                        ? "fallback"
+                        : _appliedCalls > 0
+                            ? "applied"
+                            : "notNeeded";
+
+            return new SmartConfigurationAiAssistSummary
+            {
+                Requested = requested,
+                Status = status,
+                Reason = _reason,
+                AttemptedCalls = _attemptedCalls,
+                SuccessfulCalls = _successfulCalls,
+                FallbackCalls = _fallbackCalls,
+                ElapsedMs = _elapsedMs
+            };
+        }
+
+        private static string ToReason(Exception exception) => exception switch
+        {
+            AiStructuredOutputException => "invalidOutput",
+            OperationCanceledException => "timeout",
+            TimeoutException => "timeout",
+            AiServiceUnavailableException => "unavailable",
+            _ => "callFailed"
         };
     }
 

@@ -28,6 +28,13 @@ public interface IAiServiceRuntimeAvailability
     long ConfigurationVersion => 0;
 
     bool IsAvailable(int serviceId, AiServicePurpose purpose);
+
+    /// <summary>
+    /// 显式指定服务时是否仍可尝试真实业务调用。
+    /// Unknown/Checking 由受超时保护的业务调用确认，只有已知 Unavailable 才阻断。
+    /// </summary>
+    bool CanAttempt(int serviceId, AiServicePurpose purpose) =>
+        IsAvailable(serviceId, purpose);
 }
 
 public sealed class NullAiServiceRuntimeStatusReporter : IAiServiceRuntimeStatusReporter

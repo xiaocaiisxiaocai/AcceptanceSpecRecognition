@@ -1,8 +1,10 @@
 ﻿using System.Net;
 using System.Net.Http;
+using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AcceptanceSpecSystem.Core.AI.Models;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using FluentAssertions;
@@ -11,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace AcceptanceSpecSystem.Core.Tests;
 
@@ -401,7 +404,12 @@ public class OllamaNativeChatCompletionServiceTests
         var history = new ChatHistory();
         history.AddUserMessage("你好");
 
-        var results = await service.GetChatMessageContentsAsync(history);
+        var results = await service.GetChatMessageContentsAsync(
+            history,
+            new OpenAIPromptExecutionSettings
+            {
+                ResponseFormat = typeof(TestStructuredResponse)
+            });
         await serverTask;
 
         results.Should().ContainSingle();
@@ -416,12 +424,39 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.GetProperty("messages").GetArrayLength().Should().Be(1);
         json.RootElement.GetProperty("messages")[0].GetProperty("role").GetString().Should().Be("user");
         json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString().Should().Be("你好");
+        var format = json.RootElement.GetProperty("format");
+        format.GetProperty("type").GetString().Should().Be("object");
+        format.GetProperty("properties").TryGetProperty("answer", out _).Should().BeTrue();
+        format.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
+        var confidence = format.GetProperty("properties").GetProperty("confidence");
+        confidence.GetProperty("minimum").GetDouble().Should().Be(0);
+        confidence.GetProperty("maximum").GetDouble().Should().Be(1);
+        format.GetProperty("properties").GetProperty("targetField")
+            .GetProperty("enum").EnumerateArray().Select(item => item.GetString())
+            .Should().Contain(["Project", "Unknown"]);
 
         // 未显式传 executionSettings 时，应默认带上确定性采样选项（temperature=0 + 固定 seed），
         // 保证同输入裁决结果可复现；缺失任一项都会回到 Ollama 默认随机采样。
         json.RootElement.TryGetProperty("options", out var options).Should().BeTrue("请求体必须携带 options 采样选项");
         options.GetProperty("temperature").GetDouble().Should().Be(0);
         options.GetProperty("seed").GetInt32().Should().Be(42);
+    }
+
+    private sealed class TestStructuredResponse
+    {
+        public string Answer { get; init; } = string.Empty;
+
+        [Range(0d, 1d)]
+        public double Confidence { get; init; }
+
+        [JsonConverter(typeof(JsonStringEnumConverter<TestTargetField>))]
+        public TestTargetField TargetField { get; init; }
+    }
+
+    private enum TestTargetField
+    {
+        Project,
+        Unknown
     }
 
     private static IChatCompletionService CreateOllamaNativeService(AiServiceConfigModel config)

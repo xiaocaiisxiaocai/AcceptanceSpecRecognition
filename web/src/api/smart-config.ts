@@ -127,6 +127,31 @@ export interface SmartConfigRecognizedTable {
 export interface SmartConfigRecognizeResult {
   fileId: number;
   tables: SmartConfigRecognizedTable[];
+  aiAssist?: SmartConfigAiAssistSummary;
+}
+
+export type SmartConfigAiAssistStatus =
+  | "applied"
+  | "notNeeded"
+  | "partial"
+  | "fallback";
+
+export type SmartConfigAiAssistReason =
+  | "checkingTimeout"
+  | "unavailable"
+  | "timeout"
+  | "invalidOutput"
+  | "callFailed"
+  | string;
+
+export interface SmartConfigAiAssistSummary {
+  requested: boolean;
+  status: SmartConfigAiAssistStatus;
+  reason?: SmartConfigAiAssistReason | null;
+  attemptedCalls: number;
+  successfulCalls: number;
+  fallbackCalls: number;
+  elapsedMs: number;
 }
 
 export interface SmartConfigLearnedColumn {

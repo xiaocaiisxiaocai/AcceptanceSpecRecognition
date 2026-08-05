@@ -17,14 +17,17 @@ namespace AcceptanceSpecSystem.Core.Matching.Services;
 
 public partial class LlmMatchingAssistService
 {
-    private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(AiServiceConfigModel config)
+    private static OpenAIPromptExecutionSettings CreatePromptExecutionSettings(
+        AiServiceConfigModel config,
+        Type? responseFormat = null)
     {
         // temperature=0 贪心解码 + 固定 seed，最大化裁决结果可复现性。
         // 注意：Ollama 原生路径仅在请求体显式带上 options.temperature/seed 时才生效。
         return new OpenAIPromptExecutionSettings
         {
             Temperature = 0,
-            Seed = 42
+            Seed = 42,
+            ResponseFormat = responseFormat
         };
     }
 
@@ -163,15 +166,17 @@ public partial class LlmMatchingAssistService
             }
         }
 
-        var candidates = cacheEntry.Candidates;
+        var candidates = FilterCandidatesForPreferredService(cacheEntry.Candidates, preferredId);
         if (_runtimeAvailability != null)
         {
             candidates = candidates
-                .Where(candidate => _runtimeAvailability.IsAvailable(candidate.Id, purpose))
+                .Where(candidate => preferredId.HasValue
+                    ? _runtimeAvailability.CanAttempt(candidate.Id, purpose)
+                    : _runtimeAvailability.IsAvailable(candidate.Id, purpose))
                 .ToList();
         }
 
-        return FilterCandidatesForPreferredService(candidates, preferredId);
+        return candidates;
     }
 
     private async Task<CandidateCacheEntry> RefreshCandidateCacheAsync(

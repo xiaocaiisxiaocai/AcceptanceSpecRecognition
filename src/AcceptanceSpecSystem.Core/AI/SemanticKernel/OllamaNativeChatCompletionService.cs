@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AcceptanceSpecSystem.Core.AI.Models;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -172,7 +173,35 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
             KeepAlive = KeepAlive,
             Think = _disableThinking ? false : null,
             Messages = messages,
-            Options = BuildOptions(executionSettings)
+            Options = BuildOptions(executionSettings),
+            Format = BuildFormat(executionSettings, stream)
+        };
+    }
+
+    private static JsonElement? BuildFormat(
+        PromptExecutionSettings? executionSettings,
+        bool stream)
+    {
+        if (stream ||
+            executionSettings is not Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIPromptExecutionSettings openAi)
+        {
+            return null;
+        }
+
+        return openAi.ResponseFormat switch
+        {
+            Type responseType => AIJsonUtilities.TransformSchema(
+                AIJsonUtilities.CreateJsonSchema(
+                    responseType,
+                    serializerOptions: JsonOptions),
+                new AIJsonSchemaTransformOptions
+                {
+                    DisallowAdditionalProperties = true,
+                    RequireAllProperties = true
+                }),
+            string value when string.Equals(value, "json_object", StringComparison.OrdinalIgnoreCase) =>
+                JsonSerializer.SerializeToElement("json", JsonOptions),
+            _ => null
         };
     }
 
@@ -317,6 +346,9 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
 
         [JsonPropertyName("options")]
         public OllamaOptions? Options { get; init; }
+
+        [JsonPropertyName("format")]
+        public JsonElement? Format { get; init; }
     }
 
     /// <summary>

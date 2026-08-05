@@ -118,4 +118,19 @@ describe("runtime AI selection loader", () => {
     });
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  it("returns checking immediately when an explicit service can be attempted", async () => {
+    const request = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { status: "checking", serviceId: 42 }
+    });
+
+    await expect(
+      waitForRuntimeAiSelection("llm", {
+        request,
+        acceptCheckingWithServiceId: true
+      })
+    ).resolves.toEqual({ status: "checking", serviceId: 42 });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });
