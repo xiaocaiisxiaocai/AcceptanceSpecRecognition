@@ -54,9 +54,11 @@ test("智能确认步骤应在右侧复用独立待导入预览", () => {
     previewPanelSource,
     /emit\(["']removeSinglePreviewRow["'], row\)/
   );
-  assert.match(previewPanelSource, /const PREVIEW_PAGE_SIZE = 50/);
-  assert.match(previewPanelSource, /pagedImportPreviewGroups/);
-  assert.match(previewPanelSource, /<el-pagination/);
+  assert.doesNotMatch(previewPanelSource, /PREVIEW_PAGE_SIZE/);
+  assert.doesNotMatch(previewPanelSource, /previewPageMap/);
+  assert.doesNotMatch(previewPanelSource, /pagedImportPreviewGroups/);
+  assert.doesNotMatch(previewPanelSource, /<el-pagination/);
+  assert.doesNotMatch(previewPanelSource, /import-preview-pagination/);
   assert.match(previewPanelSource, /selectedImportPreviewRowKeys/);
   assert.match(previewPanelSource, /class="preview-topbar"/);
   assert.doesNotMatch(previewPanelSource, /import-preview-note/);
@@ -144,7 +146,7 @@ test("智能确认页应隐藏重复的范围说明和文件摘要", () => {
   );
 });
 
-test("右侧待导入清单应使用与左侧同步的 Sheet Tab", () => {
+test("右侧待导入清单应按区域拆分 Sheet Tab 并保持左侧工作表同步", () => {
   assert.match(
     indexSource,
     /<DataImportPreviewPanel[\s\S]*?v-model:active-table-index="activeSmartStructureTab"/
@@ -160,13 +162,33 @@ test("右侧待导入清单应使用与左侧同步的 Sheet Tab", () => {
   assert.match(previewPanelSource, /<el-tabs[\s\S]*?<el-tab-pane/);
   assert.match(
     previewPanelSource,
-    /v-for="group in pagedImportPreviewGroups"[\s\S]*?:name="getPreviewTabName\(group\.tableIndex\)"/
+    /v-for="group in visibleImportPreviewGroups"[\s\S]*?:name="getPreviewTabName\(group\.key\)"/
   );
   assert.match(
     previewPanelSource,
     /const previewTabNamePrefix = `\$\{useId\(\)\}/
   );
-  assert.match(previewPanelSource, /const getPreviewTableIndex =/);
+  assert.match(previewPanelSource, /const getPreviewGroupKey =/);
+  assert.match(
+    previewPanelSource,
+    /emit\("update:activeTableIndex", group\.tableIndex\)/
+  );
+  assert.match(
+    previewPanelSource,
+    /const visibleImportPreviewGroups = computed[\s\S]*group\.tableIndex === props\.activeTableIndex/
+  );
+  assert.match(
+    previewPanelSource,
+    /v-if="visibleImportPreviewGroups\.length > 0"/
+  );
+  assert.match(
+    previewPanelSource,
+    /v-for="group in visibleImportPreviewGroups"/
+  );
+  assert.doesNotMatch(
+    previewPanelSource,
+    /requestedGroup \?\? currentGroup \?\? props\.importPreviewGroups\[0\]/
+  );
   assert.match(
     previewPanelSource,
     /\.import-preview-tabs[\s\S]*?overflow:\s*hidden;/

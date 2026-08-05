@@ -51,71 +51,52 @@ type PreviewSelectionTable = {
   toggleRowSelection: (row: ImportPreviewRow, selected?: boolean) => void;
 };
 
-const PREVIEW_PAGE_SIZE = 50;
 const previewTabNamePrefix = `${useId()}-import-preview`;
-const getPreviewTabName = (tableIndex: number) =>
-  `${previewTabNamePrefix}-${tableIndex}`;
-const getPreviewTableIndex = (name: string | number) => {
+const getPreviewTabName = (groupKey: string) =>
+  `${previewTabNamePrefix}-${groupKey}`;
+const getPreviewGroupKey = (name: string | number) => {
   const normalizedName = String(name);
   const prefix = `${previewTabNamePrefix}-`;
-  if (!normalizedName.startsWith(prefix)) return Number.NaN;
-  return Number(normalizedName.slice(prefix.length));
+  if (!normalizedName.startsWith(prefix)) return "";
+  return normalizedName.slice(prefix.length);
 };
-const previewPageMap = ref<Record<number, number>>({});
 const activePreviewTabName = ref("");
 const selectedPreviewRowKeySet = computed(
   () => new Set(props.selectedImportPreviewRowKeys)
 );
-const pagedImportPreviewGroups = computed(() =>
-  props.importPreviewGroups.map(group => {
-    const pageCount = Math.max(
-      1,
-      Math.ceil(group.rows.length / PREVIEW_PAGE_SIZE)
-    );
-    const currentPage = Math.min(
-      previewPageMap.value[group.tableIndex] ?? 1,
-      pageCount
-    );
-    const start = (currentPage - 1) * PREVIEW_PAGE_SIZE;
-    return {
-      ...group,
-      currentPage,
-      totalRows: group.rows.length,
-      rows: group.rows.slice(start, start + PREVIEW_PAGE_SIZE)
-    };
-  })
-);
+const visibleImportPreviewGroups = computed(() => {
+  if (!props.tabbedGroups || props.activeTableIndex == null) {
+    return props.importPreviewGroups;
+  }
+  return props.importPreviewGroups.filter(
+    group => group.tableIndex === props.activeTableIndex
+  );
+});
 
 watch(
   [
     () => props.activeTableIndex,
-    () => props.importPreviewGroups.map(group => group.tableIndex).join("|")
+    () => visibleImportPreviewGroups.value.map(group => group.key).join("|")
   ],
-  ([requestedTableIndex]) => {
-    const availableTableIndexes = props.importPreviewGroups.map(
-      group => group.tableIndex
+  () => {
+    const currentGroupKey = getPreviewGroupKey(activePreviewTabName.value);
+    const currentGroup = visibleImportPreviewGroups.value.find(
+      group => group.key === currentGroupKey
     );
-    const currentTableIndex = getPreviewTableIndex(activePreviewTabName.value);
-    const nextTableIndex =
-      requestedTableIndex != null &&
-      availableTableIndexes.includes(requestedTableIndex)
-        ? requestedTableIndex
-        : availableTableIndexes.includes(currentTableIndex)
-          ? currentTableIndex
-          : availableTableIndexes[0];
+    const nextGroup = currentGroup ?? visibleImportPreviewGroups.value[0];
 
     activePreviewTabName.value =
-      nextTableIndex == null ? "" : getPreviewTabName(nextTableIndex);
+      nextGroup == null ? "" : getPreviewTabName(nextGroup.key);
   },
   { immediate: true }
 );
 
-const importPreviewTableRefs = new Map<number, PreviewSelectionTable>();
-const syncVisibleSelection = async (tableIndex: number) => {
+const importPreviewTableRefs = new Map<string, PreviewSelectionTable>();
+const syncVisibleSelection = async (groupKey: string) => {
   await nextTick();
-  const table = importPreviewTableRefs.get(tableIndex);
-  const group = pagedImportPreviewGroups.value.find(
-    item => item.tableIndex === tableIndex
+  const table = importPreviewTableRefs.get(groupKey);
+  const group = visibleImportPreviewGroups.value.find(
+    item => item.key === groupKey
   );
   if (!table || !group) return;
 
@@ -125,30 +106,25 @@ const syncVisibleSelection = async (tableIndex: number) => {
     .forEach(row => table.toggleRowSelection(row, true));
 };
 
-const setImportPreviewTableRef = (tableIndex: number, instance: unknown) => {
+const setImportPreviewTableRef = (groupKey: string, instance: unknown) => {
   if (!instance) {
-    importPreviewTableRefs.delete(tableIndex);
+    importPreviewTableRefs.delete(groupKey);
     return;
   }
-  if (importPreviewTableRefs.get(tableIndex) === instance) return;
-  importPreviewTableRefs.set(tableIndex, instance as PreviewSelectionTable);
-  void syncVisibleSelection(tableIndex);
-};
-
-const handlePreviewPageChange = (tableIndex: number, page: number) => {
-  previewPageMap.value = {
-    ...previewPageMap.value,
-    [tableIndex]: page
-  };
-  void syncVisibleSelection(tableIndex);
+  if (importPreviewTableRefs.get(groupKey) === instance) return;
+  importPreviewTableRefs.set(groupKey, instance as PreviewSelectionTable);
+  void syncVisibleSelection(groupKey);
 };
 
 const handlePreviewTabChange = (name: string | number) => {
   if (!props.tabbedGroups) return;
-  const tableIndex = getPreviewTableIndex(name);
-  if (!Number.isInteger(tableIndex)) return;
-  emit("update:activeTableIndex", tableIndex);
-  void syncVisibleSelection(tableIndex);
+  const groupKey = getPreviewGroupKey(name);
+  const group = visibleImportPreviewGroups.value.find(
+    item => item.key === groupKey
+  );
+  if (!group) return;
+  emit("update:activeTableIndex", group.tableIndex);
+  void syncVisibleSelection(group.key);
 };
 
 const handlePreviewSelectionChange = (
@@ -168,8 +144,8 @@ const handlePreviewSelectionChange = (
 const handleSelectIrrelevantRowsChange = (value: boolean | string | number) => {
   const selected = value === true;
   emit("selectIrrelevantRowsChange", selected);
-  pagedImportPreviewGroups.value.forEach(group => {
-    const table = importPreviewTableRefs.get(group.tableIndex);
+  props.importPreviewGroups.forEach(group => {
+    const table = importPreviewTableRefs.get(group.key);
     if (!table) return;
     group.rows
       .filter(isAcceptanceAndRemarkBlank)
@@ -287,34 +263,32 @@ onBeforeUnmount(() => {
     </header>
 
     <el-tabs
-      v-if="previewDataCount > 0"
+      v-if="visibleImportPreviewGroups.length > 0"
       v-model="activePreviewTabName"
       class="import-preview-tabs"
       :class="{ 'import-preview-tabs--stacked': !tabbedGroups }"
       @tab-change="handlePreviewTabChange"
     >
       <el-tab-pane
-        v-for="group in pagedImportPreviewGroups"
-        :key="`import-preview-${group.tableIndex}`"
-        :name="getPreviewTabName(group.tableIndex)"
+        v-for="group in visibleImportPreviewGroups"
+        :key="`import-preview-${group.key}`"
+        :name="getPreviewTabName(group.key)"
       >
         <template #label>
           <span class="preview-tab-label">
             <span>{{ group.label }}</span>
-            <span>{{ group.totalRows }} 条</span>
+            <span>{{ group.rows.length }} 条</span>
           </span>
         </template>
 
         <div class="import-preview-group">
           <div v-if="!tabbedGroups" class="import-preview-group__header">
             <span>{{ group.label }}</span>
-            <span class="group-count">保留 {{ group.totalRows }} 条</span>
+            <span class="group-count">保留 {{ group.rows.length }} 条</span>
           </div>
           <div class="import-preview-table">
             <el-table
-              :ref="
-                instance => setImportPreviewTableRef(group.tableIndex, instance)
-              "
+              :ref="instance => setImportPreviewTableRef(group.key, instance)"
               :data="group.rows"
               height="100%"
               border
@@ -393,19 +367,6 @@ onBeforeUnmount(() => {
               </el-table-column>
             </el-table>
           </div>
-          <el-pagination
-            v-if="group.totalRows > PREVIEW_PAGE_SIZE"
-            class="import-preview-pagination"
-            small
-            background
-            layout="prev, pager, next"
-            :current-page="group.currentPage"
-            :page-size="PREVIEW_PAGE_SIZE"
-            :total="group.totalRows"
-            @current-change="
-              page => handlePreviewPageChange(group.tableIndex, page)
-            "
-          />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -625,12 +586,6 @@ onBeforeUnmount(() => {
 .import-preview-table {
   flex: 1;
   min-height: 0;
-}
-
-.import-preview-pagination {
-  justify-content: flex-end;
-  padding: 10px 12px;
-  border-top: 1px solid var(--app-border);
 }
 
 @media (width <= 1280px) {

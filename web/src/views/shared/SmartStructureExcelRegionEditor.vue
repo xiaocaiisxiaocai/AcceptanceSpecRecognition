@@ -35,7 +35,7 @@ const props = defineProps<{
   fileId?: number;
   disabled?: boolean;
   resetVersion?: number;
-  drawerOpen?: boolean;
+  compact?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -110,6 +110,7 @@ const endRowValues = reactive<Record<string, string[]>>({});
 const synchronizationNotices = reactive<Record<string, string>>({});
 const headerLoadTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const detailsExpanded = ref(false);
+const selectedCompactRegionId = ref<string | null>(null);
 let manualRegionSequence = 0;
 
 const detailsToolbarId = computed(
@@ -122,6 +123,16 @@ const detailsControlIds = computed(() =>
     detailsToolbarId.value,
     ...drafts.value.map((_, regionIndex) => getRegionDetailsId(regionIndex))
   ].join(" ")
+);
+const selectedCompactRegionIndex = computed(() =>
+  drafts.value.findIndex(
+    draft => draft.regionId === selectedCompactRegionId.value
+  )
+);
+const selectedCompactDraft = computed(() =>
+  selectedCompactRegionIndex.value >= 0
+    ? drafts.value[selectedCompactRegionIndex.value]
+    : undefined
 );
 
 const bounds = computed<SmartStructureExcelRegionBounds>(() => {
@@ -189,6 +200,7 @@ const refreshA1EndpointBuffers = (
 };
 
 const resetFromModel = () => {
+  selectedCompactRegionId.value = null;
   headerLoadTimers.forEach(timer => clearTimeout(timer));
   headerLoadTimers.clear();
   new Set([
@@ -463,13 +475,6 @@ watch(
   }
 );
 watch(
-  () => props.drawerOpen,
-  () => {
-    detailsExpanded.value = false;
-  },
-  { immediate: true }
-);
-watch(
   () => props.fileId,
   (fileId, previousFileId) => {
     if (!fileId || fileId === previousFileId) return;
@@ -518,6 +523,7 @@ const handleA1EndpointInput = (
   endpoint: SmartStructureExcelEndpoint,
   value: string
 ) => {
+  if (props.compact) return;
   const draft = drafts.value[index];
   const previousColumn = getColumnValue(draft, field);
   const regionBuffers = (a1EndpointBuffers[draft.regionId] ??= {});
@@ -678,9 +684,22 @@ const copyRegion = (index: number) => {
   appendDraft(cloneDraft(drafts.value[index], createRegionId()));
 };
 
+const openCompactRegionDetails = (regionId: string) => {
+  if (!props.compact) return;
+  selectedCompactRegionId.value =
+    selectedCompactRegionId.value === regionId ? null : regionId;
+};
+
+const closeCompactRegionDetails = () => {
+  selectedCompactRegionId.value = null;
+};
+
 const removeRegion = (index: number) => {
   if (drafts.value.length <= 1) return;
   const [removed] = drafts.value.splice(index, 1);
+  if (selectedCompactRegionId.value === removed.regionId) {
+    closeCompactRegionDetails();
+  }
   const timer = headerLoadTimers.get(removed.regionId);
   if (timer) clearTimeout(timer);
   headerLoadTimers.delete(removed.regionId);
@@ -704,7 +723,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="excel-region-editor" aria-label="Excel 结构与列映射">
+  <section
+    class="excel-region-editor"
+    :class="{ 'is-compact': compact }"
+    aria-label="Excel 结构与列映射"
+  >
     <div class="excel-region-editor__summary-heading">
       <div class="excel-region-editor__summary-actions">
         <el-button
@@ -717,6 +740,7 @@ onBeforeUnmount(() => {
           ＋ 添加数据区域
         </el-button>
         <el-button
+          v-if="!compact"
           plain
           type="primary"
           size="small"
@@ -754,8 +778,14 @@ onBeforeUnmount(() => {
       v-for="(draft, regionIndex) in drafts"
       :key="draft.regionId"
       class="excel-region-card"
+      :class="{
+        'is-compact-selected':
+          compact && draft.regionId === selectedCompactRegionId
+      }"
+      :title="compact ? '双击查看并编辑区域配置' : undefined"
+      @dblclick="openCompactRegionDetails(draft.regionId)"
     >
-      <header class="excel-region-card__header">
+      <header v-if="!compact" class="excel-region-card__header">
         <div>
           <span class="excel-region-card__number">{{ regionIndex + 1 }}</span>
           <strong>区域 {{ regionIndex + 1 }}</strong>
@@ -764,6 +794,25 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </header>
+      <span
+        v-else
+        class="excel-region-card__number is-gutter"
+        :aria-label="`区域 ${regionIndex + 1}`"
+      >
+        {{ regionIndex + 1 }}
+      </span>
+      <button
+        v-if="compact"
+        type="button"
+        class="excel-region-card__compact-remove"
+        :disabled="disabled || drafts.length <= 1"
+        :title="drafts.length <= 1 ? '至少保留一个数据区域' : '删除区域'"
+        :aria-label="`删除区域 ${regionIndex + 1}`"
+        @click="removeRegion(regionIndex)"
+        @dblclick.stop
+      >
+        <span aria-hidden="true">×</span>
+      </button>
 
       <div class="excel-region-a1-grid">
         <div
@@ -773,6 +822,9 @@ onBeforeUnmount(() => {
         >
           <div class="excel-region-endpoint-row is-start">
             <el-input
+              :size="compact ? 'small' : 'default'"
+              :readonly="compact"
+              :tabindex="compact ? -1 : undefined"
               :model-value="
                 a1EndpointBuffers[draft.regionId]?.[definition.field]?.start ??
                 ''
@@ -851,6 +903,9 @@ onBeforeUnmount(() => {
           </div>
           <div class="excel-region-endpoint-row is-end">
             <el-input
+              :size="compact ? 'small' : 'default'"
+              :readonly="compact"
+              :tabindex="compact ? -1 : undefined"
               :model-value="
                 a1EndpointBuffers[draft.regionId]?.[definition.field]?.end ?? ''
               "
@@ -983,6 +1038,7 @@ onBeforeUnmount(() => {
           <el-button
             link
             type="primary"
+            :size="compact ? 'small' : 'default'"
             :disabled="disabled"
             @click="copyRegion(regionIndex)"
           >
@@ -991,6 +1047,7 @@ onBeforeUnmount(() => {
           <el-button
             link
             type="danger"
+            :size="compact ? 'small' : 'default'"
             :disabled="disabled || drafts.length <= 1"
             @click="removeRegion(regionIndex)"
           >
@@ -1002,6 +1059,7 @@ onBeforeUnmount(() => {
           <label>
             <span>数据起始行</span>
             <el-input-number
+              :size="compact ? 'small' : 'default'"
               :model-value="draft.dataStartRow"
               :min="rowInputLimits(draft).dataStartMinimum"
               :max="rowInputLimits(draft).dataStartMaximum"
@@ -1015,6 +1073,7 @@ onBeforeUnmount(() => {
           <label>
             <span>数据结束行</span>
             <el-input-number
+              :size="compact ? 'small' : 'default'"
               :model-value="draft.dataEndRow"
               :min="rowInputLimits(draft).dataEndMinimum"
               :max="rowInputLimits(draft).dataEndMaximum"
@@ -1037,6 +1096,7 @@ onBeforeUnmount(() => {
               }}{{ definition.required ? "列" : "列（可选）" }}
             </span>
             <el-select
+              :size="compact ? 'small' : 'default'"
               :model-value="getColumnValue(draft, definition.field)"
               :disabled="
                 disabled ||
@@ -1074,6 +1134,7 @@ onBeforeUnmount(() => {
             <small>必须由用户明确开启，不会因项目列为空自动切换。</small>
           </div>
           <el-switch
+            :size="compact ? 'small' : 'default'"
             :model-value="draft.isSpecificationOnly"
             :disabled="disabled"
             :aria-label="`区域 ${regionIndex + 1} 仅规格表`"
@@ -1085,6 +1146,146 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </article>
+
+    <section
+      v-if="compact && selectedCompactDraft && selectedCompactRegionIndex >= 0"
+      class="excel-region-compact-details"
+      :aria-label="`区域 ${selectedCompactRegionIndex + 1} 配置`"
+    >
+      <header class="excel-region-compact-details__header">
+        <strong>当前配置：区域 {{ selectedCompactRegionIndex + 1 }}</strong>
+        <div class="excel-region-card__actions">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :disabled="disabled"
+            @click="copyRegion(selectedCompactRegionIndex)"
+          >
+            复制
+          </el-button>
+          <el-button
+            link
+            type="danger"
+            size="small"
+            :disabled="disabled || drafts.length <= 1"
+            @click="removeRegion(selectedCompactRegionIndex)"
+          >
+            删除
+          </el-button>
+          <el-button
+            link
+            size="small"
+            class="excel-region-compact-details__close"
+            @click="closeCompactRegionDetails"
+          >
+            收起
+          </el-button>
+        </div>
+      </header>
+
+      <div class="excel-region-compact-details__fields">
+        <label class="excel-region-compact-details__field">
+          <span>数据起始行</span>
+          <el-input-number
+            size="small"
+            :model-value="selectedCompactDraft.dataStartRow"
+            :min="rowInputLimits(selectedCompactDraft).dataStartMinimum"
+            :max="rowInputLimits(selectedCompactDraft).dataStartMaximum"
+            :disabled="disabled"
+            controls-position="right"
+            @update:model-value="
+              value =>
+                handleRowChange(
+                  selectedCompactRegionIndex,
+                  'dataStartRow',
+                  value
+                )
+            "
+          />
+        </label>
+        <label class="excel-region-compact-details__field">
+          <span>数据结束行</span>
+          <el-input-number
+            size="small"
+            :model-value="selectedCompactDraft.dataEndRow"
+            :min="rowInputLimits(selectedCompactDraft).dataEndMinimum"
+            :max="rowInputLimits(selectedCompactDraft).dataEndMaximum"
+            :disabled="disabled"
+            controls-position="right"
+            @update:model-value="
+              value =>
+                handleRowChange(selectedCompactRegionIndex, 'dataEndRow', value)
+            "
+          />
+        </label>
+
+        <label
+          v-for="definition in fieldDefinitions"
+          :key="definition.field"
+          class="excel-region-compact-details__field"
+        >
+          <span>
+            {{ definition.label
+            }}{{ definition.required ? "列" : "列（可选）" }}
+          </span>
+          <el-select
+            size="small"
+            :model-value="
+              getColumnValue(selectedCompactDraft, definition.field)
+            "
+            :disabled="
+              disabled ||
+              headerLoading[selectedCompactDraft.regionId] ||
+              (definition.field === 'project' &&
+                selectedCompactDraft.isSpecificationOnly)
+            "
+            :loading="headerLoading[selectedCompactDraft.regionId]"
+            clearable
+            filterable
+            placeholder="请选择列"
+            popper-class="smart-structure-column-select-popper"
+            @update:model-value="
+              value =>
+                handleColumnChange(
+                  selectedCompactRegionIndex,
+                  definition.field,
+                  value
+                )
+            "
+          >
+            <el-option
+              v-for="option in columnOptions(selectedCompactDraft)"
+              :key="option.value"
+              :value="option.value"
+              :label="`[${option.column}] ${option.label}`"
+            >
+              <span class="column-option-coordinate"
+                >[{{ option.column }}]</span
+              >
+              <span class="column-option-label">{{ option.label }}</span>
+            </el-option>
+          </el-select>
+        </label>
+
+        <label class="excel-region-compact-details__specification-only">
+          <span>仅规格表（没有独立项目列）</span>
+          <el-switch
+            size="small"
+            :model-value="selectedCompactDraft.isSpecificationOnly"
+            :disabled="disabled"
+            :aria-label="`区域 ${selectedCompactRegionIndex + 1} 仅规格表`"
+            @update:model-value="
+              value =>
+                handleSpecificationOnlyChange(
+                  selectedCompactRegionIndex,
+                  Boolean(value)
+                )
+            "
+          />
+        </label>
+      </div>
+    </section>
   </section>
 </template>
 
@@ -1097,6 +1298,178 @@ onBeforeUnmount(() => {
   background: var(--app-bg-card);
   border: 1px solid var(--app-border);
   border-radius: 8px;
+}
+
+.excel-region-editor.is-compact {
+  box-sizing: border-box;
+  gap: 8px;
+  width: min(100%, 980px);
+  padding: 8px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.excel-region-editor.is-compact .excel-region-card {
+  position: relative;
+  width: calc(100% - 28px);
+  padding: 8px 32px 8px 8px;
+  margin-left: 28px;
+  overflow: visible;
+}
+
+.excel-region-editor.is-compact .excel-region-card.is-compact-selected {
+  border-color: color-mix(in srgb, var(--app-primary) 55%, var(--app-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--app-primary) 12%, transparent);
+}
+
+.excel-region-editor.is-compact .excel-region-card__header {
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.excel-region-editor.is-compact .excel-region-card__header strong {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.excel-region-editor.is-compact .excel-region-card__number {
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+}
+
+.excel-region-editor.is-compact .excel-region-card__number.is-gutter {
+  position: absolute;
+  top: 50%;
+  left: -28px;
+  z-index: 1;
+  border: 1px solid color-mix(in srgb, var(--app-primary) 45%, transparent);
+  transform: translateY(-50%);
+}
+
+.excel-region-card__compact-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--app-danger);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.excel-region-card__compact-remove:hover:not(:disabled),
+.excel-region-card__compact-remove:focus-visible {
+  outline: none;
+  background: var(--app-danger-bg);
+}
+
+.excel-region-card__compact-remove:disabled {
+  color: var(--app-text-placeholder);
+  cursor: not-allowed;
+}
+
+.excel-region-compact-details {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-top: 2px;
+  background: color-mix(in srgb, var(--app-info-bg) 55%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--app-primary) 28%, var(--app-border));
+  border-radius: 8px;
+}
+
+.excel-region-compact-details__header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--app-border);
+}
+
+.excel-region-compact-details__header strong {
+  font-size: 13px;
+  color: var(--app-text-primary);
+}
+
+.excel-region-compact-details__fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px 10px;
+  align-items: center;
+}
+
+.excel-region-compact-details__field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.excel-region-compact-details__field > span {
+  white-space: nowrap;
+}
+
+.excel-region-compact-details__field :deep(.el-input-number),
+.excel-region-compact-details__field :deep(.el-select) {
+  width: 100%;
+  min-width: 0;
+}
+
+.excel-region-compact-details__specification-only {
+  display: flex;
+  grid-row: 1;
+  grid-column: 3 / span 2;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--app-text-primary);
+}
+
+.excel-region-editor.is-compact .excel-region-a1-grid {
+  gap: 6px 10px;
+}
+
+.excel-region-editor.is-compact .excel-region-endpoint-row {
+  gap: 6px;
+}
+
+.excel-region-editor.is-compact .excel-region-endpoint-row.is-start,
+.excel-region-editor.is-compact .excel-region-endpoint-row.is-end {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.excel-region-editor.is-compact :deep(.el-input__inner),
+.excel-region-editor.is-compact :deep(.el-button),
+.excel-region-editor.is-compact :deep(.el-select__placeholder) {
+  font-size: 12px;
+}
+
+.excel-region-editor.is-compact
+  .excel-region-endpoint-row
+  :deep(.el-input__wrapper) {
+  cursor: default;
+  background: var(--app-bg-page);
+}
+
+.excel-region-editor.is-compact
+  .excel-region-endpoint-row
+  :deep(.el-input__inner) {
+  cursor: default;
 }
 
 .excel-region-editor__summary-heading,

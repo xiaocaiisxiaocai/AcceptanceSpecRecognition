@@ -46,6 +46,117 @@ describe("useDataImportPreviewSelection", () => {
     expect(state.importPreviewGroups.value[0].rows[0].displayRowNumber).toBe(6);
   });
 
+  it("同一 Excel 工作表的多个区域应拆分为独立待导入 Sheet", () => {
+    const firstRegionMapping = {
+      regionId: "region-1",
+      regionIndex: 0,
+      isSpecificationOnly: false,
+      projectColumn: 1,
+      specificationColumn: 2,
+      acceptanceColumn: 3,
+      remarkColumn: 4,
+      headerRowStart: 8,
+      headerRowCount: 1,
+      dataStartRow: 9,
+      dataEndRow: 9
+    };
+    const secondRegionMapping = {
+      ...firstRegionMapping,
+      regionId: "region-2",
+      regionIndex: 1,
+      headerRowStart: 126,
+      dataStartRow: 127,
+      dataEndRow: 127
+    };
+    const config: TableImportConfig = {
+      tableIndex: 0,
+      tableInfo: {
+        index: 0,
+        name: "工作表1",
+        rowCount: 127,
+        columnCount: 4,
+        isNested: false,
+        headers: ["项目", "规格", "验收", "备注"],
+        hasMergedCells: false
+      },
+      excelMapping: firstRegionMapping,
+      recognizedExcelMappings: [firstRegionMapping, secondRegionMapping],
+      excelPreviewRowLocations: [
+        {
+          regionId: firstRegionMapping.regionId,
+          regionIndex: firstRegionMapping.regionIndex,
+          relativeRowIndex: 0,
+          displayRowNumber: 9,
+          headers: ["项目", "规格", "验收", "备注"],
+          mapping: firstRegionMapping
+        },
+        {
+          regionId: secondRegionMapping.regionId,
+          regionIndex: secondRegionMapping.regionIndex,
+          relativeRowIndex: 0,
+          displayRowNumber: 127,
+          headers: ["项目", "规格", "验收", "备注"],
+          mapping: secondRegionMapping
+        }
+      ],
+      previewData: {
+        tableIndex: 0,
+        headers: ["项目", "规格", "验收", "备注"],
+        rows: [
+          ["P1", "S1", "OK", "R1"],
+          ["P2", "S2", "NG", "R2"]
+        ],
+        totalRows: 2,
+        columnCount: 4
+      }
+    };
+    const state = useDataImportPreviewSelection({
+      isExcelFile: computed(() => true),
+      tableConfigs: ref([config])
+    });
+
+    expect(state.importPreviewGroups.value).toHaveLength(2);
+    expect(
+      state.importPreviewGroups.value.map(group => ({
+        key: group.key,
+        label: group.label,
+        rows: group.rows.map(row => row.displayRowNumber)
+      }))
+    ).toEqual([
+      {
+        key: "0:region-1",
+        label: "工作表 1（工作表1）· 区域 1",
+        rows: [9]
+      },
+      {
+        key: "0:region-2",
+        label: "工作表 1（工作表1）· 区域 2",
+        rows: [127]
+      }
+    ]);
+
+    const [firstGroup, secondGroup] = state.importPreviewGroups.value;
+    state.handleImportPreviewSelectionChange(
+      firstGroup.tableIndex,
+      firstGroup.rows,
+      firstGroup.rows
+    );
+    state.handleImportPreviewSelectionChange(
+      secondGroup.tableIndex,
+      secondGroup.rows,
+      secondGroup.rows
+    );
+    expect(state.importPreviewSelectionKeys.value).toEqual([
+      firstGroup.rows[0].key,
+      secondGroup.rows[0].key
+    ]);
+
+    state.excludeImportPreviewRows(firstGroup.rows);
+    expect(
+      state.importPreviewGroups.value.map(group => group.rows.length)
+    ).toEqual([0, 1]);
+  });
+
   it("选中无关项只勾选验收和备注同时为空的行，取消时保留其他手工选择", () => {
     const config: TableImportConfig = {
       tableIndex: 0,
