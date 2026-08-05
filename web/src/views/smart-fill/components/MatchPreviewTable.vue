@@ -36,14 +36,12 @@ import MatchPreviewEditDialog from "./MatchPreviewEditDialog.vue";
 import MatchPreviewStatsBar from "./MatchPreviewStatsBar.vue";
 import {
   cloneMatchPreviewOverride,
-  collectEditedBackfillItems,
   collectMatchPreviewSelections,
   discardCommittedMatchPreviewOverride,
   hasManualFillOverrideValue,
   hasMatchPreviewOverrideValue
 } from "./matchPreviewTable.selection";
 import type {
-  EditedBackfillItem,
   MatchPreviewEditOverride,
   MatchPreviewSelection,
   PersistedSelection
@@ -69,8 +67,6 @@ const emit = defineEmits<{
   (e: "showDetail", item: MatchPreviewItem): void;
   (e: "selectionChange", selections: PersistedSelection[]): void;
 }>();
-
-export type { EditedBackfillItem } from "./matchPreviewTable.types";
 
 const selectedSpecs = ref<Map<number, MatchPreviewSelection | null>>(new Map());
 const editedOverrides = ref<Map<number, MatchPreviewEditOverride>>(new Map());
@@ -509,13 +505,6 @@ const handlePageSizeChange = (size: number) => {
 
 defineExpose({
   getSelections: getCurrentSelections,
-  getEditedBackfillItems: (): EditedBackfillItem[] =>
-    collectEditedBackfillItems(
-      props.items,
-      editedOverrides.value,
-      selectedSpecs.value,
-      manualClearedRows.value
-    ),
   initSelections,
   clearSelectionByRow
 });

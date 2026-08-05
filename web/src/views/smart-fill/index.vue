@@ -321,7 +321,6 @@ const {
   backfillCandidates,
   pendingExecuteRequest,
   backfillingSpecs,
-  selectedBackfillCandidates,
   resetPendingBackfillState,
   closeBackfillDialog,
   openBackfillDialog,
@@ -434,7 +433,7 @@ const {
   batchPreviewTabsRef,
   getScope: getCurrentScope,
   pendingExecuteRequest,
-  selectedBackfillCandidates,
+  backfillCandidates,
   closeBackfillDialog,
   openBackfillDialog,
   setBackfillingSpecs,
@@ -1097,9 +1096,11 @@ const handleSelect = (
   // 可用于实时更新统计
 };
 
-const toggleBackfillCandidates = (checked: boolean) => {
+const setAllBackfillDecisions = (
+  decision: import("./smartFillBackfill.types").SmartFillSpecWriteDecision
+) => {
   backfillCandidates.value.forEach(item => {
-    item.selected = checked;
+    item.decision = decision;
   });
 };
 
@@ -1545,10 +1546,9 @@ const retryTableMetadata = () => {
     <SmartFillBackfillDialog
       v-model:visible="backfillDialogVisible"
       :candidates="backfillCandidates"
-      :selected-count="selectedBackfillCandidates.length"
       :backfilling-specs="backfillingSpecs"
       :executing="executing"
-      @toggle-all="toggleBackfillCandidates"
+      @set-all-decision="setAllBackfillDecisions"
       @execute-without-backfill="executePendingWithoutBackfill"
       @confirm-backfill="confirmBackfillAndExecute"
     />

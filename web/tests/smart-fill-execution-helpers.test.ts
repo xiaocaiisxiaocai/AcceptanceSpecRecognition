@@ -290,6 +290,8 @@ test("回填更新现有规格后应刷新当前匹配预览中的所有引用�
         tableIndex: 0,
         rowIndex: 2,
         specId: 101,
+        sourceProject: "覆盖后项目",
+        sourceSpecification: "覆盖后规格",
         overrideAcceptance: "业务回复11",
         overrideRemark: "长边进板111",
         actionType: "update"
@@ -298,6 +300,8 @@ test("回填更新现有规格后应刷新当前匹配预览中的所有引用�
   );
 
   refreshed[0].items.forEach(item => {
+    assert.equal(item.bestMatch?.project, "覆盖后项目");
+    assert.equal(item.bestMatch?.specification, "覆盖后规格");
     assert.equal(item.bestMatch?.acceptance, "业务回复11");
     assert.equal(item.bestMatch?.remark, "长边进板111");
     assert.equal(item.bestMatch?.reviewApprovalToken, undefined);

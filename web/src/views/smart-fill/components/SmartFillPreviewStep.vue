@@ -85,14 +85,14 @@ defineExpose<{
   getAllSelections: NonNullable<
     InstanceType<typeof BatchPreviewTabs>["getAllSelections"]
   >;
-  getAllEditedBackfillItems: NonNullable<
-    InstanceType<typeof BatchPreviewTabs>["getAllEditedBackfillItems"]
+  getAllBackfillCandidates: NonNullable<
+    InstanceType<typeof BatchPreviewTabs>["getAllBackfillCandidates"]
   >;
 }>({
   getAllSelections: () =>
     batchPreviewTabsRef.value?.getAllSelections() ?? new Map(),
-  getAllEditedBackfillItems: () =>
-    batchPreviewTabsRef.value?.getAllEditedBackfillItems() ?? []
+  getAllBackfillCandidates: () =>
+    batchPreviewTabsRef.value?.getAllBackfillCandidates() ?? []
 });
 
 const loadingHintText = computed(() => {

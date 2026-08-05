@@ -41,6 +41,8 @@ export type SmartFillBackfilledItem = {
   tableIndex: number;
   rowIndex: number;
   specId?: number;
+  sourceProject?: string;
+  sourceSpecification?: string;
   overrideAcceptance?: string;
   overrideRemark?: string;
   actionType: "update" | "create";
@@ -81,6 +83,9 @@ export const applyBackfilledItemsToPreviewResults = (
         ...item,
         bestMatch: {
           ...item.bestMatch,
+          project: updatedItem.sourceProject ?? item.bestMatch.project,
+          specification:
+            updatedItem.sourceSpecification ?? item.bestMatch.specification,
           acceptance:
             updatedItem.overrideAcceptance ?? item.bestMatch.acceptance,
           remark: updatedItem.overrideRemark ?? item.bestMatch.remark,

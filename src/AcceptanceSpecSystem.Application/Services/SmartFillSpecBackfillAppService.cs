@@ -96,7 +96,7 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
         var normalizedItems = request.Items.Select(NormalizeItem).ToList();
         EnsureDistinctBackfillSpecIds(normalizedItems);
         var specIds = normalizedItems
-            .Where(item => item.SpecId.HasValue)
+            .Where(item => item.Decision is BackfillDecision.LegacyUpdate or BackfillDecision.Overwrite)
             .Select(item => item.SpecId!.Value)
             .Distinct()
             .ToArray();
@@ -110,9 +110,14 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
 
         foreach (var item in normalizedItems)
         {
-            if (item.SpecId.HasValue)
+            if (item.Decision == BackfillDecision.Skip)
             {
-                if (!specLookup.TryGetValue(item.SpecId.Value, out var spec))
+                continue;
+            }
+
+            if (item.Decision is BackfillDecision.LegacyUpdate or BackfillDecision.Overwrite)
+            {
+                if (!specLookup.TryGetValue(item.SpecId.GetValueOrDefault(), out var spec))
                 {
                     throw Failure(404, "验收规格不存在");
                 }
@@ -120,6 +125,12 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 if (!SpecDataScopeRules.CanAccess(spec, businessScope))
                 {
                     throw Failure(403, "无权回填该验收规格");
+                }
+
+                if (item.Decision == BackfillDecision.Overwrite)
+                {
+                    _ = RequireText(item.SourceProject, "覆盖规格的项目不能为空");
+                    _ = RequireText(item.SourceSpecification, "覆盖规格的规格不能为空");
                 }
             }
             else
@@ -130,24 +141,42 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
         }
 
         var response = new SmartFillSpecBackfillResponse();
-        var manualWordFile = normalizedItems.Any(item => !item.SpecId.HasValue)
+        var manualWordFile = normalizedItems.Any(item =>
+                item.Decision is BackfillDecision.LegacyCreate or BackfillDecision.Create)
             ? await GetOrCreateManualWordFileAsync(businessScope, cancellationToken)
             : null;
 
         foreach (var item in normalizedItems)
         {
-            if (item.SpecId.HasValue)
+            if (item.Decision == BackfillDecision.Skip)
             {
-                var spec = specLookup[item.SpecId.Value];
-                if (item.OverrideAcceptance != null)
-                {
-                    spec.Acceptance = item.OverrideAcceptance;
-                }
+                response.SkippedCount++;
+                continue;
+            }
 
-                if (item.OverrideRemark != null)
+            if (item.Decision is BackfillDecision.LegacyUpdate or BackfillDecision.Overwrite)
+            {
+                var spec = specLookup[item.SpecId.GetValueOrDefault()];
+                if (item.Decision == BackfillDecision.Overwrite)
                 {
+                    spec.Project = RequireText(item.SourceProject, "覆盖规格的项目不能为空");
+                    spec.Specification = RequireText(item.SourceSpecification, "覆盖规格的规格不能为空");
+                    spec.Acceptance = item.OverrideAcceptance;
                     spec.Remark = item.OverrideRemark;
                 }
+                else
+                {
+                    if (item.OverrideAcceptance != null)
+                    {
+                        spec.Acceptance = item.OverrideAcceptance;
+                    }
+
+                    if (item.OverrideRemark != null)
+                    {
+                        spec.Remark = item.OverrideRemark;
+                    }
+                }
+
                 spec.UpdatedAt = DateTime.UtcNow;
                 _unitOfWork.AcceptanceSpecs.Update(spec);
                 await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
@@ -246,9 +275,27 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
     {
         var acceptance = NormalizeOverrideText(item.OverrideAcceptance);
         var remark = NormalizeOverrideText(item.OverrideRemark);
-        if (acceptance == null && remark == null)
+        var explicitDecision = NormalizeOptionalText(item.Decision)?.ToLowerInvariant();
+        var decision = explicitDecision switch
+        {
+            null => item.SpecId.HasValue
+                ? BackfillDecision.LegacyUpdate
+                : BackfillDecision.LegacyCreate,
+            "overwrite" => BackfillDecision.Overwrite,
+            "create" => BackfillDecision.Create,
+            "skip" => BackfillDecision.Skip,
+            _ => throw Failure(400, "写库决策必须为 overwrite、create 或 skip")
+        };
+
+        if (decision is BackfillDecision.LegacyUpdate or BackfillDecision.LegacyCreate &&
+            acceptance == null && remark == null)
         {
             throw Failure(400, "回填项缺少编辑后的验收标准或备注");
+        }
+
+        if (decision == BackfillDecision.Overwrite && !item.SpecId.HasValue)
+        {
+            throw Failure(400, "覆盖已有规格必须提供规格ID");
         }
 
         return new NormalizedBackfillItem(
@@ -256,13 +303,15 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
             NormalizeOptionalText(item.SourceProject),
             NormalizeOptionalText(item.SourceSpecification),
             acceptance,
-            remark);
+            remark,
+            decision);
     }
 
     private static void EnsureDistinctBackfillSpecIds(IReadOnlyCollection<NormalizedBackfillItem> items)
     {
         var duplicateSpecId = items
-            .Where(item => item.SpecId.HasValue)
+            .Where(item =>
+                item.Decision is BackfillDecision.LegacyUpdate or BackfillDecision.Overwrite)
             .GroupBy(item => item.SpecId!.Value)
             .FirstOrDefault(group => group.Count() > 1)
             ?.Key;
@@ -299,5 +348,15 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
         string? SourceProject,
         string? SourceSpecification,
         string? OverrideAcceptance,
-        string? OverrideRemark);
+        string? OverrideRemark,
+        BackfillDecision Decision);
+
+    private enum BackfillDecision
+    {
+        LegacyUpdate,
+        LegacyCreate,
+        Overwrite,
+        Create,
+        Skip
+    }
 }

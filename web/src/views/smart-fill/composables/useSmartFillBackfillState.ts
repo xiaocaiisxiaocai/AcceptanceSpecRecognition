@@ -1,29 +1,14 @@
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import type { BatchExecuteFillRequest } from "@/api/matching";
+import type { SmartFillBackfillCandidate } from "../smartFillBackfill.types";
 
-export type SmartFillBackfillCandidate = {
-  tableIndex: number;
-  rowIndex: number;
-  specId?: number;
-  sourceProject: string;
-  sourceSpecification: string;
-  originalAcceptance?: string;
-  originalRemark?: string;
-  overrideAcceptance?: string;
-  overrideRemark?: string;
-  actionType: "update" | "create";
-  selected: boolean;
-};
+export type { SmartFillBackfillCandidate } from "../smartFillBackfill.types";
 
 export function useSmartFillBackfillState() {
   const backfillDialogVisible = ref(false);
   const backfillCandidates = ref<SmartFillBackfillCandidate[]>([]);
   const pendingExecuteRequest = ref<BatchExecuteFillRequest | null>(null);
   const backfillingSpecs = ref(false);
-
-  const selectedBackfillCandidates = computed(() =>
-    backfillCandidates.value.filter(item => item.selected)
-  );
 
   const resetPendingBackfillState = () => {
     pendingExecuteRequest.value = null;
@@ -58,7 +43,6 @@ export function useSmartFillBackfillState() {
     backfillCandidates,
     pendingExecuteRequest,
     backfillingSpecs,
-    selectedBackfillCandidates,
     resetPendingBackfillState,
     closeBackfillDialog,
     openBackfillDialog,

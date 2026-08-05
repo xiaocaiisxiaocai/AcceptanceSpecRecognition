@@ -21,6 +21,195 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
     }
 
     [Fact]
+    public async Task SpecBackfill_ExplicitOverwrite_ShouldReplaceAllFourFields()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: "覆盖后项目",
+                    SourceSpecification: "覆盖后规格",
+                    OverrideAcceptance: "覆盖后验收",
+                    OverrideRemark: "覆盖后备注",
+                    Decision: "overwrite")
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("updatedCount").GetInt32().Should().Be(1);
+        json.Data.GetProperty("createdCount").GetInt32().Should().Be(0);
+        json.Data.GetProperty("skippedCount").GetInt32().Should().Be(0);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var updated = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        updated.Should().NotBeNull();
+        updated!.Project.Should().Be("覆盖后项目");
+        updated.Specification.Should().Be("覆盖后规格");
+        updated.Acceptance.Should().Be("覆盖后验收");
+        updated.Remark.Should().Be("覆盖后备注");
+        (await db.EmbeddingCaches.AnyAsync(cache => cache.SpecId == setup.SpecId))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SpecBackfill_ExplicitCreate_ShouldKeepMatchedSpecAndCreateNewSpec()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: "另存项目",
+                    SourceSpecification: "另存规格",
+                    OverrideAcceptance: "另存验收",
+                    OverrideRemark: "另存备注",
+                    Decision: "create")
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("updatedCount").GetInt32().Should().Be(0);
+        json.Data.GetProperty("createdCount").GetInt32().Should().Be(1);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var original = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        original.Should().NotBeNull();
+        original!.Project.Should().Be("原项目");
+        original.Specification.Should().Be("原规格");
+        original.Acceptance.Should().Be("原验收");
+        original.Remark.Should().Be("原备注");
+
+        var created = await db.AcceptanceSpecs.SingleAsync(spec =>
+            spec.Project == "另存项目" && spec.Specification == "另存规格");
+        created.Acceptance.Should().Be("另存验收");
+        created.Remark.Should().Be("另存备注");
+    }
+
+    [Fact]
+    public async Task SpecBackfill_ExplicitSkip_ShouldNotWriteDatabase()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: "不应覆盖项目",
+                    SourceSpecification: "不应覆盖规格",
+                    OverrideAcceptance: "不应覆盖验收",
+                    OverrideRemark: "不应覆盖备注",
+                    Decision: "skip")
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        json.Data.GetProperty("updatedCount").GetInt32().Should().Be(0);
+        json.Data.GetProperty("createdCount").GetInt32().Should().Be(0);
+        json.Data.GetProperty("skippedCount").GetInt32().Should().Be(1);
+        json.Data.GetProperty("totalCount").GetInt32().Should().Be(1);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var unchanged = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        unchanged.Should().NotBeNull();
+        unchanged!.Project.Should().Be("原项目");
+        unchanged.Specification.Should().Be("原规格");
+        unchanged.Acceptance.Should().Be("原验收");
+        unchanged.Remark.Should().Be("原备注");
+        (await db.EmbeddingCaches.AnyAsync(cache => cache.SpecId == setup.SpecId))
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SpecBackfill_ExplicitMixedBatchWithInvalidOverwrite_ShouldRejectWithoutWrites()
+    {
+        var setup = await SeedBackfillScopeAsync();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/matching/spec-backfill");
+        request.Headers.Add("X-Test-Role", "common");
+        request.Headers.Add("X-Test-Permissions", "*:*:*");
+        request.Content = ApiClientJson.ToJsonContent(new
+        {
+            customerId = setup.CustomerId,
+            processId = setup.ProcessId,
+            machineModelId = setup.MachineModelId,
+            items = new BackfillRequestItem[]
+            {
+                new(
+                    SpecId: setup.OutOfScopeSpecId,
+                    SourceProject: "范围外覆盖项目",
+                    SourceSpecification: "范围外覆盖规格",
+                    OverrideAcceptance: "范围外覆盖验收",
+                    OverrideRemark: "范围外覆盖备注",
+                    Decision: "overwrite"),
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: "不应新增项目",
+                    SourceSpecification: "不应新增规格",
+                    OverrideAcceptance: "不应新增验收",
+                    OverrideRemark: "不应新增备注",
+                    Decision: "create"),
+                new(
+                    SpecId: setup.SpecId,
+                    SourceProject: null,
+                    SourceSpecification: null,
+                    OverrideAcceptance: null,
+                    OverrideRemark: null,
+                    Decision: "skip")
+            }
+        });
+
+        var response = await _client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.AcceptanceSpecs.AnyAsync(spec => spec.Project == "不应新增项目"))
+            .Should().BeFalse();
+        var unchanged = await db.AcceptanceSpecs.FindAsync(setup.SpecId);
+        unchanged!.Project.Should().Be("原项目");
+        unchanged.Acceptance.Should().Be("原验收");
+    }
+
+    [Fact]
     public async Task SpecBackfill_ShouldUpdateMatchedSpec_AndCreateManualSpec()
     {
         var setup = await SeedBackfillScopeAsync();
@@ -328,9 +517,12 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
             FileHash = Guid.NewGuid().ToString("N"),
             UploadedAt = DateTime.UtcNow
         };
-        var rootOrgUnitId = await db.OrgUnits
-            .Where(org => org.ParentId == null)
-            .Select(org => org.Id)
+        var rootOrgUnitId = await db.AuthUserOrgUnits
+            .Where(userOrg =>
+                userOrg.IsPrimary &&
+                db.SystemUsers.Any(user =>
+                    user.Id == userOrg.UserId && user.Username == "common"))
+            .Select(userOrg => userOrg.OrgUnitId)
             .FirstAsync();
         var outOfScopeOrg = new OrgUnit
         {
@@ -449,5 +641,6 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
         string? SourceProject,
         string? SourceSpecification,
         string? OverrideAcceptance,
-        string? OverrideRemark);
+        string? OverrideRemark,
+        string? Decision = null);
 }

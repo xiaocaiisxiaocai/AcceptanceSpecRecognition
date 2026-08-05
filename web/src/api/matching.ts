@@ -508,6 +508,7 @@ export interface BatchExecuteFillRequest {
 }
 
 export interface SmartFillSpecBackfillItem {
+  decision?: "overwrite" | "create" | "skip";
   specId?: number;
   sourceProject?: string;
   sourceSpecification?: string;
@@ -526,6 +527,7 @@ export interface SmartFillSpecBackfillRequest {
 export interface SmartFillSpecBackfillResponse {
   updatedCount: number;
   createdCount: number;
+  skippedCount: number;
   totalCount: number;
 }
 

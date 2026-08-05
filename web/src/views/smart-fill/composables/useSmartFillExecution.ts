@@ -41,7 +41,7 @@ type UseSmartFillExecutionOptions = {
   batchPreviewTabsRef: Ref<SmartFillPreviewStepRef>;
   getScope: () => SmartFillScope;
   pendingExecuteRequest: Ref<BatchExecuteFillRequest | null>;
-  selectedBackfillCandidates: ComputedRef<SmartFillBackfillCandidate[]>;
+  backfillCandidates: Ref<SmartFillBackfillCandidate[]>;
   closeBackfillDialog: () => void;
   openBackfillDialog: (
     request: BatchExecuteFillRequest,
@@ -65,7 +65,7 @@ export function useSmartFillExecution({
   batchPreviewTabsRef,
   getScope,
   pendingExecuteRequest,
-  selectedBackfillCandidates,
+  backfillCandidates,
   closeBackfillDialog,
   openBackfillDialog,
   setBackfillingSpecs,
@@ -257,9 +257,20 @@ export function useSmartFillExecution({
     const initialRequest = pendingExecuteRequest.value;
     if (!initialRequest) return;
 
-    const selected = selectedBackfillCandidates.value;
+    const candidates = backfillCandidates.value;
+    const writeCandidates = candidates.filter(item => item.decision !== "skip");
+    const duplicateOverwriteSpecId = writeCandidates
+      .filter(item => item.decision === "overwrite")
+      .map(item => item.specId)
+      .find((specId, index, specIds) => specIds.indexOf(specId) !== index);
+    if (duplicateOverwriteSpecId) {
+      ElMessage.warning(
+        "同一已有规格不能在一次操作中被多条记录同时覆盖，请将重复项改为增加或跳过"
+      );
+      return;
+    }
     if (
-      selected.some(item => item.actionType === "create") &&
+      writeCandidates.some(item => item.decision === "create") &&
       !initialRequest.customerId
     ) {
       ElMessage.warning("回填新增规格前，请先选择客户范围");
@@ -273,33 +284,58 @@ export function useSmartFillExecution({
     setBackfillingSpecs(true);
     executing.value = true;
     try {
-      if (selected.length > 0) {
+      if (writeCandidates.length > 0) {
         const res = await backfillSmartFillSpecs({
           fileId: uploadedFile.value?.fileId,
           customerId: request.customerId,
           processId: request.processId,
           machineModelId: request.machineModelId,
-          items: selected.map(item => ({
+          items: candidates.map(item => ({
+            decision: item.decision,
             specId: item.specId,
             sourceProject: item.sourceProject,
             sourceSpecification: item.sourceSpecification,
-            overrideAcceptance: item.overrideAcceptance,
-            overrideRemark: item.overrideRemark
+            overrideAcceptance:
+              item.overrideAcceptance ?? item.originalAcceptance,
+            overrideRemark: item.overrideRemark ?? item.originalRemark
           }))
         });
         if (res.code !== 0) {
           ElMessage.error(res.message || "回填验收规格失败");
           return;
         }
+        const overwrittenItems = writeCandidates
+          .filter(item => item.decision === "overwrite")
+          .map(item => ({
+            ...item,
+            overrideAcceptance:
+              item.overrideAcceptance ?? item.originalAcceptance,
+            overrideRemark: item.overrideRemark ?? item.originalRemark,
+            actionType: "update" as const
+          }));
         batchPreviewResults.value = applyBackfilledItemsToPreviewResults(
           batchPreviewResults.value,
-          selected
+          overwrittenItems
         );
-        ElMessage.success(`已回填 ${res.data.totalCount} 条验收规格`);
+        ElMessage.success(
+          `写库处理完成：覆盖 ${res.data.updatedCount} 条，增加 ${res.data.createdCount} 条，跳过 ${res.data.skippedCount} 条`
+        );
       }
 
       closeBackfillDialog();
-      const executeRequest = refreshBackfilledExecuteRequest(request, selected);
+      const overwrittenItems = writeCandidates
+        .filter(item => item.decision === "overwrite")
+        .map(item => ({
+          ...item,
+          overrideAcceptance:
+            item.overrideAcceptance ?? item.originalAcceptance,
+          overrideRemark: item.overrideRemark ?? item.originalRemark,
+          actionType: "update" as const
+        }));
+      const executeRequest = refreshBackfilledExecuteRequest(
+        request,
+        overwrittenItems
+      );
       await runExecuteFill(executeRequest);
       clearPendingExecuteRequest();
     } catch (error) {
@@ -345,15 +381,10 @@ export function useSmartFillExecution({
       return;
     }
 
-    const editedItems =
-      batchPreviewTabsRef.value
-        ?.getAllEditedBackfillItems()
-        .map((item: Omit<SmartFillBackfillCandidate, "selected">) => ({
-          ...item,
-          selected: true
-        })) ?? [];
-    if (editedItems.length > 0) {
-      openBackfillDialog(executeRequest, editedItems);
+    const decisionCandidates =
+      batchPreviewTabsRef.value?.getAllBackfillCandidates() ?? [];
+    if (decisionCandidates.length > 0) {
+      openBackfillDialog(executeRequest, decisionCandidates);
       return;
     }
 

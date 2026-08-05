@@ -11,11 +11,16 @@ test("smart-fill 应提供编辑值回填验收规格 API 封装", () => {
 
   assert.match(matchingApiSource, /SmartFillSpecBackfillRequest/);
   assert.match(matchingApiSource, /SmartFillSpecBackfillResponse/);
+  assert.match(
+    matchingApiSource,
+    /decision\?: "overwrite" \| "create" \| "skip"/
+  );
+  assert.match(matchingApiSource, /skippedCount: number/);
   assert.match(matchingApiSource, /spec-backfill/);
   assert.match(matchingApiSource, /backfillSmartFillSpecs/);
 });
 
-test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
+test("smart-fill 执行填充前应弹出统一写库决策框", () => {
   const backfillDialogSource = readProjectFile(
     "web/src/views/smart-fill/components/SmartFillBackfillDialog.vue"
   );
@@ -29,22 +34,28 @@ test("smart-fill 执行填充前应弹出编辑值回填确认框", () => {
     "web/src/views/smart-fill/components/MatchPreviewTable.vue"
   );
 
-  assert.match(matchPreviewTableSource, /getEditedBackfillItems/);
-  assert.match(batchPreviewTabsSource, /getAllEditedBackfillItems/);
-  assert.match(backfillDialogSource, /回填验收规格/);
+  assert.doesNotMatch(matchPreviewTableSource, /getEditedBackfillItems/);
+  assert.match(batchPreviewTabsSource, /getAllBackfillCandidates/);
+  assert.match(batchPreviewTabsSource, /collectSmartFillBackfillCandidates/);
+  assert.match(backfillDialogSource, /确认验收规格写库方式/);
   assert.match(backfillDialogSource, /align-center/);
-  assert.match(backfillDialogSource, /不回填，仅执行填充/);
-  assert.match(backfillDialogSource, /确认回填并执行填充/);
+  assert.match(backfillDialogSource, /全部跳过并执行填充/);
+  assert.match(backfillDialogSource, /按当前选择继续填充/);
+  assert.match(backfillDialogSource, /全部覆盖/);
+  assert.match(backfillDialogSource, /全部增加/);
+  assert.match(backfillDialogSource, /全部跳过/);
+  assert.match(backfillDialogSource, /覆盖已有/);
+  assert.match(backfillDialogSource, /增加一条/);
+  assert.match(backfillDialogSource, /跳过写库/);
   assert.match(backfillDialogSource, /getBackfillCandidateRowKey/);
   assert.match(
     backfillDialogSource,
     /`\$\{row\.tableIndex\}:\$\{row\.rowIndex\}`/
   );
-  assert.match(backfillDialogSource, /label="表格\/行"/);
-  assert.match(backfillDialogSource, /label="验收标准（原值 → 新值）"/);
-  assert.match(backfillDialogSource, /label="备注（原值 → 新值）"/);
-  assert.match(backfillDialogSource, /getOriginalAcceptance/);
-  assert.match(backfillDialogSource, /getOriginalRemark/);
+  assert.match(backfillDialogSource, /label="Sheet \/ 行"/);
+  assert.match(backfillDialogSource, /label="项目 \/ 规格（原 → 当前）"/);
+  assert.match(backfillDialogSource, /label="验收标准（原 → 当前）"/);
+  assert.match(backfillDialogSource, /label="备注（原 → 当前）"/);
   assert.match(
     backfillDialogSource,
     /row\.overrideAcceptance \?\? row\.originalAcceptance/
@@ -65,13 +76,31 @@ test("smart-fill 回填前应校验新增规格范围并透出真实错误", () 
 
   assert.match(
     executionSource,
-    /selected\.some\(item => item\.actionType === "create"\)/
+    /writeCandidates\.some\(item => item\.decision === "create"\)/
   );
   assert.match(executionSource, /回填新增规格前，请先选择客户范围/);
+  assert.match(executionSource, /duplicateOverwriteSpecId/);
+  assert.match(
+    executionSource,
+    /同一已有规格不能在一次操作中被多条记录同时覆盖/
+  );
   assert.match(
     executionSource,
     /ElMessage\.error\(getRequestErrorMessage\(error, "回填或填充失败"\)\)/
   );
+});
+
+test("smart-fill 跳过资料库写入后仍应执行当前文件填充", () => {
+  const executionSource = readProjectFile(
+    "web/src/views/smart-fill/composables/useSmartFillExecution.ts"
+  );
+
+  assert.match(
+    executionSource,
+    /const writeCandidates = candidates\.filter\(item => item\.decision !== "skip"\)/
+  );
+  assert.match(executionSource, /await runExecuteFill\(executeRequest\)/);
+  assert.match(executionSource, /decision: item\.decision/);
 });
 
 test("smart-fill 应缓存匹配范围并在执行回填时复用", () => {

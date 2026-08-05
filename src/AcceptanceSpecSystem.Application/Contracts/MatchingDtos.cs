@@ -1129,6 +1129,12 @@ public class SmartFillSpecBackfillRequest
 public class SmartFillSpecBackfillItem
 {
     /// <summary>
+    /// 显式写库决策：overwrite（覆盖已有）、create（增加一条）、skip（跳过写库）。
+    /// 为空时保留旧客户端行为。
+    /// </summary>
+    public string? Decision { get; set; }
+
+    /// <summary>
     /// 已匹配规格ID；为空时新增规格。
     /// </summary>
     public int? SpecId { get; set; }
@@ -1163,7 +1169,9 @@ public class SmartFillSpecBackfillResponse
 
     public int CreatedCount { get; set; }
 
-    public int TotalCount => UpdatedCount + CreatedCount;
+    public int SkippedCount { get; set; }
+
+    public int TotalCount => UpdatedCount + CreatedCount + SkippedCount;
 }
 
 /// <summary>

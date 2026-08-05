@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import MatchPreviewTable from "./MatchPreviewTable.vue";
-import type { EditedBackfillItem } from "./MatchPreviewTable.vue";
 import type { BatchTablePreviewResult, MatchPreviewItem } from "@/api/matching";
+import { collectSmartFillBackfillCandidates } from "../smartFillBackfill.helpers";
 import { isLlmEquivalenceDecisionRisk } from "./scoreDetail.llmEquivalence.ts";
 import {
   hasManualFillOverrideValue,
@@ -233,55 +233,17 @@ const getAllSelections = () => {
   return result;
 };
 
-const getAllEditedBackfillItems = () => {
-  syncTableSelections();
+const getAllBackfillCandidates = () =>
+  collectSmartFillBackfillCandidates(
+    props.results,
+    getAllSelections(),
+    props.tableNames
+  );
 
-  const activeTableIndex = activeTableResult.value?.tableIndex;
-  const activeItems = activeTableRef.value?.getEditedBackfillItems() ?? [];
-  const result: Array<EditedBackfillItem & { tableIndex: number }> = [];
-
-  for (const tableResult of props.results) {
-    const items =
-      tableResult.tableIndex === activeTableIndex
-        ? activeItems
-        : getPersistedSelections(tableResult.tableIndex)
-            .filter(
-              item =>
-                item.selected === true &&
-                item.manualCleared !== true &&
-                (item.overrideAcceptance !== undefined ||
-                  item.overrideRemark !== undefined)
-            )
-            .map((item): EditedBackfillItem | null => {
-              const previewItem = tableResult.items.find(
-                row => row.rowIndex === item.rowIndex
-              );
-              if (!previewItem) return null;
-              if (!previewItem.bestMatch && !hasManualFillOverrideValue(item))
-                return null;
-              return {
-                rowIndex: item.rowIndex,
-                specId: item.specId,
-                sourceProject: previewItem.sourceProject,
-                sourceSpecification: previewItem.sourceSpecification,
-                originalAcceptance: previewItem.bestMatch?.acceptance,
-                originalRemark: previewItem.bestMatch?.remark,
-                overrideAcceptance: item.overrideAcceptance,
-                overrideRemark: item.overrideRemark,
-                actionType: previewItem.bestMatch ? "update" : "create"
-              } satisfies EditedBackfillItem;
-            })
-            .filter((item): item is EditedBackfillItem => !!item);
-
-    result.push(
-      ...items.map(item => ({ ...item, tableIndex: tableResult.tableIndex }))
-    );
-  }
-
-  return result;
-};
-
-defineExpose({ getAllSelections, getAllEditedBackfillItems });
+defineExpose({
+  getAllSelections,
+  getAllBackfillCandidates
+});
 </script>
 
 <template>
