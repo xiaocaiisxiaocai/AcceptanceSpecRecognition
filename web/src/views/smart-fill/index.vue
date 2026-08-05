@@ -1391,6 +1391,15 @@ const retryTableMetadata = () => {
               }}</span>
             </div>
           </div>
+          <el-button
+            class="smart-fill-recognition-context__retry"
+            type="primary"
+            plain
+            :loading="smartRecognizing"
+            @click="runSmartStructureRecognition"
+          >
+            重新识别
+          </el-button>
         </div>
         <el-alert
           v-if="pendingInitialSmartRecognitionResult"
@@ -1410,13 +1419,6 @@ const retryTableMetadata = () => {
             </el-button>
           </template>
         </el-alert>
-        <SmartStructureSummaryBanner
-          v-else
-          :tables="recognizedTables"
-          :loading="smartRecognizing"
-          :error="smartRecognitionError"
-          @retry="runSmartStructureRecognition"
-        />
         <SmartStructureConfirmTabs
           v-if="!pendingInitialSmartRecognitionResult"
           v-model:active-table-index="activeSmartStructureTab"
