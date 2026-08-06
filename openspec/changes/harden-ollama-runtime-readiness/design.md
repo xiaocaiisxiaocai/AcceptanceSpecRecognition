@@ -22,7 +22,7 @@ Chat 已使用原生 `/api/chat`，但请求固定携带 `keep_alive=30m`；Embe
 
 ### 1. 原生 Ollama 适配器共享驻留配置
 
-在 `SemanticKernelOptions` 中增加 `OllamaKeepAlive`。Chat 与新的原生 Embedding 适配器都在请求体中传递该值。应用默认配置使用 `-1`，明确表示在专用推理节点永久驻留；运维可改为 `30m` 等时长以换取显存释放。
+在 `SemanticKernelOptions` 中增加 `OllamaKeepAlive`。Chat 与新的原生 Embedding 适配器都在请求体中传递该值。应用默认配置使用 `-1`，并按 Ollama 原生契约序列化为 JSON 数字，明确表示在专用推理节点永久驻留；运维可改为 `30m` 等带单位字符串以换取显存释放。
 
 Embedding 直接调用 `/api/embed`，将返回的每个浮点数组映射为 `Embedding<float>`。适配器必须校验返回数量与输入数量一致，并通过既有安全 HttpClient 工厂创建连接。
 

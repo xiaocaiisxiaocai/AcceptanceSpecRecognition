@@ -63,7 +63,7 @@ internal sealed class OllamaNativeEmbeddingGenerator
         {
             Model = _modelId,
             Input = inputs,
-            KeepAlive = _keepAlive
+            KeepAlive = OllamaKeepAliveJsonValue.Create(_keepAlive)
         };
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/embed")
         {
@@ -144,7 +144,7 @@ internal sealed class OllamaNativeEmbeddingGenerator
         public string[] Input { get; init; } = [];
 
         [JsonPropertyName("keep_alive")]
-        public string KeepAlive { get; init; } = string.Empty;
+        public JsonElement KeepAlive { get; init; }
     }
 
     private sealed class OllamaEmbedResponse

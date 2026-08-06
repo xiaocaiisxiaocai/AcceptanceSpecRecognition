@@ -174,7 +174,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         {
             Model = _modelId,
             Stream = stream,
-            KeepAlive = _keepAlive,
+            KeepAlive = OllamaKeepAliveJsonValue.Create(_keepAlive),
             Think = _disableThinking ? false : null,
             Messages = messages,
             Options = BuildOptions(executionSettings),
@@ -346,7 +346,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         public bool? Think { get; init; }
 
         [JsonPropertyName("keep_alive")]
-        public string KeepAlive { get; init; } = string.Empty;
+        public JsonElement KeepAlive { get; init; }
 
         [JsonPropertyName("options")]
         public OllamaOptions? Options { get; init; }
