@@ -352,8 +352,12 @@ public class OllamaNativeChatCompletionServiceTests
         client.DisposeCount.Should().Be(1);
     }
 
-    [Fact]
-    public async Task OllamaNativeChatCompletionService_ShouldPostApiChat_WithThinkFalse()
+    [Theory]
+    [InlineData("-1", JsonValueKind.Number)]
+    [InlineData("2h", JsonValueKind.String)]
+    public async Task OllamaNativeChatCompletionService_ShouldPostApiChat_WithThinkFalse(
+        string keepAlive,
+        JsonValueKind expectedKeepAliveKind)
     {
         var port = GetFreeTcpPort();
         using var listener = new HttpListener();
@@ -399,7 +403,8 @@ public class OllamaNativeChatCompletionServiceTests
                 Endpoint = $"http://127.0.0.1:{port}/api",
                 LlmModel = "qwen3.5:35b",
                 DisableThinking = true
-            });
+            },
+            keepAlive);
 
         var history = new ChatHistory();
         history.AddUserMessage("你好");
@@ -420,7 +425,12 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.GetProperty("model").GetString().Should().Be("qwen3.5:35b");
         json.RootElement.GetProperty("stream").GetBoolean().Should().BeFalse();
         json.RootElement.GetProperty("think").GetBoolean().Should().BeFalse();
-        json.RootElement.GetProperty("keep_alive").GetString().Should().Be("2h");
+        var keepAliveJson = json.RootElement.GetProperty("keep_alive");
+        keepAliveJson.ValueKind.Should().Be(expectedKeepAliveKind);
+        if (expectedKeepAliveKind == JsonValueKind.Number)
+            keepAliveJson.GetInt64().Should().Be(-1);
+        else
+            keepAliveJson.GetString().Should().Be("2h");
         json.RootElement.GetProperty("messages").GetArrayLength().Should().Be(1);
         json.RootElement.GetProperty("messages")[0].GetProperty("role").GetString().Should().Be("user");
         json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString().Should().Be("你好");
@@ -442,8 +452,12 @@ public class OllamaNativeChatCompletionServiceTests
         options.GetProperty("seed").GetInt32().Should().Be(42);
     }
 
-    [Fact]
-    public async Task SemanticKernelServiceFactory_OllamaEmbedding应使用原生批量接口和统一驻留值()
+    [Theory]
+    [InlineData("-1", JsonValueKind.Number)]
+    [InlineData("2h", JsonValueKind.String)]
+    public async Task SemanticKernelServiceFactory_OllamaEmbedding应使用原生批量接口和统一驻留值(
+        string keepAlive,
+        JsonValueKind expectedKeepAliveKind)
     {
         var port = GetFreeTcpPort();
         using var listener = new HttpListener();
@@ -478,7 +492,7 @@ public class OllamaNativeChatCompletionServiceTests
         using var factory = new SemanticKernelServiceFactory(
             NullLoggerFactory.Instance,
             new FakeSafeAiHttpClientFactory(new HttpClient()),
-            Options.Create(new SemanticKernelOptions { OllamaKeepAlive = "2h" }));
+            Options.Create(new SemanticKernelOptions { OllamaKeepAlive = keepAlive }));
         var generator = factory.CreateEmbeddingGenerator(new AiServiceConfigModel
         {
             Id = 12,
@@ -496,7 +510,12 @@ public class OllamaNativeChatCompletionServiceTests
         requestLine.Should().StartWith("POST /api/embed HTTP/");
         using var json = JsonDocument.Parse(requestBody!);
         json.RootElement.GetProperty("model").GetString().Should().Be("qwen3-embedding:4b-q4_K_M");
-        json.RootElement.GetProperty("keep_alive").GetString().Should().Be("2h");
+        var keepAliveJson = json.RootElement.GetProperty("keep_alive");
+        keepAliveJson.ValueKind.Should().Be(expectedKeepAliveKind);
+        if (expectedKeepAliveKind == JsonValueKind.Number)
+            keepAliveJson.GetInt64().Should().Be(-1);
+        else
+            keepAliveJson.GetString().Should().Be("2h");
         json.RootElement.GetProperty("input").EnumerateArray()
             .Select(item => item.GetString())
             .Should().Equal("第一条", "第二条");
@@ -569,14 +588,16 @@ public class OllamaNativeChatCompletionServiceTests
         Unknown
     }
 
-    private static IChatCompletionService CreateOllamaNativeService(AiServiceConfigModel config)
+    private static IChatCompletionService CreateOllamaNativeService(
+        AiServiceConfigModel config,
+        string keepAlive = "2h")
     {
         var assembly = typeof(SemanticKernelServiceFactory).Assembly;
         var serviceType = assembly.GetType("AcceptanceSpecSystem.Core.AI.SemanticKernel.OllamaNativeChatCompletionService", throwOnError: true)!;
         var loggerType = typeof(NullLogger<>).MakeGenericType(serviceType);
         var logger = loggerType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
             ?? Activator.CreateInstance(loggerType, nonPublic: true);
-        var instance = Activator.CreateInstance(serviceType, config, new HttpClient(), "2h", logger);
+        var instance = Activator.CreateInstance(serviceType, config, new HttpClient(), keepAlive, logger);
         return (IChatCompletionService)instance!;
     }
 

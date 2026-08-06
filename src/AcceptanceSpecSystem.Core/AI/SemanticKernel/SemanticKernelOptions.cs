@@ -13,7 +13,7 @@ public sealed class SemanticKernelOptions
 
     /// <summary>
     /// Ollama 原生请求的模型驻留时长。-1 表示永久驻留，0 表示请求完成后立即卸载，
-    /// 也可使用 30m、1h 等 Ollama duration 值。
+    /// 纯整数会按 JSON 数字发送；也可使用 30m、1h 等 Ollama duration 字符串。
     /// </summary>
     public string OllamaKeepAlive { get; set; } = DefaultOllamaKeepAlive;
 }
