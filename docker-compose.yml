@@ -47,6 +47,9 @@ services:
       ApiRateLimits__Upload__WindowSeconds: ${API_RATE_LIMIT_UPLOAD_WINDOW_SECONDS:-60}
       ApiRateLimits__AiHeavy__PermitLimit: ${API_RATE_LIMIT_AI_HEAVY_PERMIT_LIMIT:-30}
       ApiRateLimits__AiHeavy__WindowSeconds: ${API_RATE_LIMIT_AI_HEAVY_WINDOW_SECONDS:-60}
+      SemanticKernel__OllamaKeepAlive: ${AI_OLLAMA_KEEP_ALIVE:--1}
+      AiServiceReadiness__ProbeTimeoutSeconds: ${AI_READINESS_PROBE_TIMEOUT_SECONDS:-20}
+      AiServiceReadiness__PreloadOnStartup: ${AI_PRELOAD_ON_STARTUP:-true}
       Cors__AllowedOrigins__0: ${CORS_ORIGIN_0:?CORS_ORIGIN_0 must be set}
       Cors__AllowedOrigins__1: ${CORS_ORIGIN_1:-}
       BrowserAuth__AllowInsecureHttp: ${BROWSER_AUTH_ALLOW_INSECURE_HTTP:-false}

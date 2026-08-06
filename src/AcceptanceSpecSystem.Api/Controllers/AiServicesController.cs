@@ -254,26 +254,15 @@ public class AiServicesController : BaseApiController
                             messages.Add($"LLM: 快速测试未找到已配置模型（{entity.LlmModel}）");
                         }
                     }
-                    else if (entity.ServiceType == AiServiceType.Ollama)
-                    {
-                        ollamaModels ??= await FetchOllamaModelsAsync(entity, timeoutCts.Token);
-                        if (ContainsConfiguredModel(ollamaModels, entity.LlmModel))
-                        {
-                            messages.Add($"LLM: OK（模型已存在: {entity.LlmModel}）");
-                        }
-                        else
-                        {
-                            success = false;
-                            messages.Add($"LLM: 未找到已配置模型（{entity.LlmModel}）");
-                        }
-                    }
                     else
                     {
                         var chat = _semanticKernelFactory.CreateChatCompletionService(ToCoreModel(entity));
                         var history = new ChatHistory();
                         history.AddUserMessage("ping");
                         await chat.GetChatMessageContentAsync(history, cancellationToken: timeoutCts.Token);
-                        messages.Add("LLM: OK");
+                        messages.Add(entity.ServiceType == AiServiceType.Ollama
+                            ? "LLM: OK（真实推理已完成）"
+                            : "LLM: OK");
                     }
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

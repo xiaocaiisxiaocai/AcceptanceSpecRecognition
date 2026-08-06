@@ -183,6 +183,7 @@ public static class ApiServiceCollectionExtensions
             sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
         services.AddSingleton<IHostedService>(sp =>
             sp.GetRequiredService<AiServiceReadinessProbeScheduler>());
+        services.AddHostedService<AiServiceStartupPreloadService>();
         services.AddSingleton<ISafeAiHttpClientFactory, SafeAiHttpMessageHandlerFactory>();
         services.AddSingleton<ISemanticKernelServiceFactory, SemanticKernelServiceFactory>();
         services.AddScoped<IEmbeddingService, SemanticKernelEmbeddingService>();

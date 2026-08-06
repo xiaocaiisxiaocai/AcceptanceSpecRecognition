@@ -42,6 +42,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
     private readonly ISafeAiHttpClientFactory _safeHttpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly string _azureOpenAiApiVersion;
+    private readonly string _ollamaKeepAlive;
     private long _cacheAccessSequence;
     private bool _disposed;
 
@@ -55,6 +56,9 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
         _azureOpenAiApiVersion = string.IsNullOrWhiteSpace(options.Value.AzureOpenAIApiVersion)
             ? new SemanticKernelOptions().AzureOpenAIApiVersion
             : options.Value.AzureOpenAIApiVersion.Trim();
+        _ollamaKeepAlive = string.IsNullOrWhiteSpace(options.Value.OllamaKeepAlive)
+            ? SemanticKernelOptions.DefaultOllamaKeepAlive
+            : options.Value.OllamaKeepAlive.Trim();
     }
 
     public IChatCompletionService CreateChatCompletionService(AiServiceConfigModel config)
@@ -180,7 +184,7 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
             {
                 var logger = _loggerFactory.CreateLogger<OllamaNativeChatCompletionService>();
                 return new OwnedChatCompletionService(
-                    new OllamaNativeChatCompletionService(config, ollamaClient, logger),
+                    new OllamaNativeChatCompletionService(config, ollamaClient, _ollamaKeepAlive, logger),
                     ollamaClient);
             }
             catch
@@ -240,6 +244,32 @@ public class SemanticKernelServiceFactory : ISemanticKernelServiceFactory, IDisp
     private IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneratorInternal(AiServiceConfigModel config)
     {
         var embeddingModel = RequireEmbeddingModel(config);
+
+        if (config.ServiceType == AiServiceType.Ollama)
+        {
+            var endpoint = NormalizeOllamaBaseUrl(RequireEndpoint(config));
+            var ollamaClient = _safeHttpClientFactory.CreateClient(
+                config.ServiceType,
+                endpoint,
+                AiServiceHttpClientDefaults.LongRunningNetworkTimeout);
+            try
+            {
+                var logger = _loggerFactory.CreateLogger<OllamaNativeEmbeddingGenerator>();
+                return new OwnedEmbeddingGenerator(
+                    new OllamaNativeEmbeddingGenerator(
+                        config,
+                        ollamaClient,
+                        _ollamaKeepAlive,
+                        logger),
+                    ollamaClient);
+            }
+            catch
+            {
+                ollamaClient.Dispose();
+                throw;
+            }
+        }
+
         var builder = Kernel.CreateBuilder();
 
         if (config.ServiceType == AiServiceType.AzureOpenAI)

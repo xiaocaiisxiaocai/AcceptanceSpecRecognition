@@ -420,7 +420,7 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.GetProperty("model").GetString().Should().Be("qwen3.5:35b");
         json.RootElement.GetProperty("stream").GetBoolean().Should().BeFalse();
         json.RootElement.GetProperty("think").GetBoolean().Should().BeFalse();
-        json.RootElement.GetProperty("keep_alive").GetString().Should().Be("30m");
+        json.RootElement.GetProperty("keep_alive").GetString().Should().Be("2h");
         json.RootElement.GetProperty("messages").GetArrayLength().Should().Be(1);
         json.RootElement.GetProperty("messages")[0].GetProperty("role").GetString().Should().Be("user");
         json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString().Should().Be("你好");
@@ -440,6 +440,116 @@ public class OllamaNativeChatCompletionServiceTests
         json.RootElement.TryGetProperty("options", out var options).Should().BeTrue("请求体必须携带 options 采样选项");
         options.GetProperty("temperature").GetDouble().Should().Be(0);
         options.GetProperty("seed").GetInt32().Should().Be(42);
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_OllamaEmbedding应使用原生批量接口和统一驻留值()
+    {
+        var port = GetFreeTcpPort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+
+        string? requestLine = null;
+        string? requestBody = null;
+        var serverTask = Task.Run(async () =>
+        {
+            var context = await listener.GetContextAsync();
+            requestLine = $"{context.Request.HttpMethod} {context.Request.RawUrl} HTTP/{context.Request.ProtocolVersion}";
+            using var bodyReader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding);
+            requestBody = await bodyReader.ReadToEndAsync();
+            var responseBytes = Encoding.UTF8.GetBytes(
+                """
+                {
+                  "model": "qwen3-embedding:4b-q4_K_M",
+                  "embeddings": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+                  "total_duration": 50000000,
+                  "load_duration": 30000000,
+                  "prompt_eval_count": 2
+                }
+                """);
+            context.Response.StatusCode = 200;
+            context.Response.ContentType = "application/json";
+            context.Response.ContentLength64 = responseBytes.Length;
+            await context.Response.OutputStream.WriteAsync(responseBytes);
+            context.Response.Close();
+        });
+
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            new FakeSafeAiHttpClientFactory(new HttpClient()),
+            Options.Create(new SemanticKernelOptions { OllamaKeepAlive = "2h" }));
+        var generator = factory.CreateEmbeddingGenerator(new AiServiceConfigModel
+        {
+            Id = 12,
+            ServiceType = AiServiceType.Ollama,
+            Endpoint = $"http://127.0.0.1:{port}/v1",
+            EmbeddingModel = "qwen3-embedding:4b-q4_K_M"
+        });
+
+        var result = await generator.GenerateAsync(["第一条", "第二条"]);
+        await serverTask;
+
+        result.Should().HaveCount(2);
+        result[0].Vector.ToArray().Should().Equal(0.1f, 0.2f, 0.3f);
+        result[1].Vector.ToArray().Should().Equal(0.4f, 0.5f, 0.6f);
+        requestLine.Should().StartWith("POST /api/embed HTTP/");
+        using var json = JsonDocument.Parse(requestBody!);
+        json.RootElement.GetProperty("model").GetString().Should().Be("qwen3-embedding:4b-q4_K_M");
+        json.RootElement.GetProperty("keep_alive").GetString().Should().Be("2h");
+        json.RootElement.GetProperty("input").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Equal("第一条", "第二条");
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_OllamaEmbedding返回数量错位时应失败()
+    {
+        var handler = new FixedResponseHandler(
+            """
+            { "embeddings": [[0.1, 0.2, 0.3]] }
+            """);
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            new FakeSafeAiHttpClientFactory(new HttpClient(handler)),
+            Options.Create(new SemanticKernelOptions()));
+        var generator = factory.CreateEmbeddingGenerator(new AiServiceConfigModel
+        {
+            Id = 13,
+            ServiceType = AiServiceType.Ollama,
+            Endpoint = "http://127.0.0.1:11434/api",
+            EmbeddingModel = "embedding-model"
+        });
+
+        var action = async () => await generator.GenerateAsync(["第一条", "第二条"]);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*返回数量不一致*");
+    }
+
+    [Fact]
+    public async Task SemanticKernelServiceFactory_OllamaEmbedding应传播调用取消()
+    {
+        var handler = new BlockingEmbeddingHandler();
+        using var factory = new SemanticKernelServiceFactory(
+            NullLoggerFactory.Instance,
+            new FakeSafeAiHttpClientFactory(new HttpClient(handler)),
+            Options.Create(new SemanticKernelOptions()));
+        var generator = factory.CreateEmbeddingGenerator(new AiServiceConfigModel
+        {
+            Id = 14,
+            ServiceType = AiServiceType.Ollama,
+            Endpoint = "http://127.0.0.1:11434",
+            EmbeddingModel = "embedding-model"
+        });
+        using var cancellation = new CancellationTokenSource();
+
+        var generation = generator.GenerateAsync(["ping"], cancellationToken: cancellation.Token);
+        await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        var action = async () => await generation;
+        await action.Should().ThrowAsync<OperationCanceledException>();
     }
 
     private sealed class TestStructuredResponse
@@ -466,7 +576,7 @@ public class OllamaNativeChatCompletionServiceTests
         var loggerType = typeof(NullLogger<>).MakeGenericType(serviceType);
         var logger = loggerType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null)
             ?? Activator.CreateInstance(loggerType, nonPublic: true);
-        var instance = Activator.CreateInstance(serviceType, config, new HttpClient(), logger);
+        var instance = Activator.CreateInstance(serviceType, config, new HttpClient(), "2h", logger);
         return (IChatCompletionService)instance!;
     }
 
@@ -508,6 +618,32 @@ public class OllamaNativeChatCompletionServiceTests
         {
             Calls.Add((serviceType, endpoint));
             return httpClient;
+        }
+    }
+
+    private sealed class FixedResponseHandler(string responseJson) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+            });
+    }
+
+    private sealed class BlockingEmbeddingHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("取消后不应继续执行");
         }
     }
 
