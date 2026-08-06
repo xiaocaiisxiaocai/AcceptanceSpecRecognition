@@ -112,6 +112,100 @@ public sealed class AcceptanceSpecAppService
         return AcceptanceSpecQueryService.MapDto(spec);
     }
 
+    public async Task<AcceptanceSpecReferenceHistoryModel?> GetReferenceHistoryAsync(
+        SpecAccessContext scope,
+        int id,
+        int page,
+        int pageSize,
+        bool includePreviousVersions,
+        string? sort,
+        CancellationToken cancellationToken = default)
+    {
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id, cancellationToken);
+        if (spec == null)
+            return null;
+
+        if (!scope.CanAccess(spec))
+            throw new ApplicationServiceException(403, "无权访问该规格");
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var normalizedSort = string.IsNullOrWhiteSpace(sort)
+            ? "newest"
+            : sort.Trim().ToLowerInvariant();
+        if (normalizedSort is not ("oldest" or "newest"))
+            throw new ApplicationServiceException(400, "引用历史排序只支持 oldest 或 newest");
+
+        var allEvents = _unitOfWork.AcceptanceSpecReferenceEvents
+            .Query()
+            .Where(reference => reference.AcceptanceSpecId == id);
+        var currentEvents = allEvents.Where(reference =>
+            reference.ReferenceVersion == spec.ReferenceVersion);
+        var selectedEvents = includePreviousVersions ? allEvents : currentEvents;
+
+        var untrackedReferenceCount = await selectedEvents
+            .Where(reference => !reference.ReferencedAtUtc.HasValue)
+            .SumAsync(reference => (long?)reference.OccurrenceCount, cancellationToken) ?? 0;
+        var recordedReferenceCount = await selectedEvents
+            .Where(reference => reference.ReferencedAtUtc.HasValue)
+            .SumAsync(reference => (long?)reference.OccurrenceCount, cancellationToken) ?? 0;
+
+        var historyQuery = selectedEvents.Where(reference => reference.ReferencedAtUtc.HasValue);
+
+        var total = await historyQuery.CountAsync(cancellationToken);
+        var skip = (page - 1) * pageSize;
+        var orderedQuery = normalizedSort == "oldest"
+            ? historyQuery
+                .OrderBy(reference => reference.ReferencedAtUtc)
+                .ThenBy(reference => reference.TaskId)
+                .ThenBy(reference => reference.TaskOccurrenceIndex)
+                .ThenBy(reference => reference.Id)
+            : historyQuery
+                .OrderByDescending(reference => reference.ReferencedAtUtc)
+                .ThenByDescending(reference => reference.TaskId)
+                .ThenByDescending(reference => reference.TaskOccurrenceIndex)
+                .ThenByDescending(reference => reference.Id);
+        var events = await orderedQuery
+            .Skip(skip)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        var items = events.Select((reference, index) =>
+        {
+            long? ordinal = null;
+            if (!includePreviousVersions)
+            {
+                ordinal = normalizedSort == "oldest"
+                    ? untrackedReferenceCount + skip + index + 1L
+                    : untrackedReferenceCount + total - skip - index;
+            }
+
+            return new AcceptanceSpecReferenceHistoryItemModel
+            {
+                Id = reference.Id,
+                ReferenceOrdinal = ordinal,
+                ReferenceVersion = reference.ReferenceVersion,
+                IsCurrentVersion = reference.ReferenceVersion == spec.ReferenceVersion,
+                ReferencedAtUtc = reference.ReferencedAtUtc!.Value
+            };
+        }).ToList();
+
+        return new AcceptanceSpecReferenceHistoryModel
+        {
+            SpecId = spec.Id,
+            CurrentReferenceVersion = spec.ReferenceVersion,
+            CurrentReferenceCount = spec.ReferenceCount,
+            RecordedReferenceCount = recordedReferenceCount,
+            UntrackedReferenceCount = untrackedReferenceCount,
+            IncludePreviousVersions = includePreviousVersions,
+            Sort = normalizedSort,
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
     public async Task<AcceptanceSpecSummary> CreateAsync(
         SpecAccessContext scope,
         int customerId,
@@ -162,6 +256,7 @@ public sealed class AcceptanceSpecAppService
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
             ReferenceCount = spec.ReferenceCount,
+            ReferenceVersion = spec.ReferenceVersion,
             ImportedAt = spec.ImportedAt,
             UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,

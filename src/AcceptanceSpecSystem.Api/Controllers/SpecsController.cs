@@ -181,6 +181,45 @@ public class SpecsController : BaseApiController
     }
 
     /// <summary>
+    /// 分页获取验收规格逐次引用时间。
+    /// </summary>
+    [HttpGet("{id}/reference-history")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecReferenceHistoryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecReferenceHistoryDto>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecReferenceHistoryDto>>> GetReferenceHistory(
+        int id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] bool includePreviousVersions = false,
+        [FromQuery] string? sort = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecReferenceHistoryDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var history = await _acceptanceSpecAppService.GetReferenceHistoryAsync(
+                scope.ToAccessContext(),
+                id,
+                page,
+                pageSize,
+                includePreviousVersions,
+                sort,
+                cancellationToken);
+            if (history == null)
+                return NotFoundResult<AcceptanceSpecReferenceHistoryDto>("验收规格不存在");
+
+            return Success(history.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecReferenceHistoryDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 验收规格语义搜索
     /// </summary>
     [HttpPost("semantic-search")]

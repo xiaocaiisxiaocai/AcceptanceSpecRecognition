@@ -51,6 +51,11 @@ public class AcceptanceSpec
     public long ReferenceCount { get; set; }
 
     /// <summary>
+    /// 引用次数对应的内容版本；内容实质变化时递增。
+    /// </summary>
+    public long ReferenceVersion { get; set; } = 1;
+
+    /// <summary>
     /// 数据归属组织节点ID（用于数据范围控制）
     /// </summary>
     public int? OwnerOrgUnitId { get; set; }
@@ -99,4 +104,10 @@ public class AcceptanceSpec
     /// 导航属性：该规格的向量缓存
     /// </summary>
     public ICollection<EmbeddingCache> EmbeddingCaches { get; set; } = new List<EmbeddingCache>();
+
+    /// <summary>
+    /// 该规格各内容版本的逐次引用记录。
+    /// </summary>
+    public ICollection<AcceptanceSpecReferenceEvent> ReferenceEvents { get; set; } =
+        new List<AcceptanceSpecReferenceEvent>();
 }

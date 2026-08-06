@@ -24,6 +24,7 @@ public class UnitOfWork : IUnitOfWork
     private IProcessRepository? _processes;
     private IMachineModelRepository? _machineModels;
     private IAcceptanceSpecRepository? _acceptanceSpecs;
+    private IAcceptanceSpecReferenceEventRepository? _acceptanceSpecReferenceEvents;
     private IEmbeddingCacheRepository? _embeddingCaches;
     private IWordFileRepository? _wordFiles;
     private IAiServiceConfigRepository? _aiServiceConfigs;
@@ -262,6 +263,12 @@ public class UnitOfWork : IUnitOfWork
     /// 验收规格数据仓储。
     /// </summary>
     public IAcceptanceSpecRepository AcceptanceSpecs => GetOrCreate(ref _acceptanceSpecs);
+
+    /// <summary>
+    /// 验收规格逐次引用记录仓储。
+    /// </summary>
+    public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents =>
+        GetOrCreate(ref _acceptanceSpecReferenceEvents);
 
     /// <summary>
     /// 向量缓存数据仓储。

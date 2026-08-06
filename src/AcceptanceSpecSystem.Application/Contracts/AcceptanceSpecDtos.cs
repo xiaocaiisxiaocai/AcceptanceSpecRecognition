@@ -68,6 +68,11 @@ public class AcceptanceSpecDto
     public long ReferenceCount { get; set; }
 
     /// <summary>
+    /// 当前引用计数对应的内容版本
+    /// </summary>
+    public long ReferenceVersion { get; set; }
+
+    /// <summary>
     /// 导入时间
     /// </summary>
     public DateTime ImportedAt { get; set; }
@@ -175,6 +180,44 @@ public class UpdateSpecRequest
     /// </summary>
     [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
+}
+
+public sealed class AcceptanceSpecReferenceHistoryDto
+{
+    public int SpecId { get; set; }
+
+    public long CurrentReferenceVersion { get; set; }
+
+    public long CurrentReferenceCount { get; set; }
+
+    public long RecordedReferenceCount { get; set; }
+
+    public long UntrackedReferenceCount { get; set; }
+
+    public bool IncludePreviousVersions { get; set; }
+
+    public string Sort { get; set; } = "newest";
+
+    public List<AcceptanceSpecReferenceHistoryItemDto> Items { get; set; } = [];
+
+    public int Total { get; set; }
+
+    public int Page { get; set; }
+
+    public int PageSize { get; set; }
+}
+
+public sealed class AcceptanceSpecReferenceHistoryItemDto
+{
+    public long Id { get; set; }
+
+    public long? ReferenceOrdinal { get; set; }
+
+    public long ReferenceVersion { get; set; }
+
+    public bool IsCurrentVersion { get; set; }
+
+    public DateTime ReferencedAtUtc { get; set; }
 }
 
 /// <summary>

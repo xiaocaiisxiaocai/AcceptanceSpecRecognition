@@ -33,6 +33,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
+import SpecReferenceHistoryDrawer from "./SpecReferenceHistoryDrawer.vue";
 import SpecRemarkReplaceDialog from "./SpecRemarkReplaceDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
@@ -98,6 +99,8 @@ const formRules = computed<FormRules<typeof formData>>(() => ({
 
 const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
+const referenceHistoryVisible = ref(false);
+const referenceHistorySpec = ref<AcceptanceSpec | null>(null);
 const duplicateDialogVisible = ref(false);
 const duplicateLoading = ref(false);
 const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
@@ -252,6 +255,8 @@ watch(
     duplicateResult.value = null;
     semanticSearchDialogVisible.value = false;
     remarkReplaceDialogVisible.value = false;
+    referenceHistoryVisible.value = false;
+    referenceHistorySpec.value = null;
     loadData();
   },
   { immediate: true }
@@ -329,6 +334,12 @@ const openDetailDialog = (row: AcceptanceSpec) => {
 
 const handleView = (row: AcceptanceSpec) => {
   openDetailDialog(row);
+};
+
+const handleReferenceHistory = (row: AcceptanceSpec) => {
+  if (row.referenceCount <= 0 && row.referenceVersion <= 1) return;
+  referenceHistorySpec.value = row;
+  referenceHistoryVisible.value = true;
 };
 
 const handleDelete = async (row: AcceptanceSpec) => {
@@ -701,12 +712,19 @@ const scopeBreadcrumbItems = computed(() =>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
-        <el-table-column
-          prop="referenceCount"
-          label="引用次数"
-          width="88"
-          align="center"
-        />
+        <el-table-column label="引用次数" width="88" align="center">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.referenceCount > 0 || row.referenceVersion > 1"
+              type="primary"
+              link
+              @click="handleReferenceHistory(row)"
+            >
+              {{ row.referenceCount }}
+            </el-button>
+            <span v-else>0</span>
+          </template>
+        </el-table-column>
         <el-table-column label="更新时间" width="180">
           <template #default="{ row }">
             {{ formatApiUtcDateTime(row.updatedAt ?? row.importedAt) }}
@@ -863,7 +881,17 @@ const scopeBreadcrumbItems = computed(() =>
           </div>
         </el-descriptions-item>
         <el-descriptions-item label="引用次数">
-          {{ detailData.referenceCount }}
+          <el-button
+            v-if="
+              detailData.referenceCount > 0 || detailData.referenceVersion > 1
+            "
+            type="primary"
+            link
+            @click="handleReferenceHistory(detailData)"
+          >
+            {{ detailData.referenceCount }}
+          </el-button>
+          <span v-else>0</span>
         </el-descriptions-item>
         <el-descriptions-item label="导入时间">{{
           formatApiUtcDateTime(detailData.importedAt)
@@ -900,6 +928,11 @@ const scopeBreadcrumbItems = computed(() =>
       :org-unit-id="effectiveOperationOrgUnitId"
       :scope-label="scopeLabel"
       @success="handleRemarkReplaceSuccess"
+    />
+
+    <SpecReferenceHistoryDrawer
+      v-model="referenceHistoryVisible"
+      :spec="referenceHistorySpec"
     />
   </div>
 </template>

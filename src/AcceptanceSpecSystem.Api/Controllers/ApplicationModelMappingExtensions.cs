@@ -89,10 +89,37 @@ internal static class ApplicationModelMappingExtensions
             Acceptance = item.Acceptance,
             Remark = item.Remark,
             ReferenceCount = item.ReferenceCount,
+            ReferenceVersion = item.ReferenceVersion,
             ImportedAt = item.ImportedAt,
             UpdatedAt = item.UpdatedAt,
             OwnerOrgUnitId = item.OwnerOrgUnitId,
             CreatedByUserId = item.CreatedByUserId
+        };
+    }
+
+    public static AcceptanceSpecReferenceHistoryDto ToDto(
+        this AcceptanceSpecReferenceHistoryModel model)
+    {
+        return new AcceptanceSpecReferenceHistoryDto
+        {
+            SpecId = model.SpecId,
+            CurrentReferenceVersion = model.CurrentReferenceVersion,
+            CurrentReferenceCount = model.CurrentReferenceCount,
+            RecordedReferenceCount = model.RecordedReferenceCount,
+            UntrackedReferenceCount = model.UntrackedReferenceCount,
+            IncludePreviousVersions = model.IncludePreviousVersions,
+            Sort = model.Sort,
+            Items = model.Items.Select(item => new AcceptanceSpecReferenceHistoryItemDto
+            {
+                Id = item.Id,
+                ReferenceOrdinal = item.ReferenceOrdinal,
+                ReferenceVersion = item.ReferenceVersion,
+                IsCurrentVersion = item.IsCurrentVersion,
+                ReferencedAtUtc = item.ReferencedAtUtc
+            }).ToList(),
+            Total = model.Total,
+            Page = model.Page,
+            PageSize = model.PageSize
         };
     }
 

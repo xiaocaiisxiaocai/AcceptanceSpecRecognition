@@ -15,9 +15,41 @@ export interface AcceptanceSpec {
   acceptance?: string;
   remark?: string;
   referenceCount: number;
+  referenceVersion: number;
   importedAt: string;
   updatedAt?: string | null;
   ownerOrgUnitId?: number | null;
+}
+
+export type SpecReferenceHistorySort = "oldest" | "newest";
+
+export interface SpecReferenceHistoryItem {
+  id: number;
+  referenceOrdinal?: number | null;
+  referenceVersion: number;
+  isCurrentVersion: boolean;
+  referencedAtUtc: string;
+}
+
+export interface SpecReferenceHistoryResponse {
+  specId: number;
+  currentReferenceVersion: number;
+  currentReferenceCount: number;
+  recordedReferenceCount: number;
+  untrackedReferenceCount: number;
+  includePreviousVersions: boolean;
+  sort: SpecReferenceHistorySort;
+  items: SpecReferenceHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface SpecReferenceHistoryRequest {
+  page: number;
+  pageSize: number;
+  includePreviousVersions?: boolean;
+  sort?: SpecReferenceHistorySort;
 }
 
 /** 创建验收规格请求 */
@@ -218,6 +250,18 @@ export const getSpecList = (params?: SpecListRequest) => {
 /** 获取验收规格详情 */
 export const getSpec = (id: number) => {
   return http.request<ApiResponse<AcceptanceSpec>>("get", `${baseUrl}/${id}`);
+};
+
+/** 获取验收规格逐次引用时间 */
+export const getSpecReferenceHistory = (
+  id: number,
+  params: SpecReferenceHistoryRequest
+) => {
+  return http.request<ApiResponse<SpecReferenceHistoryResponse>>(
+    "get",
+    `${baseUrl}/${id}/reference-history`,
+    { params }
+  );
 };
 
 /** 创建验收规格 */
