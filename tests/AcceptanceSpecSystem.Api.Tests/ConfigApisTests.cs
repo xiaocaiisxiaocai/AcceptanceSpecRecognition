@@ -361,7 +361,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
 
         var configId = await CreateLegacyOllamaConfigAsync($"http://127.0.0.1:{port}/api");
 
-        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=quick", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -405,7 +405,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
 
         var configId = await CreateLegacyOllamaConfigAsync($"http://127.0.0.1:{port}/api", "qwen3.5:35b");
 
-        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=quick", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -512,7 +512,7 @@ public class ConfigApisTests : IClassFixture<ApiWebApplicationFactory>
             llmModel: "qwen3.5:35b",
             embeddingModel: null);
 
-        var response = await _client.PostAsync($"/api/ai-services/{configId}/test", null);
+        var response = await _client.PostAsync($"/api/ai-services/{configId}/test?mode=quick", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();

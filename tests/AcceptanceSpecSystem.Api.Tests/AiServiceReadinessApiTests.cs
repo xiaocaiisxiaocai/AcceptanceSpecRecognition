@@ -119,6 +119,27 @@ public sealed class AiServiceReadinessApiTests
     }
 
     [Fact]
+    public async Task PreloadPreferred_ShouldOnlyScheduleHighestPriorityCandidate()
+    {
+        await using var factory = new DeterministicReadinessApiWebApplicationFactory();
+        var lowPriorityId = await SeedConfigAsync(factory, AiServicePurpose.Llm, priority: 20, "preload-low");
+        var highPriorityId = await SeedConfigAsync(factory, AiServicePurpose.Llm, priority: 1, "preload-high");
+        using var scope = factory.Services.CreateScope();
+        var selection = scope.ServiceProvider.GetRequiredService<IAiServiceSelectionAppService>();
+        var registry = factory.Services.GetRequiredService<AiServiceReadinessRegistry>();
+
+        var result = await selection.PreloadPreferredAsync(AiServicePurpose.Llm);
+
+        result.Status.Should().Be("checking");
+        result.ServiceId.Should().Be(highPriorityId);
+        registry.GetSnapshot(highPriorityId, CoreAiServicePurpose.Llm).State
+            .Should().Be(AiServiceReadinessState.Checking);
+        registry.GetSnapshot(lowPriorityId, CoreAiServicePurpose.Llm).State
+            .Should().Be(AiServiceReadinessState.Unknown,
+                "启动预热不应把所有候选模型一起装入显存");
+    }
+
+    [Fact]
     public async Task Health_ShouldExposeCachedAiDegradationWithoutFailingCoreHealth()
     {
         await using var factory = new DeterministicReadinessApiWebApplicationFactory();

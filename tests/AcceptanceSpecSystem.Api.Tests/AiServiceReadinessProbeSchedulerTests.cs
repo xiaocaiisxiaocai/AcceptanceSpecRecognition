@@ -126,7 +126,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
     }
 
     [Fact]
-    public async Task RequestProbe_ForOllamaLlm_ShouldUseModelListWithoutStartingGeneration()
+    public async Task RequestProbe_ForOllamaLlm_ShouldRequireModelListAndRealGeneration()
     {
         var options = Microsoft.Extensions.Options.Options.Create(new AiServiceReadinessOptions
         {
@@ -135,7 +135,7 @@ public sealed class AiServiceReadinessProbeSchedulerTests
             StatusTtlSeconds = 60
         });
         var registry = new AiServiceReadinessRegistry(TimeProvider.System, options);
-        var chat = new BlockingChatCompletionService();
+        var chat = new RecordingChatCompletionService();
         var lifetime = new TestHostApplicationLifetime();
         var safeClientFactory = new StubSafeAiHttpClientFactory(
             "{\"models\":[{\"name\":\"qwen2.5:14b\"}]}");
@@ -153,11 +153,53 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         scheduler.RequestProbe(CreateOllamaConfig(101), CoreAiServicePurpose.Llm, generation);
 
         await WaitForStateAsync(registry, 101, AiServiceReadinessState.Available);
-        chat.Started.Task.IsCompleted.Should().BeFalse("轻量探测不应触发大模型冷启动生成");
+        chat.CallCount.Should().Be(1, "模型可见后仍必须完成最小真实调用才能报告 available");
+        chat.LastUserMessage.Should().Be("ping");
         safeClientFactory.Calls.Should().ContainSingle();
         safeClientFactory.Calls[0].ServiceType.Should().Be(
             AcceptanceSpecSystem.Core.AI.Models.AiServiceType.Ollama);
         safeClientFactory.Calls[0].Endpoint.Should().Be("http://192.168.1.20:11434");
+    }
+
+    [Fact]
+    public async Task RequestProbe_ForOllamaEmbedding_ShouldRequireNonEmptyRealVector()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new AiServiceReadinessOptions
+        {
+            MaxConcurrentProbes = 1,
+            ProbeTimeoutSeconds = 2,
+            StatusTtlSeconds = 60
+        });
+        var registry = new AiServiceReadinessRegistry(TimeProvider.System, options);
+        var embedding = new RecordingEmbeddingGenerator([0.1f, 0.2f, 0.3f]);
+        var lifetime = new TestHostApplicationLifetime();
+        var safeClientFactory = new StubSafeAiHttpClientFactory(
+            "{\"models\":[{\"name\":\"qwen3-embedding:4b-q4_K_M\"}]}");
+        await using var scheduler = new AiServiceReadinessProbeScheduler(
+            registry,
+            new BlockingSemanticKernelServiceFactory(
+                new RecordingChatCompletionService(),
+                embedding),
+            safeClientFactory,
+            lifetime,
+            options,
+            NullLogger<AiServiceReadinessProbeScheduler>.Instance);
+        await scheduler.StartAsync(CancellationToken.None);
+
+        registry.TryMarkChecking(103, CoreAiServicePurpose.Embedding, out var generation)
+            .Should().BeTrue();
+        scheduler.RequestProbe(
+            CreateOllamaEmbeddingConfig(103),
+            CoreAiServicePurpose.Embedding,
+            generation);
+
+        await WaitForStateAsync(
+            registry,
+            103,
+            AiServiceReadinessState.Available,
+            CoreAiServicePurpose.Embedding);
+        embedding.CallCount.Should().Be(1);
+        embedding.LastInput.Should().Be("ping");
     }
 
     [Fact]
@@ -217,20 +259,36 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         DateTime.UtcNow,
         null);
 
+    private static AiServiceProbeConfig CreateOllamaEmbeddingConfig(int serviceId) => new(
+        serviceId,
+        $"ollama-embedding-{serviceId}",
+        DataAiServiceType.Ollama,
+        DataAiServicePurpose.Embedding,
+        0,
+        null,
+        "http://192.168.1.20:11434/api",
+        "qwen3-embedding:4b-q4_K_M",
+        null,
+        false,
+        false,
+        DateTime.UtcNow,
+        null);
+
     private static async Task WaitForStateAsync(
         AiServiceReadinessRegistry registry,
         int serviceId,
-        AiServiceReadinessState expected)
+        AiServiceReadinessState expected,
+        CoreAiServicePurpose purpose = CoreAiServicePurpose.Llm)
     {
         var timeoutAt = DateTime.UtcNow.AddSeconds(5);
         while (DateTime.UtcNow < timeoutAt)
         {
-            if (registry.GetSnapshot(serviceId, CoreAiServicePurpose.Llm).State == expected)
+            if (registry.GetSnapshot(serviceId, purpose).State == expected)
                 return;
             await Task.Delay(20);
         }
 
-        registry.GetSnapshot(serviceId, CoreAiServicePurpose.Llm).State.Should().Be(expected);
+        registry.GetSnapshot(serviceId, purpose).State.Should().Be(expected);
     }
 
     private sealed class StubSafeAiHttpClientFactory(string modelsJson = "{\"models\":[]}")
@@ -262,13 +320,71 @@ public sealed class AiServiceReadinessProbeSchedulerTests
         }
     }
 
-    private sealed class BlockingSemanticKernelServiceFactory(BlockingChatCompletionService chat)
+    private sealed class BlockingSemanticKernelServiceFactory(
+        IChatCompletionService chat,
+        IEmbeddingGenerator<string, Embedding<float>>? embedding = null)
         : ISemanticKernelServiceFactory
     {
         public IChatCompletionService CreateChatCompletionService(CoreAiServiceConfig config) => chat;
 
         public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(CoreAiServiceConfig config) =>
-            throw new NotSupportedException();
+            embedding ?? throw new NotSupportedException();
+    }
+
+    private sealed class RecordingChatCompletionService : IChatCompletionService
+    {
+        public int CallCount { get; private set; }
+        public string? LastUserMessage { get; private set; }
+        public IReadOnlyDictionary<string, object?> Attributes { get; } =
+            new Dictionary<string, object?>();
+
+        public Task<IReadOnlyList<ChatMessageContent>> GetChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Kernel? kernel = null,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            LastUserMessage = chatHistory.LastOrDefault()?.Content;
+            IReadOnlyList<ChatMessageContent> result =
+                [new ChatMessageContent(AuthorRole.Assistant, "pong")];
+            return Task.FromResult(result);
+        }
+
+        public async IAsyncEnumerable<StreamingChatMessageContent> GetStreamingChatMessageContentsAsync(
+            ChatHistory chatHistory,
+            PromptExecutionSettings? executionSettings = null,
+            Kernel? kernel = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation]
+            CancellationToken cancellationToken = default)
+        {
+            yield return new StreamingChatMessageContent(AuthorRole.Assistant, "pong");
+            await Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingEmbeddingGenerator(float[] vector)
+        : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public int CallCount { get; private set; }
+        public string? LastInput { get; private set; }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            LastInput = values.Single();
+            return Task.FromResult(
+                new GeneratedEmbeddings<Embedding<float>>([new Embedding<float>(vector)]));
+        }
+
+        public void Dispose()
+        {
+        }
     }
 
     private sealed class BlockingChatCompletionService : IChatCompletionService

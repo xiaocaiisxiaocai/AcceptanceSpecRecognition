@@ -65,6 +65,25 @@ public class AiServiceDefaultModeApiTests : IClassFixture<AiServiceDefaultModeAp
             .Should().Be("Embedding: OK (dim=3)");
     }
 
+    [Fact]
+    public async Task TestConnection_WhenOllamaLlmUsesFullMode_ShouldRunRealInference()
+    {
+        var configId = await CreateConfigAsync(
+            AiServicePurpose.Llm,
+            AiServiceType.Ollama);
+
+        using var response = await _client.PostAsync(
+            $"/api/ai-services/{configId}/test?mode=full",
+            null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        result.Code.Should().Be(0);
+        result.Data.GetProperty("success").GetBoolean().Should().BeTrue();
+        result.Data.GetProperty("message").GetString()
+            .Should().Be("LLM: OK（真实推理已完成）");
+    }
+
     private async Task<int> CreateConfigAsync(
         AiServicePurpose purpose,
         AiServiceType serviceType = AiServiceType.OpenAI)

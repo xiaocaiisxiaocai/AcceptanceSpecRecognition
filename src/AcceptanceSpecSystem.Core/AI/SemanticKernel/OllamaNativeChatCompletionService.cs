@@ -18,8 +18,6 @@ namespace AcceptanceSpecSystem.Core.AI.SemanticKernel;
 /// </summary>
 internal sealed class OllamaNativeChatCompletionService : IChatCompletionService, IDisposable
 {
-    private const string KeepAlive = "30m";
-
     /// <summary>
     /// 默认随机种子。temperature=0 仍可能因 GPU 浮点累加顺序在临界样本上摆动，
     /// 固定 seed 进一步锁定采样起点以提升裁决结果的可复现性。
@@ -36,11 +34,13 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
     private readonly ILogger<OllamaNativeChatCompletionService> _logger;
     private readonly string _baseUrl;
     private readonly string _modelId;
+    private readonly string _keepAlive;
     private readonly bool _disableThinking;
 
     public OllamaNativeChatCompletionService(
         AiServiceConfigModel config,
         HttpClient httpClient,
+        string keepAlive,
         ILogger<OllamaNativeChatCompletionService> logger)
     {
         _modelId = string.IsNullOrWhiteSpace(config.LlmModel)
@@ -48,6 +48,9 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
             : config.LlmModel.Trim();
 
         _baseUrl = NormalizeOllamaBaseUrl(config.Endpoint);
+        _keepAlive = string.IsNullOrWhiteSpace(keepAlive)
+            ? SemanticKernelOptions.DefaultOllamaKeepAlive
+            : keepAlive.Trim();
         _disableThinking = config.DisableThinking;
         _httpClient = httpClient;
         _logger = logger;
@@ -57,6 +60,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
             ["service"] = "ollama-native-chat",
             ["endpoint"] = _baseUrl,
             ["model_id"] = _modelId,
+            ["keep_alive"] = _keepAlive,
             ["disable_thinking"] = _disableThinking
         };
     }
@@ -170,7 +174,7 @@ internal sealed class OllamaNativeChatCompletionService : IChatCompletionService
         {
             Model = _modelId,
             Stream = stream,
-            KeepAlive = KeepAlive,
+            KeepAlive = _keepAlive,
             Think = _disableThinking ? false : null,
             Messages = messages,
             Options = BuildOptions(executionSettings),

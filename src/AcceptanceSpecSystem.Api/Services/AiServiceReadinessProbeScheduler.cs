@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using AcceptanceSpecSystem.Application.Contracts;
@@ -170,25 +171,40 @@ public sealed class AiServiceReadinessProbeScheduler :
             var coreConfig = ToCoreModel(request.Config);
             if (request.Config.ServiceType == DataAiServiceType.Ollama)
             {
-                await ProbeOllamaModelAsync(request.Config, request.Purpose, timeout.Token);
+                await EnsureOllamaModelExistsAsync(request.Config, request.Purpose, timeout.Token);
             }
-            else if (request.Purpose == CoreAiServicePurpose.Llm)
+
+            var stopwatch = Stopwatch.StartNew();
+            if (request.Purpose == CoreAiServicePurpose.Llm)
             {
                 var chat = _factory.CreateChatCompletionService(coreConfig);
                 var history = new ChatHistory();
                 history.AddUserMessage("ping");
-                await chat.GetChatMessageContentAsync(history, cancellationToken: timeout.Token);
+                var message = await chat.GetChatMessageContentAsync(
+                    history,
+                    cancellationToken: timeout.Token);
+                if (message is null)
+                    throw new InvalidOperationException("AI LLM 探测未返回消息");
             }
             else
             {
                 var embedding = _factory.CreateEmbeddingGenerator(coreConfig);
-                _ = await embedding.GenerateVectorAsync("ping", cancellationToken: timeout.Token);
+                var vector = await embedding.GenerateVectorAsync(
+                    "ping",
+                    cancellationToken: timeout.Token);
+                if (vector.IsEmpty)
+                    throw new InvalidOperationException("AI Embedding 探测返回空向量");
             }
 
             _registry.ReportAvailableIfCurrent(
                 request.Config.Id,
                 request.Purpose,
                 request.Generation);
+            _logger.LogInformation(
+                "AI readiness 真实调用成功: serviceId={ServiceId}, purpose={Purpose}, elapsedMs={ElapsedMs}",
+                request.Config.Id,
+                request.Purpose,
+                stopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException) when (
             _applicationLifetime.ApplicationStopping.IsCancellationRequested ||
@@ -217,7 +233,7 @@ public sealed class AiServiceReadinessProbeScheduler :
         }
     }
 
-    private async Task ProbeOllamaModelAsync(
+    private async Task EnsureOllamaModelExistsAsync(
         AiServiceProbeConfig config,
         CoreAiServicePurpose purpose,
         CancellationToken cancellationToken)

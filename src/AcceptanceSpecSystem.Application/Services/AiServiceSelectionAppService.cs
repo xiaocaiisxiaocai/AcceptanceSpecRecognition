@@ -16,6 +16,10 @@ public interface IAiServiceSelectionAppService
     Task<AiServiceSelectionDto> GetSelectionAsync(
         AiServicePurpose purpose,
         CancellationToken cancellationToken = default);
+
+    Task<AiServiceSelectionDto> PreloadPreferredAsync(
+        AiServicePurpose purpose,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class AiServiceSelectionAppService : IAiServiceSelectionAppService
@@ -36,7 +40,18 @@ public sealed class AiServiceSelectionAppService : IAiServiceSelectionAppService
 
     public async Task<AiServiceSelectionDto> GetSelectionAsync(
         AiServicePurpose purpose,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        await GetSelectionCoreAsync(purpose, probeFallbackCandidates: true, cancellationToken);
+
+    public async Task<AiServiceSelectionDto> PreloadPreferredAsync(
+        AiServicePurpose purpose,
+        CancellationToken cancellationToken = default) =>
+        await GetSelectionCoreAsync(purpose, probeFallbackCandidates: false, cancellationToken);
+
+    private async Task<AiServiceSelectionDto> GetSelectionCoreAsync(
+        AiServicePurpose purpose,
+        bool probeFallbackCandidates,
+        CancellationToken cancellationToken)
     {
         if (purpose is not AiServicePurpose.Llm and not AiServicePurpose.Embedding)
             throw new ApplicationServiceException(400, "purpose 仅支持 llm 或 embedding");
@@ -77,6 +92,9 @@ public sealed class AiServiceSelectionAppService : IAiServiceSelectionAppService
                 firstChecking = candidate;
                 firstCheckingAt = snapshot.CheckedAt;
             }
+
+            if (!probeFallbackCandidates)
+                break;
         }
 
         if (firstChecking != null)

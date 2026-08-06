@@ -87,6 +87,19 @@ BROWSER_AUTH_COOKIE_DOMAIN=
 
 HTTP 只适用于受信任的隔离内网，不得暴露到互联网或不可信无线网络。
 
+若启用独立 Ollama 推理机，还应在 `.env.docker` 中显式确认运行时参数：
+
+```env
+AI_OLLAMA_KEEP_ALIVE=-1
+AI_READINESS_PROBE_TIMEOUT_SECONDS=20
+AI_PRELOAD_ON_STARTUP=true
+```
+
+- `AI_OLLAMA_KEEP_ALIVE=-1` 会让应用的 Chat 与 Embedding 请求都要求模型永久驻留；仅当 GPU 能同时容纳已启用模型时使用。
+- `AI_READINESS_PROBE_TIMEOUT_SECONDS` 应大于目标机器从冷态加载模型并完成最小调用的实测时间。
+- `AI_PRELOAD_ON_STARTUP=true` 会在 API 启动后后台预热优先 LLM 与 Embedding；失败不会阻断非 AI 功能。
+- Ollama Endpoint 仍在系统的 AI 服务配置页维护，Docker 主机必须能够访问该内网地址。
+
 ### 4. 首次构建和启动
 
 ```powershell
@@ -110,6 +123,15 @@ curl.exe -I --max-time 15 http://127.0.0.1/
 - API 返回 `"status":"Healthy"`。
 - Web 返回 `HTTP/1.1 200 OK`。
 - `docker compose ps` 中三个容器均为 `healthy`。
+
+启用了 Ollama 时，再在推理机上执行：
+
+```powershell
+ollama ps
+nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu --format=csv,noheader
+```
+
+随后在 AI 服务配置页分别对 LLM 与 Embedding 执行“完整测试”。预期两个模型都出现在 `ollama ps`，完整测试成功，且 GPU 仍有明确显存余量；模型仅存在于 `ollama list` 不代表运行时已经就绪。
 
 ## 三、生产更新最短流程
 
