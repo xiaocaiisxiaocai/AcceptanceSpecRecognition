@@ -23,7 +23,8 @@ public partial class LlmMatchingAssistService
         string errorMessage,
         Func<LlmMatchingAssistService, string, bool> isAcceptablePayload,
         CancellationToken cancellationToken,
-        Type? responseFormat = null)
+        Type? responseFormat = null,
+        string? correctionInstruction = null)
     {
         var candidates = await GetCachedCandidatesAsync(AiServicePurpose.Llm, serviceId, cancellationToken);
         if (candidates.Count == 0)
@@ -67,7 +68,7 @@ public partial class LlmMatchingAssistService
                         readinessGeneration);
                     errors.Add($"{cfg.Name}: invalid_payload");
                     _logger.LogWarning(
-                        "LLM 输出未通过解析校验: {Name}, attempt={Attempt}/{MaxAttempts}; 输出摘要: {Summary}",
+                        "LLM 输出未通过采用校验: {Name}, attempt={Attempt}/{MaxAttempts}; 输出摘要: {Summary}",
                         cfg.Name,
                         attempt,
                         maxAttempts,
@@ -75,7 +76,7 @@ public partial class LlmMatchingAssistService
                     if (attempt < maxAttempts)
                     {
                         history.AddAssistantMessage(raw);
-                        history.AddUserMessage(
+                        history.AddUserMessage(correctionInstruction ??
                             "上一次输出未通过结构化校验。请修正格式，只返回符合既定 JSON Schema 的 JSON 对象，不要附加解释或 Markdown。");
                     }
                 }
@@ -111,7 +112,7 @@ public partial class LlmMatchingAssistService
         if (sawRawResponse)
         {
             if (responseFormat != null)
-                throw new AiStructuredOutputException($"{errorMessage}：结构化输出无效");
+                throw new AiStructuredOutputException($"{errorMessage}：返回结果未通过校验");
             return null;
         }
 

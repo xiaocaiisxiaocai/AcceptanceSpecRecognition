@@ -3589,76 +3589,20 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         IReadOnlyList<ColumnSemanticRecallHeaderCandidate> unmappedHeaders,
         ColumnMappingResult mapping)
     {
-        var unmappedByIndex = unmappedHeaders.ToDictionary(item => item.ColumnIndex);
-        var occupiedFields = BuildMappedFields(mapping)
-            .Where(pair => pair.Value.HasValue)
-            .Select(pair => pair.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var acceptedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var acceptedColumns = new HashSet<int>();
-        var valid = new List<SmartConfigurationColumnSemanticRecallSuggestion>();
-
-        foreach (var suggestion in suggestions
-                     .OrderByDescending(item => item.Confidence)
-                     .ThenBy(item => item.ColumnIndex))
-        {
-            if (!unmappedByIndex.TryGetValue(suggestion.ColumnIndex, out var header))
-            {
-                continue;
-            }
-
-            var targetField = NormalizeSemanticRecallTargetField(suggestion.TargetField);
-            if (targetField == null || occupiedFields.Contains(targetField))
-            {
-                continue;
-            }
-
-            if (targetField == "Acceptance" &&
-                AcceptanceResultHeaderPolicy.IsAcceptanceMethodHeader(header.Header))
-            {
-                continue;
-            }
-
-            if (acceptedColumns.Contains(suggestion.ColumnIndex) ||
-                (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase) &&
-                 acceptedFields.Contains(targetField)))
-            {
-                continue;
-            }
-
-            acceptedColumns.Add(suggestion.ColumnIndex);
-            if (!string.Equals(targetField, "Unknown", StringComparison.OrdinalIgnoreCase))
-            {
-                acceptedFields.Add(targetField);
-            }
-
-            valid.Add(new SmartConfigurationColumnSemanticRecallSuggestion
+        return ColumnSemanticRecallSuggestionValidator.Validate(
+                suggestions,
+                unmappedHeaders,
+                BuildMappedFields(mapping))
+            .Select(suggestion => new SmartConfigurationColumnSemanticRecallSuggestion
             {
                 ColumnIndex = suggestion.ColumnIndex,
-                Header = string.IsNullOrWhiteSpace(suggestion.Header) ? header.Header : suggestion.Header.Trim(),
-                TargetField = targetField,
-                Confidence = Math.Clamp(suggestion.Confidence, 0, 1),
+                Header = suggestion.Header,
+                TargetField = suggestion.TargetField,
+                Confidence = suggestion.Confidence,
                 Reason = suggestion.Reason,
-                Source = "SemanticRecall"
-            });
-        }
-
-        return valid
-            .OrderBy(item => item.ColumnIndex)
+                Source = suggestion.Source
+            })
             .ToList();
-    }
-
-    private static string? NormalizeSemanticRecallTargetField(string? value)
-    {
-        return value?.Trim() switch
-        {
-            "Project" => "Project",
-            "Specification" => "Specification",
-            "Acceptance" => "Acceptance",
-            "Remark" => "Remark",
-            "Unknown" => "Unknown",
-            _ => null
-        };
     }
 
     private static SmartConfigurationRecognizedTable CopyWithSemanticRecallSuggestions(
@@ -4029,7 +3973,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             OperationCanceledException => "所选 AI 增强服务响应超时，已停止本次文档后续 AI 调用并保留规则识别结果",
             AiServiceUnavailableException => "所选 AI 增强服务不可用，已停止本次文档后续 AI 调用并保留规则识别结果",
-            AiStructuredOutputException => "所选 AI 增强服务返回格式异常，已停止本次文档后续 AI 调用并保留规则识别结果",
+            AiStructuredOutputException => "所选 AI 增强服务返回结果未通过校验，已停止本次文档后续 AI 调用并保留规则识别结果",
             _ => "所选 AI 增强服务调用失败，已停止本次文档后续 AI 调用并保留规则识别结果"
         };
     }
