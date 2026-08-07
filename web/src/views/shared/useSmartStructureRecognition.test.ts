@@ -154,7 +154,7 @@ describe("useSmartStructureRecognition", () => {
     await state.recognize(9, 1, { enableLlmAssistance: true });
 
     expect(messageMocks.warning).toHaveBeenCalledWith(
-      "AI 返回格式异常，本次已保留规则识别结果"
+      "AI 建议未通过校验，本次已保留规则识别结果"
     );
   });
 

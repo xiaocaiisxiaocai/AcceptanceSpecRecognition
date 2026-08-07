@@ -60,6 +60,58 @@ public class LlmMatchingAssistFallbackTests
     }
 
     [Fact]
+    public async Task RecallAsync_WhenStructuredPayloadHasOnlyBusinessInvalidSuggestions_ShouldRetryOnceOnSameService()
+    {
+        var chat = new SequenceChatCompletionService(
+            """{"suggestions":[{"columnIndex":1,"header":"验收方式","targetField":"Acceptance","confidence":0.95,"reason":"包含验收关键词"},{"columnIndex":2,"header":"管控要求","targetField":"Project","confidence":0.9,"reason":"误用已占用字段"}]}""",
+            """{"suggestions":[{"columnIndex":2,"header":"管控要求","targetField":"Specification","confidence":0.88,"reason":"语义一致"}]}""");
+        var service = new LlmMatchingAssistService(
+            new StaticPromptTemplateProvider("输入：{{inputJson}}\n仅返回 JSON"),
+            new FixedAiServiceSelector(CreateConfig(7, "llm-semantic-retry")),
+            new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+            {
+                [7] = chat
+            }),
+            NullLogger<LlmMatchingAssistService>.Instance,
+            runtimeAvailability: new CheckingRuntimeAvailability());
+
+        var result = await service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            Headers = ["项目", "验收方式", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "验收方式"
+                },
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 2,
+                    Header = "管控要求"
+                }
+            ],
+            MappedFields = new Dictionary<string, int?>
+            {
+                ["Project"] = 0,
+                ["Specification"] = null,
+                ["Acceptance"] = null,
+                ["Remark"] = null
+            },
+            LlmServiceId = 7
+        });
+
+        result.Should().NotBeNull();
+        result!.Suggestions.Should().ContainSingle()
+            .Which.Should().Match<LlmColumnSemanticRecallSuggestion>(suggestion =>
+                suggestion.ColumnIndex == 2 && suggestion.TargetField == "Specification");
+        chat.CallCount.Should().Be(2);
+        chat.LastPrompt.Should().Contain("columnIndex 只能来自 unmappedHeaders");
+        chat.LastPrompt.Should().Contain("验收方法列不得映射到 Acceptance");
+        chat.LastPrompt.Should().Contain("{\"suggestions\":[]}");
+    }
+
+    [Fact]
     public async Task RecallAsync_WhenExplicitServiceIsKnownUnavailable_ShouldNotCallProvider()
     {
         var chat = new SequenceChatCompletionService("""{"suggestions":[]}""");

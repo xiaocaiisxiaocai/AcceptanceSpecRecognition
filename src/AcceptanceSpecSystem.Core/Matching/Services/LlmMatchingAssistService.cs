@@ -306,9 +306,22 @@ public partial class LlmMatchingAssistService :
             prompt,
             request.LlmServiceId,
             "LLM 列语义召回失败",
-            static (service, payload) => service.TryParseColumnSemanticRecallResult(payload, out _),
+            (service, payload) =>
+            {
+                if (!service.TryParseColumnSemanticRecallResult(payload, out var result))
+                {
+                    return false;
+                }
+
+                return result.Suggestions.Count == 0 ||
+                       ColumnSemanticRecallSuggestionValidator.Validate(
+                           result.Suggestions,
+                           request.UnmappedHeaders,
+                           request.MappedFields).Count > 0;
+            },
             cancellationToken,
-            typeof(ColumnSemanticRecallStructuredResponse));
+            typeof(ColumnSemanticRecallStructuredResponse),
+            ColumnSemanticRecallCorrectionInstruction);
 
         if (string.IsNullOrWhiteSpace(raw))
         {

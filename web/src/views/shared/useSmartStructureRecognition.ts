@@ -31,7 +31,7 @@ const showAiAssistStatus = (summary?: SmartConfigAiAssistSummary) => {
 
   const message =
     summary.reason === "invalidOutput"
-      ? "AI 返回格式异常，本次已保留规则识别结果"
+      ? "AI 建议未通过校验，本次已保留规则识别结果"
       : summary.reason === "timeout" || summary.reason === "checkingTimeout"
         ? "AI 响应超时，本次已保留规则识别结果"
         : summary.reason === "unavailable"
