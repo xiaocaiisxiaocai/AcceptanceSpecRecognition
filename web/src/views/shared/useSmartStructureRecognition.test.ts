@@ -158,7 +158,7 @@ describe("useSmartStructureRecognition", () => {
     );
   });
 
-  it("AI 调用成功但没有可采用建议时不显示为调用失败", async () => {
+  it("AI 调用成功但没有可采用建议时不显示警告", async () => {
     aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
       code: 0,
       data: { status: "available", serviceId: 42 }
@@ -183,9 +183,7 @@ describe("useSmartStructureRecognition", () => {
 
     await state.recognize(9, 1, { enableLlmAssistance: true });
 
-    expect(messageMocks.warning).toHaveBeenCalledWith(
-      "AI 未产生可采用建议，本次已保留规则识别结果"
-    );
+    expect(messageMocks.warning).not.toHaveBeenCalled();
   });
 
   it("后端报告无需调用 AI 时不显示失败提示", async () => {
