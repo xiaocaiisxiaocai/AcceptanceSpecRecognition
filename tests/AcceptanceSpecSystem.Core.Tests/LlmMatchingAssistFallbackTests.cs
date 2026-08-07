@@ -114,16 +114,18 @@ public class LlmMatchingAssistFallbackTests
     [Fact]
     public async Task RecallAsync_WhenExplicitServiceIsKnownUnavailable_ShouldNotCallProvider()
     {
+        var config = CreateConfig(8, "llm-unavailable");
+        var availability = new KnownUnavailableRuntimeAvailability();
         var chat = new SequenceChatCompletionService("""{"suggestions":[]}""");
         var service = new LlmMatchingAssistService(
             new StaticPromptTemplateProvider("表头：{{headersJson}}\n未映射列：{{unmappedHeadersJson}}\n仅返回 JSON"),
-            new FixedAiServiceSelector(CreateConfig(8, "llm-unavailable")),
+            new AiServiceSelector(new StaticAiServiceConfigProvider(config), availability),
             new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
             {
-                [8] = chat
+                [config.Id] = chat
             }),
             NullLogger<LlmMatchingAssistService>.Instance,
-            runtimeAvailability: new KnownUnavailableRuntimeAvailability());
+            runtimeAvailability: availability);
 
         var action = () => service.RecallAsync(new LlmColumnSemanticRecallRequest
         {
@@ -136,11 +138,89 @@ public class LlmMatchingAssistFallbackTests
                     Header = "管控要求"
                 }
             ],
-            LlmServiceId = 8
+            LlmServiceId = config.Id
         });
 
         await action.Should().ThrowAsync<AiServiceUnavailableException>();
         chat.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task RecallAsync_WhenExplicitServiceIsCheckingAndUsingRealSelector_ShouldCallProvider()
+    {
+        var config = CreateConfig(9, "llm-checking");
+        var availability = new CheckingRuntimeAvailability();
+        var chat = new SequenceChatCompletionService("""{"suggestions":[]}""");
+        var service = new LlmMatchingAssistService(
+            new StaticPromptTemplateProvider("表头：{{headersJson}}\n未映射列：{{unmappedHeadersJson}}\n仅返回 JSON"),
+            new AiServiceSelector(new StaticAiServiceConfigProvider(config), availability),
+            new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+            {
+                [config.Id] = chat
+            }),
+            NullLogger<LlmMatchingAssistService>.Instance,
+            runtimeAvailability: availability);
+
+        var result = await service.RecallAsync(new LlmColumnSemanticRecallRequest
+        {
+            Headers = ["项目", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ],
+            LlmServiceId = config.Id
+        });
+
+        result.Should().NotBeNull();
+        result!.Suggestions.Should().BeEmpty();
+        chat.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RecallAsync_WhenAutomaticCacheWasPrimed_ShouldStillAttemptExplicitCheckingService()
+    {
+        var checkingConfig = CreateConfig(9, "llm-checking");
+        var availableConfig = CreateConfig(10, "llm-available");
+        var availability = new CheckingWithAvailableFallbackRuntimeAvailability(
+            checkingConfig.Id,
+            availableConfig.Id);
+        var checkingChat = new SequenceChatCompletionService("""{"suggestions":[]}""");
+        var availableChat = new SequenceChatCompletionService("""{"suggestions":[]}""");
+        var service = new LlmMatchingAssistService(
+            new StaticPromptTemplateProvider("表头：{{headersJson}}\n未映射列：{{unmappedHeadersJson}}\n仅返回 JSON"),
+            new AiServiceSelector(
+                new StaticAiServiceConfigProvider(checkingConfig, availableConfig),
+                availability),
+            new RoutingSemanticKernelServiceFactory(new Dictionary<int, IChatCompletionService>
+            {
+                [checkingConfig.Id] = checkingChat,
+                [availableConfig.Id] = availableChat
+            }),
+            NullLogger<LlmMatchingAssistService>.Instance,
+            runtimeAvailability: availability);
+        static LlmColumnSemanticRecallRequest CreateRequest(int? llmServiceId) => new()
+        {
+            Headers = ["项目", "管控要求"],
+            UnmappedHeaders =
+            [
+                new ColumnSemanticRecallHeaderCandidate
+                {
+                    ColumnIndex = 1,
+                    Header = "管控要求"
+                }
+            ],
+            LlmServiceId = llmServiceId
+        };
+
+        await service.RecallAsync(CreateRequest(null));
+        await service.RecallAsync(CreateRequest(checkingConfig.Id));
+
+        availableChat.CallCount.Should().Be(1);
+        checkingChat.CallCount.Should().Be(1);
     }
 
     [Fact]
@@ -589,6 +669,20 @@ public class LlmMatchingAssistFallbackTests
         }
     }
 
+    private sealed class StaticAiServiceConfigProvider(params AiServiceConfigModel[] configs)
+        : IAiServiceConfigProvider
+    {
+        public Task<IReadOnlyList<AiServiceConfigModel>> GetByPurposeAsync(
+            AiServicePurpose purpose,
+            CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<AiServiceConfigModel> matching = configs
+                .Where(config => (config.Purpose & purpose) != AiServicePurpose.None)
+                .ToList();
+            return Task.FromResult(matching);
+        }
+    }
+
     private sealed class CheckingRuntimeAvailability : IAiServiceRuntimeAvailability
     {
         public bool IsAvailable(int serviceId, AiServicePurpose purpose) => false;
@@ -601,6 +695,17 @@ public class LlmMatchingAssistFallbackTests
         public bool IsAvailable(int serviceId, AiServicePurpose purpose) => false;
 
         public bool CanAttempt(int serviceId, AiServicePurpose purpose) => false;
+    }
+
+    private sealed class CheckingWithAvailableFallbackRuntimeAvailability(
+        int checkingServiceId,
+        int availableServiceId) : IAiServiceRuntimeAvailability
+    {
+        public bool IsAvailable(int serviceId, AiServicePurpose purpose) =>
+            serviceId == availableServiceId;
+
+        public bool CanAttempt(int serviceId, AiServicePurpose purpose) =>
+            serviceId == checkingServiceId || IsAvailable(serviceId, purpose);
     }
 
     private sealed class SingleFlightPromptTemplateProvider : IPromptTemplateProvider

@@ -34,7 +34,7 @@ public partial class LlmMatchingAssistService :
     private readonly IAiServiceRuntimeAvailability? _runtimeAvailability;
     private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<string, PromptTemplateModel> _promptTemplateCache = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<AiServicePurpose, CandidateCacheEntry> _aiServiceCandidateCache = [];
+    private readonly ConcurrentDictionary<CandidateCacheKey, CandidateCacheEntry> _aiServiceCandidateCache = [];
     private readonly SemaphoreSlim _promptTemplateCacheLock = new(1, 1);
     private readonly SemaphoreSlim _aiServiceCandidateCacheLock = new(1, 1);
     private readonly SemaphoreSlim _dbBackedCacheInitializationLock = new(1, 1);
@@ -56,6 +56,8 @@ public partial class LlmMatchingAssistService :
         _runtimeAvailability = runtimeAvailability;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    private sealed record CandidateCacheKey(AiServicePurpose Purpose, int? PreferredId);
 
     private sealed record CandidateCacheEntry(
         IReadOnlyList<AiServiceConfigModel> Candidates,
