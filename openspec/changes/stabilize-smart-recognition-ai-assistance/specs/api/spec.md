@@ -40,3 +40,11 @@
 - **WHEN** API 返回识别结果
 - **THEN** `aiAssist.status` 为 `notNeeded`
 - **AND** 尝试调用次数为 0
+
+#### Scenario: AI 调用成功但没有可采用建议
+- **GIVEN** 请求启用了 AI 辅助且系统已完成至少一次 LLM 调用
+- **AND** LLM 返回合法结果但没有建议通过业务采用门禁
+- **WHEN** API 返回未改变的规则识别结果
+- **THEN** `aiAssist.status` 为 `fallback`
+- **AND** `aiAssist.reason` 为 `noApplicableSuggestion`
+- **AND** 尝试和成功调用次数反映真实执行情况

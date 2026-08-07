@@ -32,11 +32,13 @@ const showAiAssistStatus = (summary?: SmartConfigAiAssistSummary) => {
   const message =
     summary.reason === "invalidOutput"
       ? "AI 建议未通过校验，本次已保留规则识别结果"
-      : summary.reason === "timeout" || summary.reason === "checkingTimeout"
-        ? "AI 响应超时，本次已保留规则识别结果"
-        : summary.reason === "unavailable"
-          ? "AI 服务当前不可用，本次已保留规则识别结果"
-          : "AI 增强调用失败，本次已保留规则识别结果";
+      : summary.reason === "noApplicableSuggestion"
+        ? "AI 未产生可采用建议，本次已保留规则识别结果"
+        : summary.reason === "timeout" || summary.reason === "checkingTimeout"
+          ? "AI 响应超时，本次已保留规则识别结果"
+          : summary.reason === "unavailable"
+            ? "AI 服务当前不可用，本次已保留规则识别结果"
+            : "AI 增强调用失败，本次已保留规则识别结果";
   ElMessage.warning(
     summary.status === "partial"
       ? `AI 部分未应用：${message.replace(/^AI\s*/, "")}`

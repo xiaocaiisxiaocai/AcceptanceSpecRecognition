@@ -4,6 +4,7 @@ using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using System.Data;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -124,6 +125,8 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
         DocumentUploadCommand upload,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var traceId = Activity.Current?.TraceId.ToString() ?? "none";
         if (!scope.OrgUnitId.HasValue)
         {
             throw new ApplicationServiceException(400, "当前上传缺少业务归属");
@@ -186,7 +189,13 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
             throw;
         }
 
-        _logger.LogInformation("文件临时上传成功: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
+        _logger.LogInformation(
+            "文件临时上传成功: FileId={FileId}, FileType={FileType}, SizeBytes={SizeBytes}, ElapsedMs={ElapsedMs}, TraceId={TraceId}",
+            wordFile.Id,
+            wordFile.FileType,
+            upload.Content.LongLength,
+            stopwatch.ElapsedMilliseconds,
+            traceId);
 
         return new FileUploadResponse
         {

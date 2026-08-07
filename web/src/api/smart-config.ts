@@ -141,6 +141,7 @@ export type SmartConfigAiAssistReason =
   | "unavailable"
   | "timeout"
   | "invalidOutput"
+  | "noApplicableSuggestion"
   | "callFailed"
   | string;
 

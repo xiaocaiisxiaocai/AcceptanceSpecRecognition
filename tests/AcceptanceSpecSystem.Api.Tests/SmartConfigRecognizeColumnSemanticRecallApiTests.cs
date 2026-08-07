@@ -86,6 +86,41 @@ public class SmartConfigRecognizeColumnSemanticRecallApiTests
     }
 
     [Fact]
+    public async Task Recognize_WhenSemanticRecallReturnsNoSuggestion_ShouldReportFallbackWithoutChangingRuleColumns()
+    {
+        using var factory = new ColumnSemanticRecallRepeatedHeaderApiFactory();
+        var client = factory.CreateClient();
+        CountingColumnSemanticRecallService.Reset();
+        var fileId = await UploadExcelAsync(
+            client,
+            CreateSemanticAliasExcelBytes(),
+            "smart-recognize-column-recall-empty.xlsx");
+
+        var response = await client.PostAsync("/api/smart-config/recognize", ApiClientJson.ToJsonContent(new
+        {
+            fileId,
+            enableLlmAssistance = true,
+            llmServiceId = 321
+        }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
+        var table = body.Data.GetProperty("tables").EnumerateArray().Single();
+        table.GetProperty("specificationColumnIndex").ValueKind.Should().Be(JsonValueKind.Null);
+        table.GetProperty("decision").GetString().Should().Be("NeedConfirm");
+        GetSemanticRecallSuggestions(table).Should().BeEmpty();
+        CountingColumnSemanticRecallService.CallCount.Should().Be(1);
+
+        var aiAssist = body.Data.GetProperty("aiAssist");
+        aiAssist.GetProperty("status").GetString().Should().Be("fallback");
+        aiAssist.GetProperty("reason").GetString().Should().Be("noApplicableSuggestion");
+        var attemptedCalls = aiAssist.GetProperty("attemptedCalls").GetInt32();
+        attemptedCalls.Should().BeGreaterThanOrEqualTo(1);
+        aiAssist.GetProperty("successfulCalls").GetInt32().Should().Be(attemptedCalls);
+        aiAssist.GetProperty("fallbackCalls").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Recognize_WhenAcceptanceMethodAndConfirmationHeadersExist_ShouldNotSuggestMethodAsAcceptance()
     {
         using var factory = new ColumnSemanticRecallMissingAcceptanceApiFactory();
