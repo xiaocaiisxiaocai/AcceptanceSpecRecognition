@@ -100,6 +100,18 @@ test("验收规格列表应展示更新时间并对历史数据回退导入时�
   );
 });
 
+test("验收规格列表应直接展示所有版本的最近引用时间", () => {
+  assert.match(
+    specTableSource,
+    /<el-table-column[^>]*label="最近引用时间"[^>]*width="180"/
+  );
+  assert.match(
+    specTableSource,
+    /row\.lastReferencedAtUtc\s*\?\s*formatApiUtcDateTime\(row\.lastReferencedAtUtc\)\s*:\s*"-"/
+  );
+  assert.match(specApiSource, /lastReferencedAtUtc\?: string \| null;/);
+});
+
 test("验收规格列表和详情应通过引用次数打开逐次时间明细", () => {
   assert.match(
     specTableSource,

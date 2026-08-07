@@ -28,6 +28,8 @@ public sealed class AcceptanceSpecSummary
 
     public long ReferenceVersion { get; set; }
 
+    public DateTime? LastReferencedAtUtc { get; set; }
+
     public DateTime ImportedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }

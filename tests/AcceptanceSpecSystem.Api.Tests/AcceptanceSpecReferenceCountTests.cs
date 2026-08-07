@@ -73,18 +73,21 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
             $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         var listBody = await list.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
-        listBody.Data!.Items
-            .Single(item => item.GetProperty("id").GetInt32() == specId)
+        var listItem = listBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId);
+        listItem
             .GetProperty("referenceCount")
             .GetInt64()
             .Should()
             .Be(5);
-        listBody.Data.Items
-            .Single(item => item.GetProperty("id").GetInt32() == specId)
+        listItem
             .GetProperty("referenceVersion")
             .GetInt64()
             .Should()
             .Be(1);
+        var latestReferencedAtUtc = listItem
+            .GetProperty("lastReferencedAtUtc")
+            .GetDateTime();
 
         var history = await _client.GetAsync(
             $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest");
@@ -97,9 +100,12 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
         var historyItems = historyBody.Data.GetProperty("items").EnumerateArray().ToArray();
         historyItems.Select(item => item.GetProperty("referenceOrdinal").GetInt64())
             .Should().Equal(1, 2, 3, 4, 5);
-        historyItems.Select(item => item.GetProperty("referencedAtUtc").GetDateTime())
+        var distinctReferenceTimes = historyItems
+            .Select(item => item.GetProperty("referencedAtUtc").GetDateTime())
             .Distinct()
-            .Should().ContainSingle("同一执行中的逐次引用应共享成功提交时间");
+            .ToArray();
+        distinctReferenceTimes.Should().ContainSingle("同一执行中的逐次引用应共享成功提交时间");
+        distinctReferenceTimes.Single().Should().Be(latestReferencedAtUtc);
 
         var replayHistory = await _client.GetAsync(
             $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest");
@@ -128,6 +134,16 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
         var updatedDetailBody = await updatedDetail.ReadAsAsync<ApiResponse<JsonElement>>();
         updatedDetailBody.Data.GetProperty("referenceCount").GetInt64().Should().Be(0);
         updatedDetailBody.Data.GetProperty("referenceVersion").GetInt64().Should().Be(2);
+
+        var updatedList = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
+        var updatedListBody = await updatedList.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        updatedListBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId)
+            .GetProperty("lastReferencedAtUtc")
+            .GetDateTime()
+            .Should()
+            .Be(latestReferencedAtUtc, "最近引用时间应覆盖所有内容版本");
 
         var allVersionHistory = await _client.GetAsync(
             $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest&includePreviousVersions=true");
@@ -284,6 +300,16 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
         allVersionsBody.Data.GetProperty("recordedReferenceCount").GetInt64().Should().Be(0);
         allVersionsBody.Data.GetProperty("untrackedReferenceCount").GetInt64().Should().Be(7);
         allVersionsBody.Data.GetProperty("total").GetInt32().Should().Be(0);
+
+        var list = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
+        var listBody = await list.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        listBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId)
+            .GetProperty("lastReferencedAtUtc")
+            .ValueKind
+            .Should()
+            .Be(JsonValueKind.Null, "迁移前不可追溯次数不能伪造最近引用时间");
     }
 
     private async Task<(int CustomerId, int ProcessId)> CreateBusinessScopeAsync(string prefix)

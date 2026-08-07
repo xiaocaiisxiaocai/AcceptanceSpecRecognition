@@ -65,8 +65,8 @@ public class SpecsController : BaseApiController
     /// 获取验收规格列表（支持筛选）
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecDto>>>> GetSpecs(
+    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecListItemDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecListItemDto>>>> GetSpecs(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
@@ -84,7 +84,7 @@ public class SpecsController : BaseApiController
         {
             var scope = await ResolveRequestedSpecScopeAsync(orgUnitId, cancellationToken);
             if (scope == null)
-                return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
+                return Error<PagedData<AcceptanceSpecListItemDto>>(401, "会话缺少用户上下文");
 
             var data = await _acceptanceSpecAppService.GetPagedAsync(
                 scope.ToAccessContext(),
@@ -104,7 +104,7 @@ public class SpecsController : BaseApiController
         }
         catch (ApplicationServiceException ex)
         {
-            return Error<PagedData<AcceptanceSpecDto>>(ex.Code, ex.Message);
+            return Error<PagedData<AcceptanceSpecListItemDto>>(ex.Code, ex.Message);
         }
     }
 

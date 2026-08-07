@@ -16,6 +16,7 @@ export interface AcceptanceSpec {
   remark?: string;
   referenceCount: number;
   referenceVersion: number;
+  lastReferencedAtUtc?: string | null;
   importedAt: string;
   updatedAt?: string | null;
   ownerOrgUnitId?: number | null;

@@ -730,6 +730,15 @@ const scopeBreadcrumbItems = computed(() =>
             {{ formatApiUtcDateTime(row.updatedAt ?? row.importedAt) }}
           </template>
         </el-table-column>
+        <el-table-column label="最近引用时间" width="180">
+          <template #default="{ row }">
+            {{
+              row.lastReferencedAtUtc
+                ? formatApiUtcDateTime(row.lastReferencedAtUtc)
+                : "-"
+            }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" :width="actionColumnWidth" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleView(row)">

@@ -94,6 +94,17 @@ public class AcceptanceSpecDto
 }
 
 /// <summary>
+/// 验收规格列表项
+/// </summary>
+public sealed class AcceptanceSpecListItemDto : AcceptanceSpecDto
+{
+    /// <summary>
+    /// 所有内容版本中最近一次可追溯的成功引用时间（UTC）
+    /// </summary>
+    public DateTime? LastReferencedAtUtc { get; set; }
+}
+
+/// <summary>
 /// 创建验收规格请求
 /// </summary>
 public class CreateSpecRequest
