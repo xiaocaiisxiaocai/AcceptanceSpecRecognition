@@ -138,7 +138,8 @@ public partial class LlmMatchingAssistService
     {
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var configurationVersion = _runtimeAvailability?.ConfigurationVersion ?? 0;
-        if (!_aiServiceCandidateCache.TryGetValue(purpose, out var cacheEntry) ||
+        var cacheKey = new CandidateCacheKey(purpose, preferredId);
+        if (!_aiServiceCandidateCache.TryGetValue(cacheKey, out var cacheEntry) ||
             cacheEntry.ExpiresAt <= now ||
             cacheEntry.ConfigurationVersion != configurationVersion ||
             cacheEntry.Candidates.Count == 0)
@@ -148,13 +149,13 @@ public partial class LlmMatchingAssistService
             {
                 now = _timeProvider.GetUtcNow().UtcDateTime;
                 configurationVersion = _runtimeAvailability?.ConfigurationVersion ?? 0;
-                if (!_aiServiceCandidateCache.TryGetValue(purpose, out cacheEntry) ||
+                if (!_aiServiceCandidateCache.TryGetValue(cacheKey, out cacheEntry) ||
                     cacheEntry.ExpiresAt <= now ||
                     cacheEntry.ConfigurationVersion != configurationVersion ||
                     cacheEntry.Candidates.Count == 0)
                 {
                     cacheEntry = await RefreshCandidateCacheAsync(
-                        purpose,
+                        cacheKey,
                         now,
                         configurationVersion,
                         cancellationToken);
@@ -180,7 +181,7 @@ public partial class LlmMatchingAssistService
     }
 
     private async Task<CandidateCacheEntry> RefreshCandidateCacheAsync(
-        AiServicePurpose purpose,
+        CandidateCacheKey cacheKey,
         DateTime now,
         long configurationVersion,
         CancellationToken cancellationToken)
@@ -188,12 +189,15 @@ public partial class LlmMatchingAssistService
         await _aiServiceCandidateCacheLock.WaitAsync(cancellationToken);
         try
         {
-            var candidates = await _selector.GetCandidatesAsync(purpose, preferredId: null, cancellationToken);
+            var candidates = await _selector.GetCandidatesAsync(
+                cacheKey.Purpose,
+                cacheKey.PreferredId,
+                cancellationToken);
             var entry = new CandidateCacheEntry(
                 candidates,
                 now.AddSeconds(5),
                 configurationVersion);
-            _aiServiceCandidateCache[purpose] = entry;
+            _aiServiceCandidateCache[cacheKey] = entry;
             return entry;
         }
         finally

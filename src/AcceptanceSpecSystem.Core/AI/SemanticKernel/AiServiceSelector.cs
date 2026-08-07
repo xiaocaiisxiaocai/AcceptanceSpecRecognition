@@ -26,7 +26,7 @@ public class AiServiceSelector : IAiServiceSelector
         var all = await _configProvider.GetByPurposeAsync(purpose, cancellationToken);
         var list = all
             .Where(c => IsConfigUsable(c, purpose) &&
-                        (_runtimeAvailability?.IsAvailable(c.Id, purpose) ?? true))
+                        IsRuntimeCandidateUsable(c, purpose, preferredId))
             .OrderBy(c => c.Priority)
             .ThenByDescending(c => c.UpdatedAt ?? c.CreatedAt)
             .ToList();
@@ -42,6 +42,19 @@ public class AiServiceSelector : IAiServiceSelector
         }
 
         return list;
+    }
+
+    private bool IsRuntimeCandidateUsable(
+        AiServiceConfigModel config,
+        AiServicePurpose purpose,
+        int? preferredId)
+    {
+        if (_runtimeAvailability == null)
+            return true;
+
+        return preferredId == config.Id
+            ? _runtimeAvailability.CanAttempt(config.Id, purpose)
+            : _runtimeAvailability.IsAvailable(config.Id, purpose);
     }
 
     private static bool IsConfigUsable(AiServiceConfigModel config, AiServicePurpose purpose)
