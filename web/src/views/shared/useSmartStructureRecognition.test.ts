@@ -158,6 +158,36 @@ describe("useSmartStructureRecognition", () => {
     );
   });
 
+  it("AI 调用成功但没有可采用建议时不显示为调用失败", async () => {
+    aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
+      code: 0,
+      data: { status: "available", serviceId: 42 }
+    });
+    apiMocks.recognizeSmartConfig.mockResolvedValue({
+      code: 0,
+      data: {
+        ...result(9, "规则兜底"),
+        aiAssist: {
+          requested: true,
+          status: "fallback",
+          reason: "noApplicableSuggestion",
+          attemptedCalls: 1,
+          successfulCalls: 1,
+          fallbackCalls: 0,
+          elapsedMs: 900
+        }
+      }
+    });
+    messageMocks.warning.mockClear();
+    const state = useSmartStructureRecognition();
+
+    await state.recognize(9, 1, { enableLlmAssistance: true });
+
+    expect(messageMocks.warning).toHaveBeenCalledWith(
+      "AI 未产生可采用建议，本次已保留规则识别结果"
+    );
+  });
+
   it("后端报告无需调用 AI 时不显示失败提示", async () => {
     aiServiceMocks.getAiServiceSelection.mockReset().mockResolvedValue({
       code: 0,

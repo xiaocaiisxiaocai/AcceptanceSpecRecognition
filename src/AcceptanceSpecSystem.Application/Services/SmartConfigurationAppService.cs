@@ -90,6 +90,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         CancellationToken cancellationToken = default)
     {
         var totalStopwatch = Stopwatch.StartNew();
+        var traceId = Activity.Current?.TraceId.ToString() ?? "none";
         if (command.FileId <= 0)
         {
             throw new ApplicationServiceException(400, "FileId 不能为空");
@@ -126,10 +127,11 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         var tablesInfo = documentSnapshot.Tables;
         var tablesData = documentSnapshot.TableData;
         _logger.LogInformation(
-            "智能结构识别解析完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}",
+            "智能结构识别解析完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, TraceId={TraceId}",
             command.FileId,
             tablesData.Count,
-            stageStopwatch.ElapsedMilliseconds);
+            stageStopwatch.ElapsedMilliseconds,
+            traceId);
 
         stageStopwatch.Restart();
         var columnHeaderRuleSets = await BuildColumnHeaderRuleSetsAsync(
@@ -140,9 +142,10 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             command.CustomerId,
             cancellationToken);
         _logger.LogInformation(
-            "智能结构识别规则加载完成：FileId={FileId}, ElapsedMs={ElapsedMs}",
+            "智能结构识别规则加载完成：FileId={FileId}, ElapsedMs={ElapsedMs}, TraceId={TraceId}",
             command.FileId,
-            stageStopwatch.ElapsedMilliseconds);
+            stageStopwatch.ElapsedMilliseconds,
+            traceId);
         var headerKeywordMatcher = HeaderKeywordMatcher.FromRules(columnHeaderRules);
         var fieldConflictMatcher = HeaderKeywordMatcher.FromRules(
             columnHeaderRuleSets.ConflictEligible);
@@ -249,12 +252,13 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
                 headerKeywordMatcher,
                 fieldConflictMatcher);
             _logger.LogInformation(
-                "智能结构识别表处理完成：FileId={FileId}, TableIndex={TableIndex}, MappingMs={MappingMs}, RegionMs={RegionMs}, ConflictMs={ConflictMs}",
+                "智能结构识别表处理完成：FileId={FileId}, TableIndex={TableIndex}, MappingMs={MappingMs}, RegionMs={RegionMs}, ConflictMs={ConflictMs}, TraceId={TraceId}",
                 command.FileId,
                 tableData.TableIndex,
                 mappingElapsedMs,
                 regionElapsedMs,
-                tableStopwatch.ElapsedMilliseconds);
+                tableStopwatch.ElapsedMilliseconds,
+                traceId);
             tables.Add(AddLlmAssistanceIssue(recognizedTable, llmAssistanceIssue));
         }
 
@@ -267,14 +271,15 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         AiAssistResults.Add(1, aiAssistTags);
         AiAssistDuration.Record(aiAssist.ElapsedMs, aiAssistTags);
         _logger.LogInformation(
-            "智能结构识别请求完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, LlmEnabled={LlmEnabled}, AiAssistStatus={AiAssistStatus}, AiAssistCalls={AiAssistCalls}, AiAssistElapsedMs={AiAssistElapsedMs}",
+            "智能结构识别请求完成：FileId={FileId}, TableCount={TableCount}, ElapsedMs={ElapsedMs}, LlmEnabled={LlmEnabled}, AiAssistStatus={AiAssistStatus}, AiAssistCalls={AiAssistCalls}, AiAssistElapsedMs={AiAssistElapsedMs}, TraceId={TraceId}",
             command.FileId,
             tables.Count,
             totalStopwatch.ElapsedMilliseconds,
             llmAssistanceEnabled,
             aiAssist.Status,
             aiAssist.AttemptedCalls,
-            aiAssist.ElapsedMs);
+            aiAssist.ElapsedMs,
+            traceId);
         return new SmartConfigurationRecognizeResult
         {
             FileId = command.FileId,
@@ -4017,19 +4022,20 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         {
             var status = !requested || (_attemptedCalls == 0 && _fallbackCalls == 0)
                 ? "notNeeded"
-                : _fallbackCalls > 0 && _successfulCalls > 0
+                : _fallbackCalls > 0 && _appliedCalls > 0
                     ? "partial"
-                    : _fallbackCalls > 0
-                        ? "fallback"
-                        : _appliedCalls > 0
-                            ? "applied"
-                            : "notNeeded";
+                    : _appliedCalls > 0
+                        ? "applied"
+                        : "fallback";
+            var reason = status == "fallback" && _fallbackCalls == 0 && _successfulCalls > 0
+                ? "noApplicableSuggestion"
+                : _reason;
 
             return new SmartConfigurationAiAssistSummary
             {
                 Requested = requested,
                 Status = status,
-                Reason = _reason,
+                Reason = reason,
                 AttemptedCalls = _attemptedCalls,
                 SuccessfulCalls = _successfulCalls,
                 FallbackCalls = _fallbackCalls,

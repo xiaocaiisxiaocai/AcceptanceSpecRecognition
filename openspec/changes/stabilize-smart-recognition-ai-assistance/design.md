@@ -50,7 +50,7 @@
 
 - `requested`: 是否请求 AI 辅助。
 - `status`: `applied | notNeeded | partial | fallback`。
-- `reason`: `checkingTimeout | unavailable | invalidOutput | timeout | callFailed | null`。
+- `reason`: `checkingTimeout | unavailable | invalidOutput | noApplicableSuggestion | timeout | callFailed | null`。
 - `attemptedCalls`、`successfulCalls`、`fallbackCalls`、`elapsedMs`。
 
 字段为加法兼容；旧客户端可忽略。前端在 `partial/fallback` 时明确提示规则结果仍可继续确认。
@@ -60,6 +60,7 @@
 - 结构化日志记录场景、服务 ID、结果类别、耗时、尝试次数和 traceId。
 - 非法输出只记录长度和哈希摘要，不记录表头、样例数据或模型原文。
 - 指标使用低基数 outcome 标签，避免文件、客户或 traceId 进入指标标签。
+- 上传、表格元数据读取和智能结构识别日志使用 `FileId` 关联，并记录阶段耗时与请求 `traceId`；不记录文件名或文档内容。
 
 ## Risks / Trade-offs
 

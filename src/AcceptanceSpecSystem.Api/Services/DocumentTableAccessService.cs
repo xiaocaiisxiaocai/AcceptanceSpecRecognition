@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 using AcceptanceSpecSystem.Api.DTOs;
 using AcceptanceSpecSystem.Core.Documents;
 using AcceptanceSpecSystem.Core.Documents.Interfaces;
@@ -61,13 +62,28 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         WordFile wordFile,
         CancellationToken cancellationToken = default)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+        var traceId = Activity.Current?.TraceId.ToString() ?? "none";
         var parser = GetRequiredParser(wordFile.FileType);
         using var stream = _documentFileAccessService.OpenReadStream(wordFile);
         ValidateDocumentStreamSize(stream);
+        var queueStopwatch = Stopwatch.StartNew();
         using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
             ResourceWorkload.DocumentParsing,
             cancellationToken);
-        return await parser.GetTablesAsync(stream, cancellationToken);
+        var queueElapsedMs = queueStopwatch.ElapsedMilliseconds;
+        var parseStopwatch = Stopwatch.StartNew();
+        var tables = await parser.GetTablesAsync(stream, cancellationToken);
+        _logger.LogInformation(
+            "文档表格元数据读取完成: FileId={FileId}, FileType={FileType}, TableCount={TableCount}, QueueMs={QueueMs}, ParseMs={ParseMs}, ElapsedMs={ElapsedMs}, TraceId={TraceId}",
+            wordFile.Id,
+            wordFile.FileType,
+            tables.Count,
+            queueElapsedMs,
+            parseStopwatch.ElapsedMilliseconds,
+            totalStopwatch.ElapsedMilliseconds,
+            traceId);
+        return tables;
     }
 
     public async Task<TableData> ExtractTableDataAsync(
