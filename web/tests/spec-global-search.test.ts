@@ -10,6 +10,17 @@ const specTableSource = readFileSync(
   ),
   "utf8"
 );
+const referenceHistoryDrawerSource = readFileSync(
+  resolve(
+    process.cwd(),
+    "web/src/views/base-data/specs/components/SpecReferenceHistoryDrawer.vue"
+  ),
+  "utf8"
+);
+const specApiSource = readFileSync(
+  resolve(process.cwd(), "web/src/api/spec.ts"),
+  "utf8"
+);
 
 test("验收规格应提供全局搜索入口", () => {
   assert.match(specTableSource, /globalSearch/);
@@ -89,14 +100,53 @@ test("验收规格列表应展示更新时间并对历史数据回退导入时�
   );
 });
 
-test("验收规格列表和详情应展示引用次数", () => {
+test("验收规格列表应直接展示所有版本的最近引用时间", () => {
   assert.match(
     specTableSource,
-    /<el-table-column[\s\S]{0,160}prop="referenceCount"[\s\S]{0,160}label="引用次数"/
+    /<el-table-column[^>]*label="最近引用时间"[^>]*width="180"/
   );
   assert.match(
     specTableSource,
-    /<el-descriptions-item label="引用次数">[\s\S]{0,80}detailData\.referenceCount/
+    /row\.lastReferencedAtUtc\s*\?\s*formatApiUtcDateTime\(row\.lastReferencedAtUtc\)\s*:\s*"-"/
+  );
+  assert.match(specApiSource, /lastReferencedAtUtc\?: string \| null;/);
+});
+
+test("验收规格列表和详情应通过引用次数打开逐次时间明细", () => {
+  assert.match(
+    specTableSource,
+    /<el-table-column label="引用次数"[\s\S]{0,500}row\.referenceCount > 0 \|\| row\.referenceVersion > 1[\s\S]{0,300}handleReferenceHistory\(row\)/
+  );
+  assert.match(
+    specTableSource,
+    /<el-descriptions-item label="引用次数">[\s\S]{0,400}handleReferenceHistory\(detailData\)/
+  );
+  assert.match(specTableSource, /<SpecReferenceHistoryDrawer/);
+  assert.match(specApiSource, /\/reference-history/);
+  assert.match(
+    specTableSource,
+    /row\.referenceCount <= 0 && row\.referenceVersion <= 1/
+  );
+});
+
+test("引用时间抽屉应支持第一次第二次、版本筛选和未知历史提示", () => {
+  assert.match(
+    referenceHistoryDrawerSource,
+    /第 \{\{ row\.referenceOrdinal \}\} 次/
+  );
+  assert.match(referenceHistoryDrawerSource, /最早在前/);
+  assert.match(referenceHistoryDrawerSource, /最新在前/);
+  assert.match(referenceHistoryDrawerSource, /当前版本/);
+  assert.match(referenceHistoryDrawerSource, /全部版本/);
+  assert.match(referenceHistoryDrawerSource, /具体时间不可追溯/);
+  assert.match(
+    referenceHistoryDrawerSource,
+    /formatApiUtcDateTime\(row\.referencedAtUtc\)/
+  );
+  assert.match(referenceHistoryDrawerSource, /加载引用时间失败/);
+  assert.match(
+    referenceHistoryDrawerSource,
+    /@current-change="handlePageChange"/
   );
 });
 

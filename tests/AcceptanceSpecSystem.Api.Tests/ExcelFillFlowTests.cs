@@ -1373,6 +1373,7 @@ internal sealed class ThrowOnSaveChangesUnitOfWork : IUnitOfWork
     public IProcessRepository Processes => _inner.Processes;
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
+    public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
@@ -1417,6 +1418,7 @@ internal sealed class ThrowOnWorkflowFinalSaveUnitOfWork : IUnitOfWork
     public IProcessRepository Processes => _inner.Processes;
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
+    public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;

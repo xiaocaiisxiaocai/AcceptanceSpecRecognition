@@ -17,6 +17,7 @@ internal static class AcceptanceSpecReferenceCountPolicy
             !string.Equals(NormalizeOptional(spec.Remark), NormalizeOptional(remark), StringComparison.Ordinal))
         {
             spec.ReferenceCount = 0;
+            spec.ReferenceVersion++;
         }
     }
 

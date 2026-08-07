@@ -372,6 +372,7 @@ internal class EmbeddingCacheTestUnitOfWork : IUnitOfWork
     public IProcessRepository Processes => throw new NotSupportedException();
     public IMachineModelRepository MachineModels => throw new NotSupportedException();
     public IAcceptanceSpecRepository AcceptanceSpecs => throw new NotSupportedException();
+    public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => throw new NotSupportedException();
     public IWordFileRepository WordFiles => throw new NotSupportedException();
     public IAiServiceConfigRepository AiServiceConfigs => throw new NotSupportedException();
     public IPromptTemplateRepository PromptTemplates => throw new NotSupportedException();

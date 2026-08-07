@@ -26,6 +26,10 @@ public sealed class AcceptanceSpecSummary
 
     public long ReferenceCount { get; set; }
 
+    public long ReferenceVersion { get; set; }
+
+    public DateTime? LastReferencedAtUtc { get; set; }
+
     public DateTime ImportedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
@@ -70,6 +74,44 @@ public sealed class BatchImportResultModel
     public int FailedCount { get; set; }
 
     public int TotalCount { get; set; }
+}
+
+public sealed class AcceptanceSpecReferenceHistoryModel
+{
+    public int SpecId { get; set; }
+
+    public long CurrentReferenceVersion { get; set; }
+
+    public long CurrentReferenceCount { get; set; }
+
+    public long RecordedReferenceCount { get; set; }
+
+    public long UntrackedReferenceCount { get; set; }
+
+    public bool IncludePreviousVersions { get; set; }
+
+    public string Sort { get; set; } = "newest";
+
+    public List<AcceptanceSpecReferenceHistoryItemModel> Items { get; set; } = [];
+
+    public int Total { get; set; }
+
+    public int Page { get; set; }
+
+    public int PageSize { get; set; }
+}
+
+public sealed class AcceptanceSpecReferenceHistoryItemModel
+{
+    public long Id { get; set; }
+
+    public long? ReferenceOrdinal { get; set; }
+
+    public long ReferenceVersion { get; set; }
+
+    public bool IsCurrentVersion { get; set; }
+
+    public DateTime ReferencedAtUtc { get; set; }
 }
 
 public sealed class SpecRemarkReplacePreviewModel

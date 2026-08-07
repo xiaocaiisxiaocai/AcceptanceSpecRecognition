@@ -622,6 +622,7 @@ internal sealed class ThrowOnLargePendingJsonUnitOfWork : IUnitOfWork
     public IProcessRepository Processes => _inner.Processes;
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
+    public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;

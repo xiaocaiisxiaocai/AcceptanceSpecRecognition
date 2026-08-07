@@ -192,9 +192,9 @@ public class ProcessesController : BaseApiController
     /// 获取制程的验收规格列表
     /// </summary>
     [HttpGet("{id}/specs")]
-    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecDto>>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecDto>>), StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecDto>>>> GetProcessSpecs(
+    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecListItemDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecListItemDto>>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecListItemDto>>>> GetProcessSpecs(
         int id,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
@@ -203,11 +203,11 @@ public class ProcessesController : BaseApiController
     {
         var scope = await ResolveSpecScopeAsync(cancellationToken);
         if (scope == null)
-            return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
+            return Error<PagedData<AcceptanceSpecListItemDto>>(401, "会话缺少用户上下文");
 
         var data = await _processAppService.GetSpecsAsync(scope.ToAccessContext(), id, page, pageSize, keyword, cancellationToken);
         if (data == null)
-            return NotFoundResult<PagedData<AcceptanceSpecDto>>("制程不存在");
+            return NotFoundResult<PagedData<AcceptanceSpecListItemDto>>("制程不存在");
 
         return Success(data.ToDto());
     }

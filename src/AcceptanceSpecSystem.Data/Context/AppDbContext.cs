@@ -37,6 +37,12 @@ public class AppDbContext : DbContext
     public DbSet<AcceptanceSpec> AcceptanceSpecs => Set<AcceptanceSpec>();
 
     /// <summary>
+    /// 验收规格逐次引用记录表
+    /// </summary>
+    public DbSet<AcceptanceSpecReferenceEvent> AcceptanceSpecReferenceEvents =>
+        Set<AcceptanceSpecReferenceEvent>();
+
+    /// <summary>
     /// 向量缓存表
     /// </summary>
     public DbSet<EmbeddingCache> EmbeddingCaches => Set<EmbeddingCache>();
@@ -226,6 +232,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
             entity.Property(e => e.ReferenceCount).HasDefaultValue(0L);
+            entity.Property(e => e.ReferenceVersion).HasDefaultValue(1L);
             entity.HasIndex(e => new
             {
                 e.CustomerId,
@@ -262,6 +269,34 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.OwnerOrgUnitId)
                   .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<AcceptanceSpecReferenceEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).HasMaxLength(64);
+            entity.Property(e => e.OccurrenceCount).HasDefaultValue(1L);
+            entity.ToTable(table => table.HasCheckConstraint(
+                "CK_AcceptanceSpecReferenceEvents_OccurrenceCount",
+                "`OccurrenceCount` > 0"));
+            entity.HasIndex(e => new
+            {
+                e.TaskId,
+                e.AcceptanceSpecId,
+                e.ReferenceVersion,
+                e.TaskOccurrenceIndex
+            }).IsUnique();
+            entity.HasIndex(e => new
+            {
+                e.AcceptanceSpecId,
+                e.ReferenceVersion,
+                e.ReferencedAtUtc,
+                e.Id
+            });
+            entity.HasOne(e => e.AcceptanceSpec)
+                .WithMany(spec => spec.ReferenceEvents)
+                .HasForeignKey(e => e.AcceptanceSpecId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // EmbeddingCache配置

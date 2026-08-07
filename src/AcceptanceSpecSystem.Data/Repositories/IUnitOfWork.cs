@@ -34,6 +34,11 @@ public interface IUnitOfWork : IDisposable
     IAcceptanceSpecRepository AcceptanceSpecs { get; }
 
     /// <summary>
+    /// 验收规格逐次引用记录Repository
+    /// </summary>
+    IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents { get; }
+
+    /// <summary>
     /// 向量缓存Repository
     /// </summary>
     IEmbeddingCacheRepository EmbeddingCaches { get; }

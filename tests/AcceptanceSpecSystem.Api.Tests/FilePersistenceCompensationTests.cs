@@ -325,6 +325,7 @@ public sealed class FilePersistenceCompensationTests
         public IProcessRepository Processes => null!;
         public IMachineModelRepository MachineModels => null!;
         public IAcceptanceSpecRepository AcceptanceSpecs => null!;
+        public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => null!;
         public IEmbeddingCacheRepository EmbeddingCaches => null!;
         public IWordFileRepository WordFiles { get; }
         public IAiServiceConfigRepository AiServiceConfigs => null!;

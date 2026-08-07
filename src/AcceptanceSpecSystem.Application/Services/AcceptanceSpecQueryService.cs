@@ -155,10 +155,36 @@ public sealed class AcceptanceSpecQueryService
         var (items, total) = await _unitOfWork.AcceptanceSpecs.GetPagedWithFilterAsync(
             options,
             cancellationToken);
+        var summaries = items.Select(MapDto).ToList();
+
+        if (summaries.Count > 0)
+        {
+            var specIds = summaries.Select(item => item.Id).ToArray();
+            var latestReferenceTimes = await _unitOfWork.AcceptanceSpecReferenceEvents
+                .Query()
+                .Where(reference =>
+                    specIds.Contains(reference.AcceptanceSpecId) &&
+                    reference.ReferencedAtUtc.HasValue)
+                .GroupBy(reference => reference.AcceptanceSpecId)
+                .Select(group => new
+                {
+                    SpecId = group.Key,
+                    LastReferencedAtUtc = group.Max(reference => reference.ReferencedAtUtc)
+                })
+                .ToDictionaryAsync(item => item.SpecId, cancellationToken);
+
+            foreach (var summary in summaries)
+            {
+                if (latestReferenceTimes.TryGetValue(summary.Id, out var latestReferenceTime))
+                {
+                    summary.LastReferencedAtUtc = latestReferenceTime.LastReferencedAtUtc;
+                }
+            }
+        }
 
         return new PagedResult<AcceptanceSpecSummary>
         {
-            Items = items.Select(MapDto).ToList(),
+            Items = summaries,
             Total = total,
             Page = page,
             PageSize = pageSize
@@ -243,6 +269,7 @@ public sealed class AcceptanceSpecQueryService
             Acceptance = spec.Acceptance,
             Remark = spec.Remark,
             ReferenceCount = spec.ReferenceCount,
+            ReferenceVersion = spec.ReferenceVersion,
             ImportedAt = spec.ImportedAt,
             UpdatedAt = spec.UpdatedAt,
             OwnerOrgUnitId = spec.OwnerOrgUnitId,

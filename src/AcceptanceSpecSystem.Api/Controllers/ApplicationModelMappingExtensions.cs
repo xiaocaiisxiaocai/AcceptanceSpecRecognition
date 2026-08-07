@@ -28,11 +28,11 @@ internal static class ApplicationModelMappingExtensions
         };
     }
 
-    public static PagedData<AcceptanceSpecDto> ToDto(this PagedResult<AcceptanceSpecSummary> data)
+    public static PagedData<AcceptanceSpecListItemDto> ToDto(this PagedResult<AcceptanceSpecSummary> data)
     {
-        return new PagedData<AcceptanceSpecDto>
+        return new PagedData<AcceptanceSpecListItemDto>
         {
-            Items = data.Items.Select(item => item.ToDto()).ToList(),
+            Items = data.Items.Select(item => item.ToListItemDto()).ToList(),
             Total = data.Total,
             Page = data.Page,
             PageSize = data.PageSize
@@ -75,24 +75,65 @@ internal static class ApplicationModelMappingExtensions
 
     public static AcceptanceSpecDto ToDto(this AcceptanceSpecSummary item)
     {
-        return new AcceptanceSpecDto
+        var dto = new AcceptanceSpecDto();
+        MapCommonFields(item, dto);
+        return dto;
+    }
+
+    private static AcceptanceSpecListItemDto ToListItemDto(this AcceptanceSpecSummary item)
+    {
+        var dto = new AcceptanceSpecListItemDto
         {
-            Id = item.Id,
-            CustomerId = item.CustomerId,
-            ProcessId = item.ProcessId,
-            MachineModelId = item.MachineModelId,
-            ProcessName = item.ProcessName,
-            MachineModelName = item.MachineModelName,
-            CustomerName = item.CustomerName,
-            Project = item.Project,
-            Specification = item.Specification,
-            Acceptance = item.Acceptance,
-            Remark = item.Remark,
-            ReferenceCount = item.ReferenceCount,
-            ImportedAt = item.ImportedAt,
-            UpdatedAt = item.UpdatedAt,
-            OwnerOrgUnitId = item.OwnerOrgUnitId,
-            CreatedByUserId = item.CreatedByUserId
+            LastReferencedAtUtc = item.LastReferencedAtUtc
+        };
+        MapCommonFields(item, dto);
+        return dto;
+    }
+
+    private static void MapCommonFields(AcceptanceSpecSummary item, AcceptanceSpecDto dto)
+    {
+        dto.Id = item.Id;
+        dto.CustomerId = item.CustomerId;
+        dto.ProcessId = item.ProcessId;
+        dto.MachineModelId = item.MachineModelId;
+        dto.ProcessName = item.ProcessName;
+        dto.MachineModelName = item.MachineModelName;
+        dto.CustomerName = item.CustomerName;
+        dto.Project = item.Project;
+        dto.Specification = item.Specification;
+        dto.Acceptance = item.Acceptance;
+        dto.Remark = item.Remark;
+        dto.ReferenceCount = item.ReferenceCount;
+        dto.ReferenceVersion = item.ReferenceVersion;
+        dto.ImportedAt = item.ImportedAt;
+        dto.UpdatedAt = item.UpdatedAt;
+        dto.OwnerOrgUnitId = item.OwnerOrgUnitId;
+        dto.CreatedByUserId = item.CreatedByUserId;
+    }
+
+    public static AcceptanceSpecReferenceHistoryDto ToDto(
+        this AcceptanceSpecReferenceHistoryModel model)
+    {
+        return new AcceptanceSpecReferenceHistoryDto
+        {
+            SpecId = model.SpecId,
+            CurrentReferenceVersion = model.CurrentReferenceVersion,
+            CurrentReferenceCount = model.CurrentReferenceCount,
+            RecordedReferenceCount = model.RecordedReferenceCount,
+            UntrackedReferenceCount = model.UntrackedReferenceCount,
+            IncludePreviousVersions = model.IncludePreviousVersions,
+            Sort = model.Sort,
+            Items = model.Items.Select(item => new AcceptanceSpecReferenceHistoryItemDto
+            {
+                Id = item.Id,
+                ReferenceOrdinal = item.ReferenceOrdinal,
+                ReferenceVersion = item.ReferenceVersion,
+                IsCurrentVersion = item.IsCurrentVersion,
+                ReferencedAtUtc = item.ReferencedAtUtc
+            }).ToList(),
+            Total = model.Total,
+            Page = model.Page,
+            PageSize = model.PageSize
         };
     }
 

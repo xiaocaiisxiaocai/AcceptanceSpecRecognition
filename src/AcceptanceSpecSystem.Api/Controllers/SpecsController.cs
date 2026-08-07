@@ -65,8 +65,8 @@ public class SpecsController : BaseApiController
     /// 获取验收规格列表（支持筛选）
     /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecDto>>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecDto>>>> GetSpecs(
+    [ProducesResponseType(typeof(ApiResponse<PagedData<AcceptanceSpecListItemDto>>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<PagedData<AcceptanceSpecListItemDto>>>> GetSpecs(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? keyword = null,
@@ -84,7 +84,7 @@ public class SpecsController : BaseApiController
         {
             var scope = await ResolveRequestedSpecScopeAsync(orgUnitId, cancellationToken);
             if (scope == null)
-                return Error<PagedData<AcceptanceSpecDto>>(401, "会话缺少用户上下文");
+                return Error<PagedData<AcceptanceSpecListItemDto>>(401, "会话缺少用户上下文");
 
             var data = await _acceptanceSpecAppService.GetPagedAsync(
                 scope.ToAccessContext(),
@@ -104,7 +104,7 @@ public class SpecsController : BaseApiController
         }
         catch (ApplicationServiceException ex)
         {
-            return Error<PagedData<AcceptanceSpecDto>>(ex.Code, ex.Message);
+            return Error<PagedData<AcceptanceSpecListItemDto>>(ex.Code, ex.Message);
         }
     }
 
@@ -177,6 +177,45 @@ public class SpecsController : BaseApiController
         catch (ApplicationServiceException ex)
         {
             return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 分页获取验收规格逐次引用时间。
+    /// </summary>
+    [HttpGet("{id}/reference-history")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecReferenceHistoryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecReferenceHistoryDto>), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecReferenceHistoryDto>>> GetReferenceHistory(
+        int id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] bool includePreviousVersions = false,
+        [FromQuery] string? sort = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecReferenceHistoryDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var history = await _acceptanceSpecAppService.GetReferenceHistoryAsync(
+                scope.ToAccessContext(),
+                id,
+                page,
+                pageSize,
+                includePreviousVersions,
+                sort,
+                cancellationToken);
+            if (history == null)
+                return NotFoundResult<AcceptanceSpecReferenceHistoryDto>("验收规格不存在");
+
+            return Success(history.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecReferenceHistoryDto>(ex.Code, ex.Message);
         }
     }
 

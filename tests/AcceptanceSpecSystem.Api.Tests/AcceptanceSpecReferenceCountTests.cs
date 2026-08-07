@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using AcceptanceSpecSystem.Api.Tests.Infrastructure;
 using AcceptanceSpecSystem.Data.Context;
+using AcceptanceSpecSystem.Data.Entities;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -66,17 +67,106 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
         detail.StatusCode.Should().Be(HttpStatusCode.OK);
         var detailBody = await detail.ReadAsAsync<ApiResponse<JsonElement>>();
         detailBody.Data.GetProperty("referenceCount").GetInt64().Should().Be(5);
+        detailBody.Data.GetProperty("referenceVersion").GetInt64().Should().Be(1);
 
         var list = await _client.GetAsync(
             $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
         list.StatusCode.Should().Be(HttpStatusCode.OK);
         var listBody = await list.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
-        listBody.Data!.Items
-            .Single(item => item.GetProperty("id").GetInt32() == specId)
+        var listItem = listBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId);
+        listItem
             .GetProperty("referenceCount")
             .GetInt64()
             .Should()
             .Be(5);
+        listItem
+            .GetProperty("referenceVersion")
+            .GetInt64()
+            .Should()
+            .Be(1);
+        var latestReferencedAtUtc = listItem
+            .GetProperty("lastReferencedAtUtc")
+            .GetDateTime();
+
+        var history = await _client.GetAsync(
+            $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest");
+        history.StatusCode.Should().Be(HttpStatusCode.OK);
+        var historyBody = await history.ReadAsAsync<ApiResponse<JsonElement>>();
+        historyBody.Data.GetProperty("currentReferenceCount").GetInt64().Should().Be(5);
+        historyBody.Data.GetProperty("recordedReferenceCount").GetInt64().Should().Be(5);
+        historyBody.Data.GetProperty("untrackedReferenceCount").GetInt64().Should().Be(0);
+        historyBody.Data.GetProperty("total").GetInt32().Should().Be(5);
+        var historyItems = historyBody.Data.GetProperty("items").EnumerateArray().ToArray();
+        historyItems.Select(item => item.GetProperty("referenceOrdinal").GetInt64())
+            .Should().Equal(1, 2, 3, 4, 5);
+        var distinctReferenceTimes = historyItems
+            .Select(item => item.GetProperty("referencedAtUtc").GetDateTime())
+            .Distinct()
+            .ToArray();
+        distinctReferenceTimes.Should().ContainSingle("同一执行中的逐次引用应共享成功提交时间");
+        distinctReferenceTimes.Single().Should().Be(latestReferencedAtUtc);
+
+        var replayHistory = await _client.GetAsync(
+            $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest");
+        var replayHistoryBody = await replayHistory.ReadAsAsync<ApiResponse<JsonElement>>();
+        replayHistoryBody.Data.GetProperty("total").GetInt32().Should().Be(5);
+
+        var update = await _client.PutAsync(
+            $"/api/specs/{specId}",
+            ApiClientJson.ToJsonContent(new
+            {
+                project = "重复项目-新版本",
+                specification = "重复规格",
+                acceptance = "验收内容",
+                remark = "备注内容"
+            }));
+        update.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var currentVersionHistory = await _client.GetAsync(
+            $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest");
+        var currentVersionBody = await currentVersionHistory.ReadAsAsync<ApiResponse<JsonElement>>();
+        currentVersionBody.Data.GetProperty("currentReferenceVersion").GetInt64().Should().Be(2);
+        currentVersionBody.Data.GetProperty("currentReferenceCount").GetInt64().Should().Be(0);
+        currentVersionBody.Data.GetProperty("total").GetInt32().Should().Be(0);
+
+        var updatedDetail = await _client.GetAsync($"/api/specs/{specId}");
+        var updatedDetailBody = await updatedDetail.ReadAsAsync<ApiResponse<JsonElement>>();
+        updatedDetailBody.Data.GetProperty("referenceCount").GetInt64().Should().Be(0);
+        updatedDetailBody.Data.GetProperty("referenceVersion").GetInt64().Should().Be(2);
+
+        var updatedList = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
+        var updatedListBody = await updatedList.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        updatedListBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId)
+            .GetProperty("lastReferencedAtUtc")
+            .GetDateTime()
+            .Should()
+            .Be(latestReferencedAtUtc, "最近引用时间应覆盖所有内容版本");
+
+        var allVersionHistory = await _client.GetAsync(
+            $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest&includePreviousVersions=true");
+        var allVersionBody = await allVersionHistory.ReadAsAsync<ApiResponse<JsonElement>>();
+        allVersionBody.Data.GetProperty("total").GetInt32().Should().Be(5);
+        allVersionBody.Data.GetProperty("recordedReferenceCount").GetInt64().Should().Be(5);
+        allVersionBody.Data.GetProperty("untrackedReferenceCount").GetInt64().Should().Be(0);
+        allVersionBody.Data.GetProperty("items").EnumerateArray()
+            .Should().OnlyContain(item =>
+                item.GetProperty("referenceVersion").GetInt64() == 1 &&
+                !item.GetProperty("isCurrentVersion").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ReferenceHistory_ShouldValidateSortAndMissingSpec()
+    {
+        var invalidSort = await _client.GetAsync(
+            "/api/specs/1/reference-history?page=1&pageSize=20&sort=sideways");
+        invalidSort.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var missing = await _client.GetAsync(
+            "/api/specs/2147483647/reference-history?page=1&pageSize=20&sort=oldest");
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -168,6 +258,13 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var spec = await db.AcceptanceSpecs.SingleAsync(item => item.Id == specId);
             spec.ReferenceCount = 7;
+            db.AcceptanceSpecReferenceEvents.Add(new AcceptanceSpecReferenceEvent
+            {
+                AcceptanceSpecId = specId,
+                ReferenceVersion = 1,
+                OccurrenceCount = 7,
+                ReferencedAtUtc = null
+            });
             await db.SaveChangesAsync();
         }
 
@@ -194,6 +291,25 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
             }));
         changed.StatusCode.Should().Be(HttpStatusCode.OK);
         (await GetReferenceCountAsync(specId)).Should().Be(0);
+
+        var allVersions = await _client.GetAsync(
+            $"/api/specs/{specId}/reference-history?page=1&pageSize=20&sort=oldest&includePreviousVersions=true");
+        var allVersionsBody = await allVersions.ReadAsAsync<ApiResponse<JsonElement>>();
+        allVersionsBody.Data.GetProperty("currentReferenceVersion").GetInt64().Should().Be(2);
+        allVersionsBody.Data.GetProperty("currentReferenceCount").GetInt64().Should().Be(0);
+        allVersionsBody.Data.GetProperty("recordedReferenceCount").GetInt64().Should().Be(0);
+        allVersionsBody.Data.GetProperty("untrackedReferenceCount").GetInt64().Should().Be(7);
+        allVersionsBody.Data.GetProperty("total").GetInt32().Should().Be(0);
+
+        var list = await _client.GetAsync(
+            $"/api/specs?page=1&pageSize=100&customerId={customerId}&processId={processId}");
+        var listBody = await list.ReadAsAsync<ApiResponse<PagedData<JsonElement>>>();
+        listBody.Data!.Items
+            .Single(item => item.GetProperty("id").GetInt32() == specId)
+            .GetProperty("lastReferencedAtUtc")
+            .ValueKind
+            .Should()
+            .Be(JsonValueKind.Null, "迁移前不可追溯次数不能伪造最近引用时间");
     }
 
     private async Task<(int CustomerId, int ProcessId)> CreateBusinessScopeAsync(string prefix)
