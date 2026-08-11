@@ -122,7 +122,9 @@ public static class TableDataProjection
                     RowIndex = rowIndex,
                     ColumnIndex = cell.ColumnIndex,
                     Value = cell.Value,
-                    StructuredValue = cell.StructuredValue,
+                    StructuredValue = cell.StructuredValue == null
+                        ? null
+                        : DocumentTableSnapshotCloner.CloneCell(cell).StructuredValue,
                     IsMerged = cell.IsMerged,
                     IsMergeStart = cell.IsMergeStart,
                     RowSpan = cell.RowSpan,

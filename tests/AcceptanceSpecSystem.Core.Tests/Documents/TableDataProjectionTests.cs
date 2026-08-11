@@ -57,6 +57,61 @@ public class TableDataProjectionTests
         projected.MergedCells.Should().BeEquivalentTo(source.MergedCells);
     }
 
+    [Fact]
+    public void Project_ShouldCloneStructuredCells()
+    {
+        var source = new TableData
+        {
+            TableIndex = 0,
+            Headers = ["项目"],
+            Rows =
+            [
+                new RowData
+                {
+                    Index = 0,
+                    Cells =
+                    [
+                        new CellData
+                        {
+                            ColumnIndex = 0,
+                            Value = "外观",
+                            StructuredValue = new StructuredCellValue
+                            {
+                                Parts =
+                                [
+                                    new StructuredCellPart { Type = "text", Text = "外观" },
+                                    new StructuredCellPart
+                                    {
+                                        Type = "table",
+                                        Table = new StructuredTableValue
+                                        {
+                                            RowCount = 1,
+                                            ColumnCount = 1,
+                                            Rows = [[new StructuredCellValue
+                                            {
+                                                Parts = [new StructuredCellPart { Type = "text", Text = "嵌套" }]
+                                            }]]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var projected = TableDataProjection.Project(
+            source,
+            new ColumnMapping { HeaderRowIndex = 0, HeaderRowCount = 1, DataStartRowIndex = 1 });
+
+        projected.Rows[0].Cells[0].StructuredValue!.Parts[0].Text = "changed";
+        projected.Rows[0].Cells[0].StructuredValue!.Parts[1].Table!.Rows[0][0]!.Parts[0].Text = "changed";
+
+        source.Rows[0].Cells[0].StructuredValue!.Parts[0].Text.Should().Be("外观");
+        source.Rows[0].Cells[0].StructuredValue!.Parts[1].Table!.Rows[0][0]!.Parts[0].Text.Should().Be("嵌套");
+    }
+
     private static RowData CreateRow(int index, params string[] values) =>
         new()
         {

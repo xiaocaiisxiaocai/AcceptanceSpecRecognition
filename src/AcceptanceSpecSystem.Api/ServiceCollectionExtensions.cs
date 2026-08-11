@@ -131,6 +131,18 @@ public static class ApiServiceCollectionExtensions
         services.AddSingleton<IFileCompareTemporaryStorage, FileCompareTemporaryStorage>();
         services.AddScoped<DocumentFileAccessService>();
         services.AddScoped<IDocumentFileAccessService>(sp => sp.GetRequiredService<DocumentFileAccessService>());
+        services.AddOptions<UploadedDocumentSnapshotOptions>()
+            .Bind(configuration.GetSection(UploadedDocumentSnapshotOptions.SectionName))
+            .Validate(options => options.SlidingExpirationSeconds > 0, "快照滑动过期必须大于 0")
+            .Validate(options => options.TotalBudgetBytes > 0, "快照总预算必须大于 0")
+            .Validate(options => options.MaxEntryBytes > 0, "快照单条目预算必须大于 0")
+            .Validate(options => options.MinEntryChargeBytes > 0, "快照最小计费单位必须大于 0")
+            .ValidateOnStart();
+        services.AddSingleton<UploadedDocumentSnapshotService>();
+        services.AddSingleton<IUploadedDocumentSnapshotProvider>(sp =>
+            sp.GetRequiredService<UploadedDocumentSnapshotService>());
+        services.AddSingleton<IUploadedDocumentSnapshotInvalidator>(sp =>
+            sp.GetRequiredService<UploadedDocumentSnapshotService>());
         services.AddScoped<DocumentTableAccessService>();
         services.AddScoped<IDocumentImportTableReader>(sp => sp.GetRequiredService<DocumentTableAccessService>());
         services.AddScoped<IBatchReplyDocumentTablePort>(sp => sp.GetRequiredService<DocumentTableAccessService>());
