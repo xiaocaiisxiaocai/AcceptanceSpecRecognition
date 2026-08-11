@@ -112,6 +112,21 @@ test("验收规格列表应直接展示所有版本的最近引用时间", () =>
   assert.match(specApiSource, /lastReferencedAtUtc\?: string \| null;/);
 });
 
+test("验收规格列表、详情和引用抽屉应明确展示当前内容版本", () => {
+  assert.match(
+    specTableSource,
+    /<el-table-column[^>]*label="版本"[^>]*width="76"[\s\S]{0,300}V\{\{ row\.referenceVersion \}\}/
+  );
+  assert.match(
+    specTableSource,
+    /<el-descriptions-item label="当前版本">[\s\S]{0,200}V\{\{ detailData\.referenceVersion \}\}/
+  );
+  assert.match(
+    referenceHistoryDrawerSource,
+    /<el-descriptions-item label="当前内容版本">[\s\S]{0,200}V\{\{ history\.currentReferenceVersion \}\}/
+  );
+});
+
 test("验收规格列表和详情应通过引用次数打开逐次时间明细", () => {
   assert.match(
     specTableSource,
