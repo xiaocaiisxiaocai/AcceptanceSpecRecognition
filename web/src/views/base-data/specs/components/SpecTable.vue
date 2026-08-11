@@ -614,6 +614,13 @@ const scopeBreadcrumbItems = computed(() =>
             <span v-else class="text-gray-400">-</span>
           </template>
         </el-table-column>
+        <el-table-column label="版本" width="76" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" type="info" effect="plain">
+              V{{ row.referenceVersion }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="引用次数" width="88" align="center">
           <template #default="{ row }">
             <el-button
@@ -790,6 +797,11 @@ const scopeBreadcrumbItems = computed(() =>
           <div class="whitespace-pre-wrap">
             {{ detailData.remark || "-" }}
           </div>
+        </el-descriptions-item>
+        <el-descriptions-item label="当前版本">
+          <el-tag size="small" type="info" effect="plain">
+            V{{ detailData.referenceVersion }}
+          </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="引用次数">
           <el-button

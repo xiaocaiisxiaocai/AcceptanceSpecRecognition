@@ -91,7 +91,12 @@ const handlePageChange = (value: number) => {
     destroy-on-close
   >
     <div v-loading="loading" class="reference-history">
-      <el-descriptions v-if="history" :column="3" border>
+      <el-descriptions v-if="history" :column="2" border>
+        <el-descriptions-item label="当前内容版本">
+          <el-tag size="small" type="primary" effect="plain">
+            V{{ history.currentReferenceVersion }}
+          </el-tag>
+        </el-descriptions-item>
         <el-descriptions-item label="当前引用次数">
           {{ history.currentReferenceCount }}
         </el-descriptions-item>
