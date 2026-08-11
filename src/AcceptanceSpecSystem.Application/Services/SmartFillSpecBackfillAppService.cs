@@ -25,17 +25,34 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IDocumentFileAccessService _documentFileAccessService;
     private readonly IBusinessOrgScopeService _businessOrgScopeService;
+    private readonly AcceptanceSpecContentVersionCoordinator _contentVersionCoordinator;
 
     public SmartFillSpecBackfillAppService(
         IUnitOfWork unitOfWork,
         IAuthDataScopeService authDataScopeService,
         IDocumentFileAccessService documentFileAccessService,
         IBusinessOrgScopeService businessOrgScopeService)
+        : this(
+            unitOfWork,
+            authDataScopeService,
+            documentFileAccessService,
+            businessOrgScopeService,
+            new AcceptanceSpecContentVersionCoordinator(unitOfWork))
+    {
+    }
+
+    public SmartFillSpecBackfillAppService(
+        IUnitOfWork unitOfWork,
+        IAuthDataScopeService authDataScopeService,
+        IDocumentFileAccessService documentFileAccessService,
+        IBusinessOrgScopeService businessOrgScopeService,
+        AcceptanceSpecContentVersionCoordinator contentVersionCoordinator)
     {
         _unitOfWork = unitOfWork;
         _authDataScopeService = authDataScopeService;
         _documentFileAccessService = documentFileAccessService;
         _businessOrgScopeService = businessOrgScopeService;
+        _contentVersionCoordinator = contentVersionCoordinator;
     }
 
     public async Task<MatchingOperationResult<SmartFillSpecBackfillResponse>> BackfillAsync(
@@ -163,45 +180,37 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 {
                     var updatedProject = RequireText(item.SourceProject, "覆盖规格的项目不能为空");
                     var updatedSpecification = RequireText(item.SourceSpecification, "覆盖规格的规格不能为空");
-                    AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                    await _contentVersionCoordinator.ApplyChangeAsync(
                         spec,
                         updatedProject,
                         updatedSpecification,
                         item.OverrideAcceptance,
-                        item.OverrideRemark);
-                    spec.Project = updatedProject;
-                    spec.Specification = updatedSpecification;
-                    spec.Acceptance = item.OverrideAcceptance;
-                    spec.Remark = item.OverrideRemark;
+                        item.OverrideRemark,
+                        "smart-fill-backfill",
+                        businessScope.UserId,
+                        cancellationToken: cancellationToken);
                 }
                 else
                 {
                     var updatedAcceptance = item.OverrideAcceptance ?? spec.Acceptance;
                     var updatedRemark = item.OverrideRemark ?? spec.Remark;
-                    AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                    await _contentVersionCoordinator.ApplyChangeAsync(
                         spec,
                         spec.Project,
                         spec.Specification,
                         updatedAcceptance,
-                        updatedRemark);
-                    if (item.OverrideAcceptance != null)
-                    {
-                        spec.Acceptance = item.OverrideAcceptance;
-                    }
-
-                    if (item.OverrideRemark != null)
-                    {
-                        spec.Remark = item.OverrideRemark;
-                    }
+                        updatedRemark,
+                        "smart-fill-backfill",
+                        businessScope.UserId,
+                        cancellationToken: cancellationToken);
                 }
 
-                spec.UpdatedAt = DateTime.UtcNow;
                 await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
                 response.UpdatedCount++;
                 continue;
             }
 
-            await _unitOfWork.AcceptanceSpecs.AddAsync(new AcceptanceSpec
+            var createdSpec = new AcceptanceSpec
             {
                 CustomerId = request.CustomerId.Value,
                 ProcessId = request.ProcessId,
@@ -214,7 +223,13 @@ public sealed class SmartFillSpecBackfillAppService : ISmartFillSpecBackfillAppS
                 CreatedByUserId = businessScope.UserId,
                 WordFileId = manualWordFile!.Id,
                 ImportedAt = DateTime.UtcNow
-            }, cancellationToken);
+            };
+            await _unitOfWork.AcceptanceSpecs.AddAsync(createdSpec, cancellationToken);
+            await _contentVersionCoordinator.CreateInitialSnapshotAsync(
+                createdSpec,
+                "smart-fill-backfill",
+                businessScope.UserId,
+                cancellationToken: cancellationToken);
             response.CreatedCount++;
         }
 

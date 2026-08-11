@@ -31,6 +31,7 @@ import {
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
 import SpecReferenceHistoryDrawer from "./SpecReferenceHistoryDrawer.vue";
+import SpecContentVersionDrawer from "./SpecContentVersionDrawer.vue";
 import SpecRemarkReplaceDialog from "./SpecRemarkReplaceDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
 
@@ -76,11 +77,13 @@ const dialogTitle = ref("");
 const isEdit = ref(false);
 const formData = reactive({
   id: 0,
+  expectedReferenceVersion: null as number | null,
   businessOrgUnitId: null as number | null,
   project: "",
   specification: "",
   acceptance: "",
-  remark: ""
+  remark: "",
+  changeReason: ""
 });
 const formRef = ref<FormInstance>();
 const formRules = computed<FormRules<typeof formData>>(() => ({
@@ -97,6 +100,8 @@ const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
 const referenceHistoryVisible = ref(false);
 const referenceHistorySpec = ref<AcceptanceSpec | null>(null);
+const contentVersionVisible = ref(false);
+const contentVersionSpec = ref<AcceptanceSpec | null>(null);
 const semanticSearchDialogVisible = ref(false);
 const remarkReplaceDialogVisible = ref(false);
 const semanticSearchDialogRef = ref<InstanceType<
@@ -213,6 +218,8 @@ watch(
     remarkReplaceDialogVisible.value = false;
     referenceHistoryVisible.value = false;
     referenceHistorySpec.value = null;
+    contentVersionVisible.value = false;
+    contentVersionSpec.value = null;
     loadData();
   },
   { immediate: true }
@@ -233,12 +240,14 @@ const openCreateDialog = () => {
   dialogTitle.value = "新增验收规格";
   isEdit.value = false;
   formData.id = 0;
+  formData.expectedReferenceVersion = null;
   formData.businessOrgUnitId =
     props.orgUnitId ?? props.currentOrgUnitId ?? null;
   formData.project = "";
   formData.specification = "";
   formData.acceptance = "";
   formData.remark = "";
+  formData.changeReason = "";
   dialogVisible.value = true;
 };
 
@@ -258,11 +267,13 @@ const openEditDialog = (row: AcceptanceSpec) => {
   dialogTitle.value = "编辑验收规格";
   isEdit.value = true;
   formData.id = row.id;
+  formData.expectedReferenceVersion = row.referenceVersion;
   formData.businessOrgUnitId = row.ownerOrgUnitId ?? null;
   formData.project = row.project;
   formData.specification = row.specification;
   formData.acceptance = row.acceptance || "";
   formData.remark = row.remark || "";
+  formData.changeReason = "";
   dialogVisible.value = true;
 };
 
@@ -287,6 +298,21 @@ const handleReferenceHistory = (row: AcceptanceSpec) => {
   if (row.referenceCount <= 0 && row.referenceVersion <= 1) return;
   referenceHistorySpec.value = row;
   referenceHistoryVisible.value = true;
+};
+
+const handleContentVersion = (row: AcceptanceSpec) => {
+  contentVersionSpec.value = row;
+  contentVersionVisible.value = true;
+};
+
+const handleContentVersionRestored = async (restoredSpec: AcceptanceSpec) => {
+  contentVersionSpec.value = restoredSpec;
+  if (detailData.value?.id === restoredSpec.id) {
+    detailData.value = restoredSpec;
+  }
+  await loadData();
+  await reloadSemanticSearchIfNeeded();
+  emit("data-change");
 };
 
 const handleDelete = async (row: AcceptanceSpec) => {
@@ -443,6 +469,9 @@ const handleSubmit = async () => {
   try {
     const res = isEdit.value
       ? await updateSpec(formData.id, {
+          expectedReferenceVersion:
+            formData.expectedReferenceVersion ?? undefined,
+          changeReason: formData.changeReason.trim() || undefined,
           project: formData.project,
           specification: formData.specification,
           acceptance: formData.acceptance || undefined,
@@ -468,8 +497,10 @@ const handleSubmit = async () => {
     } else {
       ElMessage.error(res.message);
     }
-  } catch {
-    ElMessage.error("操作失败");
+  } catch (error) {
+    const message = getRequestErrorMessage(error, "操作失败");
+    ElMessage.error(message);
+    if (message.includes("已被更新")) await loadData();
   }
 };
 
@@ -616,9 +647,9 @@ const scopeBreadcrumbItems = computed(() =>
         </el-table-column>
         <el-table-column label="版本" width="76" align="center">
           <template #default="{ row }">
-            <el-tag size="small" type="info" effect="plain">
+            <el-button type="primary" link @click="handleContentVersion(row)">
               V{{ row.referenceVersion }}
-            </el-tag>
+            </el-button>
           </template>
         </el-table-column>
         <el-table-column label="引用次数" width="88" align="center">
@@ -749,6 +780,14 @@ const scopeBreadcrumbItems = computed(() =>
             placeholder="请输入备注（可选）"
           />
         </el-form-item>
+        <el-form-item v-if="isEdit" label="修改原因">
+          <el-input
+            v-model="formData.changeReason"
+            maxlength="500"
+            show-word-limit
+            placeholder="可选，用于版本历史说明"
+          />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -799,9 +838,13 @@ const scopeBreadcrumbItems = computed(() =>
           </div>
         </el-descriptions-item>
         <el-descriptions-item label="当前版本">
-          <el-tag size="small" type="info" effect="plain">
+          <el-button
+            type="primary"
+            link
+            @click="handleContentVersion(detailData)"
+          >
             V{{ detailData.referenceVersion }}
-          </el-tag>
+          </el-button>
         </el-descriptions-item>
         <el-descriptions-item label="引用次数">
           <el-button
@@ -849,6 +892,12 @@ const scopeBreadcrumbItems = computed(() =>
     <SpecReferenceHistoryDrawer
       v-model="referenceHistoryVisible"
       :spec="referenceHistorySpec"
+    />
+
+    <SpecContentVersionDrawer
+      v-model="contentVersionVisible"
+      :spec="contentVersionSpec"
+      @restored="handleContentVersionRestored"
     />
   </div>
 </template>

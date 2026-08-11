@@ -43,6 +43,12 @@ public class AppDbContext : DbContext
         Set<AcceptanceSpecReferenceEvent>();
 
     /// <summary>
+    /// 验收规格完整内容版本快照表
+    /// </summary>
+    public DbSet<AcceptanceSpecContentVersion> AcceptanceSpecContentVersions =>
+        Set<AcceptanceSpecContentVersion>();
+
+    /// <summary>
     /// 向量缓存表
     /// </summary>
     public DbSet<EmbeddingCache> EmbeddingCaches => Set<EmbeddingCache>();
@@ -232,7 +238,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
             entity.Property(e => e.ReferenceCount).HasDefaultValue(0L);
-            entity.Property(e => e.ReferenceVersion).HasDefaultValue(1L);
+            entity.Property(e => e.ReferenceVersion).HasDefaultValue(1L).IsConcurrencyToken();
             entity.HasIndex(e => new
             {
                 e.CustomerId,
@@ -297,6 +303,28 @@ public class AppDbContext : DbContext
                 .WithMany(spec => spec.ReferenceEvents)
                 .HasForeignKey(e => e.AcceptanceSpecId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AcceptanceSpecContentVersion>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Specification).IsRequired().HasMaxLength(4000);
+            entity.Property(e => e.Acceptance).HasMaxLength(4000);
+            entity.Property(e => e.Remark).HasMaxLength(2000);
+            entity.Property(e => e.ChangedByNameSnapshot).HasMaxLength(100);
+            entity.Property(e => e.ChangeSource).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.ChangeReason).HasMaxLength(500);
+            entity.HasIndex(e => new { e.AcceptanceSpecId, e.Version }).IsUnique();
+            entity.HasIndex(e => new { e.AcceptanceSpecId, e.Version, e.Id });
+            entity.HasOne(e => e.AcceptanceSpec)
+                .WithMany(spec => spec.ContentVersions)
+                .HasForeignKey(e => e.AcceptanceSpecId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<SystemUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ChangedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // EmbeddingCache配置

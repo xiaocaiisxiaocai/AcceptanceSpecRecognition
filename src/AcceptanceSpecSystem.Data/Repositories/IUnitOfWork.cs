@@ -39,6 +39,12 @@ public interface IUnitOfWork : IDisposable
     IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents { get; }
 
     /// <summary>
+    /// 验收规格完整内容版本Repository
+    /// </summary>
+    IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions =>
+        throw new NotSupportedException("当前工作单元未提供验收规格内容版本仓储");
+
+    /// <summary>
     /// 向量缓存Repository
     /// </summary>
     IEmbeddingCacheRepository EmbeddingCaches { get; }

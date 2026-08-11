@@ -220,6 +220,136 @@ public class SpecsController : BaseApiController
     }
 
     /// <summary>
+    /// 分页获取验收规格完整内容版本。
+    /// </summary>
+    [HttpGet("{id}/content-versions")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecContentVersionHistoryDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecContentVersionHistoryDto>>> GetContentVersions(
+        int id,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? sort = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecContentVersionHistoryDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var result = await _acceptanceSpecAppService.GetContentVersionHistoryAsync(
+                scope.ToAccessContext(), id, page, pageSize, sort, cancellationToken);
+            return result == null
+                ? NotFoundResult<AcceptanceSpecContentVersionHistoryDto>("验收规格不存在")
+                : Success(result.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecContentVersionHistoryDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 获取验收规格指定内容版本正文。
+    /// </summary>
+    [HttpGet("{id}/content-versions/{version:long}")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecContentVersionDetailDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecContentVersionDetailDto>>> GetContentVersion(
+        int id,
+        long version,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecContentVersionDetailDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var result = await _acceptanceSpecAppService.GetContentVersionAsync(
+                scope.ToAccessContext(), id, version, cancellationToken);
+            return result == null
+                ? NotFoundResult<AcceptanceSpecContentVersionDetailDto>("指定内容版本不存在或正文不可追溯")
+                : Success(result.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecContentVersionDetailDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 比较验收规格的两个内容版本。
+    /// </summary>
+    [HttpGet("{id}/content-version-diff")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecContentVersionDiffDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecContentVersionDiffDto>>> GetContentVersionDiff(
+        int id,
+        [FromQuery] long fromVersion,
+        [FromQuery] long toVersion,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecContentVersionDiffDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var result = await _acceptanceSpecAppService.GetContentVersionDiffAsync(
+                scope.ToAccessContext(), id, fromVersion, toVersion, cancellationToken);
+            return result == null
+                ? NotFoundResult<AcceptanceSpecContentVersionDiffDto>("验收规格不存在")
+                : Success(result.ToDto());
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecContentVersionDiffDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 将旧内容恢复为一个新的当前版本。
+    /// </summary>
+    [HttpPost("{id}/content-versions/{version:long}/restore")]
+    [AuditOperation("restore-version", "spec")]
+    [ProducesResponseType(typeof(ApiResponse<AcceptanceSpecDto>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ApiResponse<AcceptanceSpecDto>>> RestoreContentVersion(
+        int id,
+        long version,
+        [FromBody] RestoreAcceptanceSpecContentVersionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var scope = await ResolveSpecScopeAsync(cancellationToken);
+        if (scope == null)
+            return Error<AcceptanceSpecDto>(401, "会话缺少用户上下文");
+
+        try
+        {
+            var result = await _acceptanceSpecAppService.RestoreContentVersionAsync(
+                scope.ToAccessContext(),
+                id,
+                version,
+                request.ExpectedCurrentVersion,
+                request.Reason,
+                cancellationToken);
+            if (result == null)
+                return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");
+
+            AuditOperationFilter.SetSafeDetails(HttpContext, new
+            {
+                specId = id,
+                restoredFromVersion = version,
+                newVersion = result.ReferenceVersion,
+                reason = request.Reason
+            });
+            return Success(result.ToDto(), $"已恢复为新版本 V{result.ReferenceVersion}");
+        }
+        catch (ApplicationServiceException ex)
+        {
+            return Error<AcceptanceSpecDto>(ex.Code, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 验收规格语义搜索
     /// </summary>
     [HttpPost("semantic-search")]
@@ -401,6 +531,8 @@ public class SpecsController : BaseApiController
                 request.Specification,
                 request.Acceptance,
                 request.Remark,
+                request.ExpectedReferenceVersion,
+                request.ChangeReason,
                 cancellationToken);
             if (spec == null)
                 return NotFoundResult<AcceptanceSpecDto>("验收规格不存在");

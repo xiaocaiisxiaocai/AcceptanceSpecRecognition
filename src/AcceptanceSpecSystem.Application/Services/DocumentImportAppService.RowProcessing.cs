@@ -189,6 +189,11 @@ public sealed partial class DocumentImportAppService
             context.OwnerOrgUnitId);
         context.SpecsToInsert.Add(spec);
         context.PendingInsertedSpecs.Add(spec);
+        await _contentVersionCoordinator.CreateInitialSnapshotAsync(
+            spec,
+            "document-import",
+            context.UserId,
+            cancellationToken: cancellationToken);
     }
 
     private async Task<bool> TryApplyPendingDecisionAsync(
@@ -206,7 +211,7 @@ public sealed partial class DocumentImportAppService
                 NormalizeText(existingSpec.Project) != NormalizeText(row.Project) ||
                 NormalizeText(existingSpec.Specification) != NormalizeText(row.Specification);
 
-            OverwriteAcceptanceSpec(
+            await OverwriteAcceptanceSpecAsync(
                 existingSpec,
                 context.CustomerId,
                 context.ProcessId,
@@ -215,7 +220,9 @@ public sealed partial class DocumentImportAppService
                 row.Project,
                 row.Specification,
                 row.Acceptance,
-                row.Remark);
+                row.Remark,
+                context.UserId,
+                cancellationToken);
             await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
 
             if (searchTextChanged && !context.SkipSemanticDetection)
@@ -229,14 +236,16 @@ public sealed partial class DocumentImportAppService
 
         if (context.PartiallyConfirmedDifferenceKeys.Contains(diffKey))
         {
-            OverwriteAcceptanceAndRemark(
+            await OverwriteAcceptanceAndRemarkAsync(
                 existingSpec,
                 context.CustomerId,
                 context.ProcessId,
                 context.MachineModelId,
                 context.FileId,
                 row.Acceptance,
-                row.Remark);
+                row.Remark,
+                context.UserId,
+                cancellationToken);
             await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;
@@ -288,7 +297,7 @@ public sealed partial class DocumentImportAppService
 
         if (decision.Decision == DifferenceDecision.Import)
         {
-            OverwriteAcceptanceSpec(
+            await OverwriteAcceptanceSpecAsync(
                 existingSpec,
                 context.CustomerId,
                 context.ProcessId,
@@ -297,7 +306,9 @@ public sealed partial class DocumentImportAppService
                 row.Project,
                 row.Specification,
                 row.Acceptance,
-                row.Remark);
+                row.Remark,
+                context.UserId,
+                cancellationToken);
             await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;
@@ -305,14 +316,16 @@ public sealed partial class DocumentImportAppService
 
         if (decision.Decision == DifferenceDecision.PartialImport)
         {
-            OverwriteAcceptanceAndRemark(
+            await OverwriteAcceptanceAndRemarkAsync(
                 existingSpec,
                 context.CustomerId,
                 context.ProcessId,
                 context.MachineModelId,
                 context.FileId,
                 row.Acceptance,
-                row.Remark);
+                row.Remark,
+                context.UserId,
+                cancellationToken);
             await _specEmbeddingCacheService.RemoveSpecCachesAsync(existingSpec.Id);
             context.OverwriteCount++;
             return true;

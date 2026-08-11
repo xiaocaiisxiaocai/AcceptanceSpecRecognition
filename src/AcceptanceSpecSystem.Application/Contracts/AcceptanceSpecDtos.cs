@@ -167,6 +167,18 @@ public class CreateSpecRequest
 public class UpdateSpecRequest
 {
     /// <summary>
+    /// 编辑表单打开时看到的内容版本；旧调用方可不传。
+    /// </summary>
+    [Range(1, long.MaxValue, ErrorMessage = "期望版本必须大于0")]
+    public long? ExpectedReferenceVersion { get; set; }
+
+    /// <summary>
+    /// 可选修改原因。
+    /// </summary>
+    [MaxLength(500, ErrorMessage = "修改原因不能超过500个字符")]
+    public string? ChangeReason { get; set; }
+
+    /// <summary>
     /// 项目名称
     /// </summary>
     [Required(ErrorMessage = "项目名称不能为空")]
@@ -191,6 +203,65 @@ public class UpdateSpecRequest
     /// </summary>
     [MaxLength(2000, ErrorMessage = "备注不能超过2000个字符")]
     public string? Remark { get; set; }
+}
+
+public sealed class AcceptanceSpecContentVersionHistoryDto
+{
+    public int SpecId { get; set; }
+    public long CurrentVersion { get; set; }
+    public long EarliestAvailableVersion { get; set; }
+    public bool HasUnavailableEarlierVersions { get; set; }
+    public string Sort { get; set; } = "newest";
+    public List<AcceptanceSpecContentVersionItemDto> Items { get; set; } = [];
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+}
+
+public class AcceptanceSpecContentVersionItemDto
+{
+    public long Version { get; set; }
+    public DateTime ChangedAtUtc { get; set; }
+    public int? ChangedByUserId { get; set; }
+    public string? ChangedByNameSnapshot { get; set; }
+    public string ChangeSource { get; set; } = string.Empty;
+    public string? ChangeReason { get; set; }
+    public long? RestoredFromVersion { get; set; }
+    public bool IsMigrationBaseline { get; set; }
+    public List<string> ChangedFields { get; set; } = [];
+}
+
+public sealed class AcceptanceSpecContentVersionDetailDto : AcceptanceSpecContentVersionItemDto
+{
+    public int SpecId { get; set; }
+    public string Project { get; set; } = string.Empty;
+    public string Specification { get; set; } = string.Empty;
+    public string? Acceptance { get; set; }
+    public string? Remark { get; set; }
+}
+
+public sealed class AcceptanceSpecContentVersionDiffDto
+{
+    public int SpecId { get; set; }
+    public long FromVersion { get; set; }
+    public long ToVersion { get; set; }
+    public Dictionary<string, AcceptanceSpecContentFieldDiffDto> Fields { get; set; } = [];
+}
+
+public sealed class AcceptanceSpecContentFieldDiffDto
+{
+    public string? Before { get; set; }
+    public string? After { get; set; }
+    public bool Changed { get; set; }
+}
+
+public sealed class RestoreAcceptanceSpecContentVersionRequest
+{
+    [Range(1, long.MaxValue, ErrorMessage = "期望版本必须大于0")]
+    public long ExpectedCurrentVersion { get; set; }
+
+    [MaxLength(500, ErrorMessage = "恢复原因不能超过500个字符")]
+    public string? Reason { get; set; }
 }
 
 public sealed class AcceptanceSpecReferenceHistoryDto

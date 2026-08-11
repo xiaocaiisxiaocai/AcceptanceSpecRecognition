@@ -10,7 +10,7 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public sealed partial class DocumentImportAppService
 {
-    private static void OverwriteAcceptanceSpec(
+    private async Task OverwriteAcceptanceSpecAsync(
         AcceptanceSpec existingSpec,
         int customerId,
         int? processId,
@@ -19,53 +19,55 @@ public sealed partial class DocumentImportAppService
         string? project,
         string? specification,
         string? acceptance,
-        string? remark)
+        string? remark,
+        int changedByUserId,
+        CancellationToken cancellationToken)
     {
         var normalizedProject = project?.Trim() ?? string.Empty;
         var normalizedSpecification = specification?.Trim() ?? string.Empty;
         var normalizedAcceptance = NormalizeNullable(acceptance);
         var normalizedRemark = NormalizeNullable(remark);
-        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+        await _contentVersionCoordinator.ApplyChangeAsync(
             existingSpec,
             normalizedProject,
             normalizedSpecification,
             normalizedAcceptance,
-            normalizedRemark);
+            normalizedRemark,
+            "document-import",
+            changedByUserId,
+            cancellationToken: cancellationToken);
         existingSpec.CustomerId = customerId;
         existingSpec.ProcessId = processId;
         existingSpec.MachineModelId = machineModelId;
-        existingSpec.Project = normalizedProject;
-        existingSpec.Specification = normalizedSpecification;
-        existingSpec.Acceptance = normalizedAcceptance;
-        existingSpec.Remark = normalizedRemark;
         existingSpec.WordFileId = wordFileId;
-        existingSpec.UpdatedAt = DateTime.UtcNow;
     }
 
-    private static void OverwriteAcceptanceAndRemark(
+    private async Task OverwriteAcceptanceAndRemarkAsync(
         AcceptanceSpec existingSpec,
         int customerId,
         int? processId,
         int? machineModelId,
         int wordFileId,
         string? acceptance,
-        string? remark)
+        string? remark,
+        int changedByUserId,
+        CancellationToken cancellationToken)
     {
         var normalizedAcceptance = NormalizeNullable(acceptance);
         var normalizedRemark = NormalizeNullable(remark);
-        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+        await _contentVersionCoordinator.ApplyChangeAsync(
             existingSpec,
             existingSpec.Project,
             existingSpec.Specification,
             normalizedAcceptance,
-            normalizedRemark);
+            normalizedRemark,
+            "document-import",
+            changedByUserId,
+            cancellationToken: cancellationToken);
         existingSpec.CustomerId = customerId;
         existingSpec.ProcessId = processId;
         existingSpec.MachineModelId = machineModelId;
-        existingSpec.Acceptance = normalizedAcceptance;
-        existingSpec.Remark = normalizedRemark;
         existingSpec.WordFileId = wordFileId;
-        existingSpec.UpdatedAt = DateTime.UtcNow;
     }
 
     private static AcceptanceSpec CreateAcceptanceSpec(

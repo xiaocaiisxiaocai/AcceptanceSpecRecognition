@@ -261,6 +261,7 @@ public static class ApiServiceCollectionExtensions
         services.AddScoped<IMachineModelRepository, MachineModelRepository>();
         services.AddScoped<IAcceptanceSpecRepository, AcceptanceSpecRepository>();
         services.AddScoped<IAcceptanceSpecReferenceEventRepository, AcceptanceSpecReferenceEventRepository>();
+        services.AddScoped<IAcceptanceSpecContentVersionRepository, AcceptanceSpecContentVersionRepository>();
         services.AddScoped<IEmbeddingCacheRepository, EmbeddingCacheRepository>();
         services.AddScoped<IWordFileRepository, WordFileRepository>();
         services.AddScoped<IAiServiceConfigRepository, AiServiceConfigRepository>();

@@ -49,6 +49,13 @@ public sealed class DocumentImportIdempotencyHardeningTests
             var importedSpecs = await db.AcceptanceSpecs
                 .Where(item => item.WordFileId == fileId)
                 .ToListAsync();
+            var importedSpecIds = importedSpecs.Select(spec => spec.Id).ToArray();
+            var importedVersions = await db.AcceptanceSpecContentVersions
+                .Where(version => importedSpecIds.Contains(version.AcceptanceSpecId))
+                .ToListAsync();
+            importedVersions.Should().ContainSingle();
+            importedVersions[0].Version.Should().Be(1);
+            importedVersions[0].ChangeSource.Should().Be("document-import");
             foreach (var spec in importedSpecs)
             {
                 spec.CreatedByUserId = 1;

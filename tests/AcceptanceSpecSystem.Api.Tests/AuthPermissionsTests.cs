@@ -513,6 +513,8 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:org-unit:create");
         permissions.Should().Contain("btn:org-unit:delete");
         permissions.Should().Contain("btn:org-unit:move");
+        permissions.Should().Contain("api:spec:restore-version");
+        permissions.Should().Contain("btn:spec:restore-version");
     }
 
     [Fact]
@@ -568,6 +570,8 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("btn:spec:update");
         permissions.Should().Contain("btn:spec:delete");
         permissions.Should().Contain("btn:spec:remark-replace");
+        permissions.Should().NotContain("api:spec:restore-version");
+        permissions.Should().NotContain("btn:spec:restore-version");
         permissions.Should().Contain("menu:rbac");
         permissions.Should().Contain("page:config:system-users");
         permissions.Should().Contain("api:system-user:read");

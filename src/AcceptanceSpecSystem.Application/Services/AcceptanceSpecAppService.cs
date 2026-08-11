@@ -22,6 +22,7 @@ public sealed class AcceptanceSpecAppService
     private readonly IUnitOfWork _unitOfWork;
     private readonly AcceptanceSpecQueryService _acceptanceSpecQueryService;
     private readonly IBusinessOrgScopeService _businessOrgScopeService;
+    private readonly AcceptanceSpecContentVersionCoordinator _contentVersionCoordinator;
     private readonly ILogger<AcceptanceSpecAppService> _logger;
 
     public AcceptanceSpecAppService(
@@ -29,10 +30,26 @@ public sealed class AcceptanceSpecAppService
         AcceptanceSpecQueryService acceptanceSpecQueryService,
         IBusinessOrgScopeService businessOrgScopeService,
         ILogger<AcceptanceSpecAppService> logger)
+        : this(
+            unitOfWork,
+            acceptanceSpecQueryService,
+            businessOrgScopeService,
+            new AcceptanceSpecContentVersionCoordinator(unitOfWork),
+            logger)
+    {
+    }
+
+    public AcceptanceSpecAppService(
+        IUnitOfWork unitOfWork,
+        AcceptanceSpecQueryService acceptanceSpecQueryService,
+        IBusinessOrgScopeService businessOrgScopeService,
+        AcceptanceSpecContentVersionCoordinator contentVersionCoordinator,
+        ILogger<AcceptanceSpecAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _acceptanceSpecQueryService = acceptanceSpecQueryService;
         _businessOrgScopeService = businessOrgScopeService;
+        _contentVersionCoordinator = contentVersionCoordinator;
         _logger = logger;
     }
 
@@ -206,6 +223,190 @@ public sealed class AcceptanceSpecAppService
         };
     }
 
+    public async Task<AcceptanceSpecContentVersionHistoryModel?> GetContentVersionHistoryAsync(
+        SpecAccessContext scope,
+        int id,
+        int page,
+        int pageSize,
+        string? sort,
+        CancellationToken cancellationToken = default)
+    {
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id, cancellationToken);
+        if (spec == null)
+            return null;
+        if (!scope.CanAccess(spec))
+            throw new ApplicationServiceException(403, "无权访问该规格");
+        if (page < 1 || pageSize is < 1 or > 100)
+            throw new ApplicationServiceException(400, "版本历史分页参数无效");
+
+        var normalizedSort = string.IsNullOrWhiteSpace(sort) ? "newest" : sort.Trim().ToLowerInvariant();
+        if (normalizedSort is not ("oldest" or "newest"))
+            throw new ApplicationServiceException(400, "内容版本排序只支持 oldest 或 newest");
+
+        var query = _unitOfWork.AcceptanceSpecContentVersions.Query()
+            .Where(version => version.AcceptanceSpecId == id);
+        var total = await query.CountAsync(cancellationToken);
+        var earliestAvailableVersion = await query
+            .OrderBy(version => version.Version)
+            .Select(version => (long?)version.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+        var ordered = normalizedSort == "oldest"
+            ? query.OrderBy(version => version.Version)
+            : query.OrderByDescending(version => version.Version);
+        var pageVersions = await ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        AcceptanceSpecContentVersion? pagePredecessor = null;
+        if (pageVersions.Count > 0)
+        {
+            var minimumPageVersion = pageVersions.Min(version => version.Version);
+            pagePredecessor = await query
+                .Where(version => version.Version < minimumPageVersion)
+                .OrderByDescending(version => version.Version)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var versionsForComparison = pagePredecessor == null
+            ? pageVersions
+            : pageVersions.Append(pagePredecessor).ToList();
+        var previousByVersion = versionsForComparison
+            .OrderBy(version => version.Version)
+            .Zip(
+                versionsForComparison.OrderBy(version => version.Version).Skip(1),
+                (previous, current) => new { current.Version, Previous = previous })
+            .ToDictionary(pair => pair.Version, pair => pair.Previous);
+
+        return new AcceptanceSpecContentVersionHistoryModel
+        {
+            SpecId = id,
+            CurrentVersion = spec.ReferenceVersion,
+            EarliestAvailableVersion = earliestAvailableVersion ?? spec.ReferenceVersion,
+            HasUnavailableEarlierVersions = earliestAvailableVersion > 1,
+            Sort = normalizedSort,
+            Items = pageVersions.Select(version => MapContentVersionItem(
+                version,
+                previousByVersion.GetValueOrDefault(version.Version))).ToList(),
+            Total = total,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<AcceptanceSpecContentVersionDetailModel?> GetContentVersionAsync(
+        SpecAccessContext scope,
+        int id,
+        long version,
+        CancellationToken cancellationToken = default)
+    {
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id, cancellationToken);
+        if (spec == null)
+            return null;
+        if (!scope.CanAccess(spec))
+            throw new ApplicationServiceException(403, "无权访问该规格");
+
+        var snapshot = await _unitOfWork.AcceptanceSpecContentVersions.FirstOrDefaultAsync(
+            item => item.AcceptanceSpecId == id && item.Version == version,
+            cancellationToken);
+        if (snapshot == null)
+            return null;
+
+        return MapContentVersionDetail(snapshot);
+    }
+
+    public async Task<AcceptanceSpecContentVersionDiffModel?> GetContentVersionDiffAsync(
+        SpecAccessContext scope,
+        int id,
+        long fromVersion,
+        long toVersion,
+        CancellationToken cancellationToken = default)
+    {
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdAsync(id, cancellationToken);
+        if (spec == null)
+            return null;
+        if (!scope.CanAccess(spec))
+            throw new ApplicationServiceException(403, "无权访问该规格");
+        if (fromVersion <= 0 || toVersion <= 0 || fromVersion == toVersion)
+            throw new ApplicationServiceException(400, "请选择两个不同的有效内容版本");
+
+        var snapshots = await _unitOfWork.AcceptanceSpecContentVersions.Query()
+            .Where(item => item.AcceptanceSpecId == id &&
+                           (item.Version == fromVersion || item.Version == toVersion))
+            .ToListAsync(cancellationToken);
+        var from = snapshots.SingleOrDefault(item => item.Version == fromVersion);
+        var to = snapshots.SingleOrDefault(item => item.Version == toVersion);
+        if (from == null || to == null)
+            throw new ApplicationServiceException(404, "指定内容版本不存在或正文不可追溯");
+
+        return new AcceptanceSpecContentVersionDiffModel
+        {
+            SpecId = id,
+            FromVersion = fromVersion,
+            ToVersion = toVersion,
+            Fields = new Dictionary<string, AcceptanceSpecContentFieldDiffModel>
+            {
+                ["project"] = BuildFieldDiff(from.Project, to.Project),
+                ["specification"] = BuildFieldDiff(from.Specification, to.Specification),
+                ["acceptance"] = BuildFieldDiff(from.Acceptance, to.Acceptance),
+                ["remark"] = BuildFieldDiff(from.Remark, to.Remark)
+            }
+        };
+    }
+
+    public async Task<AcceptanceSpecSummary?> RestoreContentVersionAsync(
+        SpecAccessContext scope,
+        int id,
+        long version,
+        long expectedCurrentVersion,
+        string? reason,
+        CancellationToken cancellationToken = default)
+    {
+        var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id, cancellationToken);
+        if (spec == null)
+            return null;
+        if (!scope.CanAccess(spec))
+            throw new ApplicationServiceException(403, "无权操作该规格");
+        if (spec.ReferenceVersion != expectedCurrentVersion)
+            throw new ApplicationServiceException(409, "规格内容已被更新，请刷新版本历史后重试");
+
+        var target = await _unitOfWork.AcceptanceSpecContentVersions.FirstOrDefaultAsync(
+            item => item.AcceptanceSpecId == id && item.Version == version,
+            cancellationToken);
+        if (target == null)
+            throw new ApplicationServiceException(404, "要恢复的内容版本不存在或正文不可追溯");
+        if (!AcceptanceSpecContentVersionCoordinator.HasMaterialChange(
+                spec,
+                target.Project,
+                target.Specification,
+                target.Acceptance,
+                target.Remark))
+            throw new ApplicationServiceException(422, "所选版本与当前内容一致，无需恢复");
+
+        await _contentVersionCoordinator.ApplyChangeAsync(
+            spec,
+            target.Project,
+            target.Specification,
+            target.Acceptance,
+            target.Remark,
+            "restore",
+            scope.UserId,
+            reason,
+            version,
+            cancellationToken: cancellationToken);
+        await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ApplicationServiceException(409, "规格内容已被更新，请刷新版本历史后重试");
+        }
+
+        return AcceptanceSpecQueryService.MapDto(spec);
+    }
+
     public async Task<AcceptanceSpecSummary> CreateAsync(
         SpecAccessContext scope,
         int customerId,
@@ -238,6 +439,11 @@ public sealed class AcceptanceSpecAppService
         };
 
         await _unitOfWork.AcceptanceSpecs.AddAsync(spec, cancellationToken);
+        await _contentVersionCoordinator.CreateInitialSnapshotAsync(
+            spec,
+            "create",
+            scope.UserId,
+            cancellationToken: cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("创建验收规格成功: {SpecId}", spec.Id);
@@ -271,6 +477,8 @@ public sealed class AcceptanceSpecAppService
         string specification,
         string? acceptance,
         string? remark,
+        long? expectedReferenceVersion = null,
+        string? changeReason = null,
         CancellationToken cancellationToken = default)
     {
         var spec = await _unitOfWork.AcceptanceSpecs.GetByIdWithCustomerAndProcessAsync(id, cancellationToken);
@@ -279,25 +487,33 @@ public sealed class AcceptanceSpecAppService
 
         if (!scope.CanAccess(spec))
             throw new ApplicationServiceException(403, "无权操作该规格");
+        if (expectedReferenceVersion.HasValue && spec.ReferenceVersion != expectedReferenceVersion.Value)
+            throw new ApplicationServiceException(409, "规格内容已被更新，请刷新后重试");
 
         var normalizedProject = NormalizeRequiredText(project, "项目名称不能为空");
         var normalizedSpecification = NormalizeRequiredText(specification, "规格内容不能为空");
         var normalizedAcceptance = NormalizeOptionalText(acceptance);
         var normalizedRemark = NormalizeOptionalText(remark);
-        AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+        await _contentVersionCoordinator.ApplyChangeAsync(
             spec,
             normalizedProject,
             normalizedSpecification,
             normalizedAcceptance,
-            normalizedRemark);
-        spec.Project = normalizedProject;
-        spec.Specification = normalizedSpecification;
-        spec.Acceptance = normalizedAcceptance;
-        spec.Remark = normalizedRemark;
-        spec.UpdatedAt = DateTime.UtcNow;
+            normalizedRemark,
+            "manual-update",
+            scope.UserId,
+            changeReason,
+            cancellationToken: cancellationToken);
 
         await RemoveEmbeddingCachesAsync(spec.Id, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ApplicationServiceException(409, "规格内容已被更新，请刷新后重试");
+        }
 
         _logger.LogInformation("更新验收规格成功: {SpecId}", spec.Id);
         return AcceptanceSpecQueryService.MapDto(spec);
@@ -385,14 +601,16 @@ public sealed class AcceptanceSpecAppService
                     snapshot.SearchText,
                     snapshot.ReplacementText,
                     StringComparison.Ordinal);
-                AcceptanceSpecReferenceCountPolicy.ResetIfContentChanged(
+                await _contentVersionCoordinator.ApplyChangeAsync(
                     spec,
                     spec.Project,
                     spec.Specification,
                     spec.Acceptance,
-                    updatedRemark);
-                spec.Remark = updatedRemark;
-                spec.UpdatedAt = now;
+                    updatedRemark,
+                    "remark-replace",
+                    scope.UserId,
+                    changedAtUtc: now,
+                    cancellationToken: cancellationToken);
             }
 
             var specIds = snapshot.Specs.Select(spec => spec.Id).ToArray();
@@ -456,35 +674,34 @@ public sealed class AcceptanceSpecAppService
 
         foreach (var item in items)
         {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(item.Project) || string.IsNullOrWhiteSpace(item.Specification))
-                {
-                    failedCount++;
-                    continue;
-                }
-
-                await _unitOfWork.AcceptanceSpecs.AddAsync(new AcceptanceSpec
-                {
-                    CustomerId = customerId,
-                    ProcessId = processId,
-                    MachineModelId = machineModelId,
-                    Project = item.Project.Trim(),
-                    Specification = item.Specification.Trim(),
-                    Acceptance = NormalizeOptionalText(item.Acceptance),
-                    Remark = NormalizeOptionalText(item.Remark),
-                    OwnerOrgUnitId = businessScope.OrgUnitId,
-                    CreatedByUserId = businessScope.UserId,
-                    WordFileId = wordFileId,
-                    ImportedAt = DateTime.UtcNow
-                }, cancellationToken);
-
-                successCount++;
-            }
-            catch
+            if (string.IsNullOrWhiteSpace(item.Project) || string.IsNullOrWhiteSpace(item.Specification))
             {
                 failedCount++;
+                continue;
             }
+
+            var spec = new AcceptanceSpec
+            {
+                CustomerId = customerId,
+                ProcessId = processId,
+                MachineModelId = machineModelId,
+                Project = item.Project.Trim(),
+                Specification = item.Specification.Trim(),
+                Acceptance = NormalizeOptionalText(item.Acceptance),
+                Remark = NormalizeOptionalText(item.Remark),
+                OwnerOrgUnitId = businessScope.OrgUnitId,
+                CreatedByUserId = businessScope.UserId,
+                WordFileId = wordFileId,
+                ImportedAt = DateTime.UtcNow
+            };
+            await _unitOfWork.AcceptanceSpecs.AddAsync(spec, cancellationToken);
+            await _contentVersionCoordinator.CreateInitialSnapshotAsync(
+                spec,
+                "create",
+                businessScope.UserId,
+                cancellationToken: cancellationToken);
+
+            successCount++;
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -756,6 +973,69 @@ public sealed class AcceptanceSpecAppService
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
+    private static AcceptanceSpecContentVersionItemModel MapContentVersionItem(
+        AcceptanceSpecContentVersion version,
+        AcceptanceSpecContentVersion? previous)
+    {
+        return new AcceptanceSpecContentVersionItemModel
+        {
+            Version = version.Version,
+            ChangedAtUtc = version.ChangedAtUtc,
+            ChangedByUserId = version.ChangedByUserId,
+            ChangedByNameSnapshot = version.ChangedByNameSnapshot,
+            ChangeSource = version.ChangeSource,
+            ChangeReason = version.ChangeReason,
+            RestoredFromVersion = version.RestoredFromVersion,
+            IsMigrationBaseline = version.IsMigrationBaseline,
+            ChangedFields = GetChangedFields(previous, version)
+        };
+    }
+
+    private static AcceptanceSpecContentVersionDetailModel MapContentVersionDetail(
+        AcceptanceSpecContentVersion version)
+    {
+        return new AcceptanceSpecContentVersionDetailModel
+        {
+            SpecId = version.AcceptanceSpecId,
+            Version = version.Version,
+            Project = version.Project,
+            Specification = version.Specification,
+            Acceptance = version.Acceptance,
+            Remark = version.Remark,
+            ChangedAtUtc = version.ChangedAtUtc,
+            ChangedByUserId = version.ChangedByUserId,
+            ChangedByNameSnapshot = version.ChangedByNameSnapshot,
+            ChangeSource = version.ChangeSource,
+            ChangeReason = version.ChangeReason,
+            RestoredFromVersion = version.RestoredFromVersion,
+            IsMigrationBaseline = version.IsMigrationBaseline,
+            ChangedFields = []
+        };
+    }
+
+    private static List<string> GetChangedFields(
+        AcceptanceSpecContentVersion? previous,
+        AcceptanceSpecContentVersion current)
+    {
+        if (previous == null)
+            return ["project", "specification", "acceptance", "remark"];
+
+        var fields = new List<string>();
+        if (!string.Equals(previous.Project, current.Project, StringComparison.Ordinal)) fields.Add("project");
+        if (!string.Equals(previous.Specification, current.Specification, StringComparison.Ordinal)) fields.Add("specification");
+        if (!string.Equals(previous.Acceptance, current.Acceptance, StringComparison.Ordinal)) fields.Add("acceptance");
+        if (!string.Equals(previous.Remark, current.Remark, StringComparison.Ordinal)) fields.Add("remark");
+        return fields;
+    }
+
+    private static AcceptanceSpecContentFieldDiffModel BuildFieldDiff(string? before, string? after) =>
+        new()
+        {
+            Before = before,
+            After = after,
+            Changed = !string.Equals(before, after, StringComparison.Ordinal)
+        };
 
     private sealed class RemarkReplaceSnapshot
     {

@@ -62,6 +62,12 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
         updated.Acceptance.Should().Be("覆盖后验收");
         updated.Remark.Should().Be("覆盖后备注");
         updated.ReferenceCount.Should().Be(0);
+        updated.ReferenceVersion.Should().Be(2);
+        var updatedVersion = await db.AcceptanceSpecContentVersions
+            .SingleAsync(version =>
+                version.AcceptanceSpecId == setup.SpecId && version.Version == 2);
+        updatedVersion.ChangeSource.Should().Be("smart-fill-backfill");
+        updatedVersion.Project.Should().Be("覆盖后项目");
         (await db.EmbeddingCaches.AnyAsync(cache => cache.SpecId == setup.SpecId))
             .Should().BeFalse();
     }
@@ -111,6 +117,10 @@ public class SmartFillSpecBackfillTests : IClassFixture<ApiWebApplicationFactory
             spec.Project == "另存项目" && spec.Specification == "另存规格");
         created.Acceptance.Should().Be("另存验收");
         created.Remark.Should().Be("另存备注");
+        var createdVersion = await db.AcceptanceSpecContentVersions
+            .SingleAsync(version => version.AcceptanceSpecId == created.Id);
+        createdVersion.Version.Should().Be(1);
+        createdVersion.ChangeSource.Should().Be("smart-fill-backfill");
     }
 
     [Fact]
