@@ -29,6 +29,9 @@ public class TestFileStorageService : IFileStorageService
     public Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
         => SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
 
+    public Task<string> SaveSmartFillResultArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+        => SaveAsync(SmartFillResultArchivePathPolicy.Namespace, originalFileName, content, cancellationToken);
+
     public Stream OpenReadStream(string relativePath)
     {
         return new FileStream(

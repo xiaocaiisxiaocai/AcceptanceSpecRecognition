@@ -11,6 +11,7 @@ using ClosedXML.Excel;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AcceptanceSpecSystem.Api.Tests;
@@ -22,6 +23,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly ApiWebApplicationFactory _factory;
     private readonly HttpClient _client;
+    private int? _businessOrgUnitId;
 
     public ExecutionHistoryApiTests(ApiWebApplicationFactory factory)
     {
@@ -222,6 +224,10 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                         specificationColumnIndex = 1,
                         acceptanceColumnIndex = 2,
                         remarkColumnIndex = 3,
+                        headerRowStart = 1,
+                        headerRowCount = 1,
+                        dataStartRow = 2,
+                        dataEndRow = 5,
                         mappings = new object[]
                         {
                             new { rowIndex = 1, specId },
@@ -245,7 +251,9 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        executeResp.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await executeResp.Content.ReadAsStringAsync());
         var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
         executeJson.Code.Should().Be(0);
         var taskId = executeJson.Data.GetProperty("taskId").GetString();
@@ -319,6 +327,26 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         rows[3].GetProperty("executionSnapshot").GetProperty("finalRemark").GetString().Should().Be("RM-4-手工");
         rows[3].GetProperty("executionSnapshot").GetProperty("manualEdited").GetBoolean().Should().BeTrue();
         rows[3].GetProperty("executionSnapshot").GetProperty("status").GetString().Should().Be("adopted");
+
+        var archiveListResp = await _client.GetAsync(
+            "/api/execution-history/smart-fill-archives?page=1&pageSize=20&keyword=execution-history-smart-fill");
+        archiveListResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var archiveList = await archiveListResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var archiveRecord = archiveList.Data.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("taskId").GetString() == taskId);
+        archiveRecord.GetProperty("hasResultArchive").GetBoolean().Should().BeTrue();
+        archiveRecord.GetProperty("resultFileName").GetString().Should().Be("execution-history-smart-fill.docx");
+
+        using var archiveDownloadResp = await _client.GetAsync(
+            $"/api/execution-history/smart-fill-archives/{archiveRecord.GetProperty("id").GetInt32()}/download");
+        archiveDownloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        archiveDownloadResp.Content.Headers.ContentType!.MediaType.Should().Be(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        var archiveBytes = await archiveDownloadResp.Content.ReadAsByteArrayAsync();
+        archiveBytes.Should().NotBeEmpty();
+        using var archiveStream = new MemoryStream(archiveBytes);
+        using var archiveDocument = WordprocessingDocument.Open(archiveStream, false);
+        archiveDocument.MainDocumentPart!.Document!.InnerText.Should().Contain("AC-1");
     }
 
     [Fact]
@@ -415,7 +443,9 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        executeResp.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await executeResp.Content.ReadAsStringAsync());
         var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var taskId = executeJson.Data.GetProperty("taskId").GetString();
 
@@ -527,7 +557,9 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
                 }
             }));
 
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        executeResp.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await executeResp.Content.ReadAsStringAsync());
         var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var taskId = executeJson.Data.GetProperty("taskId").GetString();
 
@@ -590,7 +622,9 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         var executeResp = await _client.PostAsync(
             "/api/batch-reply/execute",
             ApiClientJson.ToJsonContent(new { sessionId }));
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        executeResp.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await executeResp.Content.ReadAsStringAsync());
 
         var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
         executeJson.Code.Should().Be(0);
@@ -724,7 +758,9 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         var executeResp = await _client.PostAsync(
             "/api/batch-reply/execute",
             ApiClientJson.ToJsonContent(new { sessionId }));
-        executeResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        executeResp.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await executeResp.Content.ReadAsStringAsync());
 
         var executeJson = await executeResp.ReadAsAsync<ApiResponse<JsonElement>>();
         executeJson.Code.Should().Be(0);
@@ -832,13 +868,18 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
 
     private async Task<int> UploadDocumentAsync(byte[] bytes, string fileName)
     {
+        var businessOrgUnitId = await ResolveBusinessOrgUnitIdAsync();
+
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(bytes);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         content.Add(fileContent, "file", fileName);
+        content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
 
         var response = await _client.PostAsync("/api/documents/upload", content);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(
+            HttpStatusCode.OK,
+            await response.Content.ReadAsStringAsync());
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(0);
         return json.Data.GetProperty("fileId").GetInt32();
@@ -884,8 +925,10 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
 
     private async Task<int> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
     {
+        var businessOrgUnitId = await ResolveBusinessOrgUnitIdAsync();
         var response = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId,
             customerId,
             processId,
             project,
@@ -896,6 +939,20 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return json.Data.GetProperty("id").GetInt32();
+    }
+
+    private async Task<int> ResolveBusinessOrgUnitIdAsync()
+    {
+        if (_businessOrgUnitId.HasValue)
+            return _businessOrgUnitId.Value;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        _businessOrgUnitId = await db.OrgUnits
+            .OrderBy(org => org.UnitType == OrgUnitType.Company ? 1 : 0)
+            .Select(org => org.Id)
+            .FirstAsync();
+        return _businessOrgUnitId.Value;
     }
 
     private async Task<int> InsertLegacySmartFillExecutionHistoryAsync()

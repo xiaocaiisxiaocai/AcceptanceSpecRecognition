@@ -291,8 +291,13 @@ public sealed class UploadedDocumentSnapshotService :
         return parser;
     }
 
-    private static string BuildContentKey(WordFile wordFile) =>
-        $"{wordFile.Id}:{wordFile.FileHash}:{(int)wordFile.FileType}";
+    private static string BuildContentKey(WordFile wordFile)
+    {
+        var contentIdentity = !string.IsNullOrWhiteSpace(wordFile.FileHash)
+            ? $"hash:{wordFile.FileHash.Trim()}"
+            : $"path:{wordFile.FilePath?.Trim().Replace('\\', '/')}";
+        return $"{wordFile.Id}:{contentIdentity}:{(int)wordFile.FileType}";
+    }
 
     private long GetInvalidationVersion(int fileId) =>
         _invalidationVersions.TryGetValue(fileId, out var version) ? version : 0;

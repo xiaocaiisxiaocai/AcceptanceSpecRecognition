@@ -57,4 +57,13 @@ public sealed class ExecutionHistoryDraft
     public ExecutionHistorySmartFillPlaybackDto? SmartFillPlayback { get; set; }
 
     public ExecutionHistoryBatchReplyDetailDto? BatchReplyDetail { get; set; }
+
+    public SmartFillResultArchiveDraft? ResultArchive { get; set; }
 }
+
+public sealed record SmartFillResultArchiveDraft(
+    string RelativePath,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    string Sha256);

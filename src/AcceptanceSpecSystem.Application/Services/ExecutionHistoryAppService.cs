@@ -173,6 +173,14 @@ public sealed class ExecutionHistoryAppService : IExecutionHistoryAppService
         entity.SkippedRowCount = detail.SkippedRowCount;
         entity.NotAdoptedRowCount = detail.NotAdoptedRowCount;
         entity.ManualSelectedRowCount = detail.ManualSelectedRowCount;
+        if (draft.ResultArchive != null)
+        {
+            entity.ResultArchiveRelativePath = draft.ResultArchive.RelativePath;
+            entity.ResultArchiveFileName = draft.ResultArchive.FileName;
+            entity.ResultArchiveContentType = draft.ResultArchive.ContentType;
+            entity.ResultArchiveSizeBytes = draft.ResultArchive.SizeBytes;
+            entity.ResultArchiveSha256 = draft.ResultArchive.Sha256;
+        }
         entity.DetailJson = detailJson;
         entity.CreatedAt = draft.CreatedAt;
 

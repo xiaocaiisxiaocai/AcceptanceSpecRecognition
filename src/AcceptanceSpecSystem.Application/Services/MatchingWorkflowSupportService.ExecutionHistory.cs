@@ -25,6 +25,7 @@ public sealed partial class MatchingWorkflowSupportService
         IReadOnlyDictionary<int, AcceptanceSpec> specDict,
         IReadOnlyDictionary<int, HashSet<int>> adoptedRowLookup,
         IReadOnlyDictionary<int, ExecutionMatchSnapshot> currentMatchLookups,
+        SmartFillResultArchiveDraft resultArchive,
         bool saveImmediately = true,
         CancellationToken cancellationToken = default)
     {
@@ -99,7 +100,8 @@ public sealed partial class MatchingWorkflowSupportService
             CreatedAt = createdAt,
             Files = [fileDetail],
             SmartFillSummary = playback == null ? null : BuildSmartFillSummary(playback),
-            SmartFillPlayback = playback
+            SmartFillPlayback = playback,
+            ResultArchive = resultArchive
         }, saveImmediately: saveImmediately);
     }
 

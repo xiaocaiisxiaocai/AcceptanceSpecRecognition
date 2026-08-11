@@ -37,6 +37,16 @@ export default {
         title: getPageTitle("other-execution-history"),
         permissions: getPagePermission("other-execution-history")
       }
+    },
+    {
+      path: "/other/smart-fill-archives",
+      name: "SmartFillArchives",
+      component: () => import("@/views/other/smart-fill-archives/index.vue"),
+      meta: {
+        icon: "ri:archive-line",
+        title: getPageTitle("other-smart-fill-archives"),
+        permissions: getPagePermission("other-smart-fill-archives")
+      }
     }
   ]
 } satisfies RouteConfigsTable;

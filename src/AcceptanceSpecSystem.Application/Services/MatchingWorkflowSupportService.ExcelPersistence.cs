@@ -115,6 +115,7 @@ public sealed partial class MatchingWorkflowSupportService
         CancellationToken cancellationToken)
     {
         var finalCommitConfirmed = false;
+        SmartFillResultArchiveDraft? resultArchive = null;
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -125,6 +126,11 @@ public sealed partial class MatchingWorkflowSupportService
                 saveImmediately: false,
                 cancellationToken: cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            resultArchive = await SaveSmartFillResultArchiveAsync(
+                wordFile,
+                renderedContent,
+                cancellationToken);
 
             await SaveExecutionHistoryAsync(
                 user,
@@ -137,6 +143,7 @@ public sealed partial class MatchingWorkflowSupportService
                 specDict,
                 adoptedRowLookup,
                 currentMatchLookups,
+                resultArchive,
                 saveImmediately: false,
                 cancellationToken: cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -171,6 +178,7 @@ public sealed partial class MatchingWorkflowSupportService
             {
                 await RestoreSourceFileAfterFailedExecutionAsync(wordFile, sourceSnapshot);
                 await DeleteFailedDownloadArtifactAsync(persistedTaskResult);
+                await DeleteFailedResultArchiveAsync(resultArchive);
                 _matchingTaskSnapshotService.DiscardDeferredExpiredArtifactCleanup();
                 await RecoverPendingTaskFromFreshScopeAsync(user, taskId, CancellationToken.None);
                 throw;

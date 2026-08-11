@@ -58,6 +58,34 @@ public class ExecutionHistoryFrontendRegressionTests
         batchReplyContent.Should().Contain("prop=\"remark\"");
     }
 
+    [Fact]
+    public void NavigationAndFrontend_ShouldExposeSmartFillArchivePage()
+    {
+        var manifest = ReadRepositoryFile("shared/navigation/navigation-manifest.json");
+        manifest.Should().Contain("\"id\": \"other-smart-fill-archives\"");
+        manifest.Should().Contain("\"code\": \"page:other:smart-fill-archives\"");
+        manifest.Should().Contain("\"path\": \"/other/smart-fill-archives\"");
+
+        var route = ReadRepositoryFile("web/src/router/modules/other.ts");
+        route.Should().Contain("name: \"SmartFillArchives\"");
+        route.Should().Contain("@/views/other/smart-fill-archives/index.vue");
+        route.Should().Contain("getPagePermission(\"other-smart-fill-archives\")");
+
+        var api = ReadRepositoryFile("web/src/api/execution-history.ts");
+        api.Should().Contain("getSmartFillArchiveList");
+        api.Should().Contain("downloadSmartFillArchive");
+        api.Should().Contain("smart-fill-archives");
+
+        var page = ReadRepositoryFile("web/src/views/other/smart-fill-archives/index.vue");
+        page.Should().Contain("填充存档");
+        page.Should().Contain("来源文件");
+        page.Should().Contain("所属部门");
+        page.Should().Contain("操作人");
+        page.Should().Contain("当前页");
+        page.Should().Contain("下载");
+        page.Should().NotContain("el-drawer");
+    }
+
     private static string ReadRepositoryFile(string relativePath)
     {
         return File.ReadAllText(Path.Combine(

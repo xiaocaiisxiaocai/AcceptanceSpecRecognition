@@ -32,6 +32,7 @@
     { "id": "config-auth-roles", "code": "page:config:auth-roles", "title": "角色管理", "resource": "config", "action": "auth-roles", "path": "/rbac/auth-roles" },
     { "id": "rbac-permissions", "code": "page:rbac:permissions", "title": "权限字典", "resource": "rbac", "action": "permissions", "path": "/rbac/permissions" },
     { "id": "other-audit-logs", "code": "page:other:audit-logs", "title": "审计日志", "resource": "other", "action": "audit-logs", "path": "/other/audit-logs" },
-    { "id": "other-execution-history", "code": "page:other:execution-history", "title": "执行记录", "resource": "other", "action": "execution-history", "path": "/other/execution-history" }
+    { "id": "other-execution-history", "code": "page:other:execution-history", "title": "执行记录", "resource": "other", "action": "execution-history", "path": "/other/execution-history" },
+    { "id": "other-smart-fill-archives", "code": "page:other:smart-fill-archives", "title": "填充存档", "resource": "other", "action": "smart-fill-archives", "path": "/other/smart-fill-archives" }
   ]
 }

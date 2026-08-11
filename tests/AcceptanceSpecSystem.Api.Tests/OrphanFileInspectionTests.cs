@@ -297,6 +297,33 @@ public sealed class OrphanFileInspectionTests
     }
 
     [Fact]
+    public async Task SmartFillResultArchives_ShouldRetainReferencedAndDeleteStableOrphan()
+    {
+        var referenced = Old(
+            "uploads/execution-history/smart-fill-results/2026-01-01/11111111111111111111111111111111.xlsx");
+        var orphan = Old(
+            "uploads/execution-history/smart-fill-results/2026-01-01/22222222222222222222222222222222.docx");
+        var store = new FakeStore([referenced, orphan]);
+        var database = new FakeDatabaseReferences
+        {
+            Snapshot = CompleteSnapshot(referenced.RelativePath),
+            Probe = path => new OrphanReferenceProbe(
+                path.Equals(referenced.RelativePath, StringComparison.OrdinalIgnoreCase),
+                true)
+        };
+        var service = CreateService(store, database);
+
+        await service.InspectAsync(new OrphanFileInspectionRequest(true, TimeSpan.FromDays(7)));
+        var result = await service.InspectAsync(
+            new OrphanFileInspectionRequest(false, TimeSpan.FromDays(7)));
+
+        result.Referenced.Should().Be(1);
+        result.Eligible.Should().Be(1);
+        result.Deleted.Should().Be(1);
+        store.DeleteAttempts.Should().ContainSingle().Which.Should().Be(orphan.RelativePath);
+    }
+
+    [Fact]
     public async Task QuarantineFile_ShouldBeManagedRetainedDuringGraceAndDeletedAfterStableExpiredRounds()
     {
         var root = Path.Combine(Path.GetTempPath(), $"orphan-quarantine-{Guid.NewGuid():N}");

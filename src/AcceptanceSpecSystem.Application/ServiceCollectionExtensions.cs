@@ -58,6 +58,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MatchingApprovalTokenService>();
         services.AddScoped<IExecutionHistoryAppService, ExecutionHistoryAppService>();
         services.AddScoped<ExecutionHistoryAppService>();
+        services.AddScoped<ISmartFillArchiveAppService, SmartFillArchiveAppService>();
         services.AddScoped<SpecSemanticSearchService>();
         services.AddSingleton<EmbeddingCacheWarmupManager>();
         services.AddScoped<DocumentTemplateAppService>();

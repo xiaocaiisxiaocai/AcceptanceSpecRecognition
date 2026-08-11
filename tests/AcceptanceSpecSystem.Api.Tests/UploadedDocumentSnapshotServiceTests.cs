@@ -141,6 +141,33 @@ public sealed class UploadedDocumentSnapshotServiceTests
     }
 
     [Fact]
+    public async Task GetSnapshotAsync_ForTemporaryFilesWithoutHash_ShouldUsePathToAvoidCacheCollision()
+    {
+        var (root, _, firstFile) = await CreateFixtureAsync();
+        var secondRelativePath = "uploads/excel-files/2026-08-11/second-file.xlsx";
+        var secondAbsolutePath = Path.Combine(root, secondRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        await File.WriteAllBytesAsync(secondAbsolutePath, CreateWorkbookBytes("尺寸"));
+        var secondFile = new WordFile
+        {
+            Id = 0,
+            FileName = "second-file.xlsx",
+            FileType = UploadedFileType.ExcelXlsx,
+            FilePath = secondRelativePath,
+            FileHash = string.Empty
+        };
+        firstFile.Id = 0;
+        firstFile.FileHash = string.Empty;
+        var service = CreateService(root);
+
+        var first = await service.GetSnapshotAsync(firstFile);
+        var second = await service.GetSnapshotAsync(secondFile);
+
+        service.ParseInvocationCount.Should().Be(2);
+        first.TableData[0].Rows[0].GetValue(0).Should().Be("外观");
+        second.TableData[0].Rows[0].GetValue(0).Should().Be("尺寸");
+    }
+
+    [Fact]
     public async Task GetSnapshotAsync_WhenEntryTooLarge_ShouldReturnWithoutCaching()
     {
         var (root, _, wordFile) = await CreateFixtureAsync();
@@ -351,13 +378,13 @@ public sealed class UploadedDocumentSnapshotServiceTests
         return (root, relativePath, wordFile);
     }
 
-    private static byte[] CreateWorkbookBytes()
+    private static byte[] CreateWorkbookBytes(string project = "外观")
     {
         using var workbook = new XLWorkbook();
         var sheet = workbook.AddWorksheet("测试表");
         sheet.Cell(1, 1).Value = "项目";
         sheet.Cell(1, 2).Value = "规格";
-        sheet.Cell(2, 1).Value = "外观";
+        sheet.Cell(2, 1).Value = project;
         sheet.Cell(2, 2).Value = "无划伤";
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);

@@ -111,6 +111,8 @@ public sealed class BatchReplySessionDurabilityTests
             _inner.SaveFilledWordAsync(originalFileName, content, cancellationToken);
         public Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default) =>
             _inner.SaveSmartFillPlaybackArchiveAsync(originalFileName, content, cancellationToken);
+        public Task<string> SaveSmartFillResultArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default) =>
+            _inner.SaveSmartFillResultArchiveAsync(originalFileName, content, cancellationToken);
         public Stream OpenReadStream(string relativePath) => _inner.OpenReadStream(relativePath);
         public Task<string> WriteHealthCheckFileAsync(CancellationToken cancellationToken = default) =>
             _inner.WriteHealthCheckFileAsync(cancellationToken);

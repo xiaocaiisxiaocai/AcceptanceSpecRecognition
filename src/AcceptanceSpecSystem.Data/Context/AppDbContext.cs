@@ -748,6 +748,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TaskId).IsRequired().HasMaxLength(64);
             entity.Property(e => e.TaskType).IsRequired().HasMaxLength(32);
             entity.Property(e => e.SourceFileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.ResultArchiveRelativePath).HasMaxLength(512);
+            entity.Property(e => e.ResultArchiveFileName).HasMaxLength(255);
+            entity.Property(e => e.ResultArchiveContentType).HasMaxLength(128);
+            entity.Property(e => e.ResultArchiveSha256).HasMaxLength(64);
             entity.Property(e => e.DetailJson).IsRequired();
             entity.HasIndex(e => e.TaskId).IsUnique();
             entity.HasIndex(e => e.CreatedAt);

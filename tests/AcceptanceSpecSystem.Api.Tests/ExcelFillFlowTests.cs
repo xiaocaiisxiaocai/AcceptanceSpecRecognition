@@ -40,12 +40,22 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
             new[] { "P1", "S1", "", "" },
             new[] { "P2", "S2", "", "" }
         });
+        int businessOrgUnitId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            businessOrgUnitId = await db.OrgUnits
+                .OrderBy(org => org.UnitType == OrgUnitType.Company ? 1 : 0)
+                .Select(org => org.Id)
+                .FirstAsync();
+        }
 
         // 2) 上传 Excel
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(originalXlsx);
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "e2e.xlsx");
+        content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
 
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -62,6 +72,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId,
             customerId,
             processId,
             project = "P1",
@@ -71,6 +82,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         }));
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId,
             customerId,
             processId,
             project = "P2",
@@ -150,6 +162,23 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         rows[0][3].GetString().Should().Be("RM-1");
         rows[1][2].GetString().Should().Be("AC-2");
         rows[1][3].GetString().Should().Be("RM-2");
+
+        var archiveListResp = await _client.GetAsync(
+            "/api/execution-history/smart-fill-archives?page=1&pageSize=20&keyword=e2e.xlsx");
+        archiveListResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var archiveList = await archiveListResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        var archive = archiveList.Data.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("taskId").GetString() == taskId);
+        archive.GetProperty("hasResultArchive").GetBoolean().Should().BeTrue();
+        archive.GetProperty("resultFileName").GetString().Should().Be("e2e.xlsx");
+
+        using var archiveDownload = await _client.GetAsync(
+            $"/api/execution-history/smart-fill-archives/{archive.GetProperty("id").GetInt32()}/download");
+        archiveDownload.StatusCode.Should().Be(HttpStatusCode.OK);
+        var archivedBytes = await archiveDownload.Content.ReadAsByteArrayAsync();
+        using var archivedWorkbook = new XLWorkbook(new MemoryStream(archivedBytes));
+        archivedWorkbook.Worksheet(1).Cell(2, 3).GetString().Should().Be("AC-1");
+        archivedWorkbook.Worksheet(1).Cell(3, 4).GetString().Should().Be("RM-2");
 
         await AssertEffectiveColumnMappingRulesAsync(customerId, new[]
         {
@@ -933,6 +962,7 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
 {
     private readonly HttpClient _client;
     private readonly FinalSaveFailureExcelApiWebApplicationFactory _factory;
+    private int? _businessOrgUnitId;
 
     public ExcelFillExecutionHistoryFailureOrderTests(FinalSaveFailureExcelApiWebApplicationFactory factory)
     {
@@ -949,7 +979,7 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
             new[] { "P1", "S1", "", "" }
         });
         var (customerId, processId) = await CreateScopeAsync("ExcelHistoryFail");
-        await CreateSpecAsync(customerId, processId, "P1", "S1", "AC-1", "RM-1");
+        await CreateSpecAsync(fileId, customerId, processId, "P1", "S1", "AC-1", "RM-1");
 
         var mappings = await PreviewMappingsAsync(fileId, customerId, processId);
         var execResp = await _client.PostAsync("/api/matching/batch-execute", ApiClientJson.ToJsonContent(new
@@ -981,10 +1011,12 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
 
     private async Task<int> UploadExcelAsync(string[][] rows)
     {
+        var businessOrgUnitId = await ResolveBusinessOrgUnitIdAsync();
         using var content = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(ExcelFillFlowTests.CreateExcelBytes(rows));
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "history-fail.xlsx");
+        content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -999,17 +1031,29 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
         return (customerId, processId);
     }
 
-    private Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
+    private async Task CreateSpecAsync(int fileId, int customerId, int processId, string project, string specification, string acceptance, string remark)
     {
-        return _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        var businessOrgUnitId = await ResolveBusinessOrgUnitIdAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var adminUserId = await db.SystemUsers
+            .Where(user => user.Username == "admin")
+            .Select(user => user.Id)
+            .SingleAsync();
+        db.AcceptanceSpecs.Add(new AcceptanceSpec
         {
-            customerId,
-            processId,
-            project,
-            specification,
-            acceptance,
-            remark
-        }));
+            WordFileId = fileId,
+            OwnerOrgUnitId = businessOrgUnitId,
+            CreatedByUserId = adminUserId,
+            CustomerId = customerId,
+            ProcessId = processId,
+            Project = project,
+            Specification = specification,
+            Acceptance = acceptance,
+            Remark = remark,
+            ImportedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
     }
 
     private async Task<object[]> PreviewMappingsAsync(int fileId, int customerId, int processId)
@@ -1032,6 +1076,7 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
                 }
             }
         }));
+        previewResp.StatusCode.Should().Be(HttpStatusCode.OK, await previewResp.Content.ReadAsStringAsync());
         var previewJson = await previewResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return previewJson.Data.GetProperty("tables")[0].GetProperty("items").EnumerateArray().Select(i => (object)new
         {
@@ -1053,6 +1098,27 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         (await db.MatchingFillTasks.CountAsync(item => item.SourceFileId == fileId)).Should().Be(0);
         (await db.ExecutionHistoryRecords.CountAsync(item => item.SourceFileId == fileId)).Should().Be(0);
+        var storage = scope.ServiceProvider.GetRequiredService<IFileStorageService>();
+        var archiveRoot = storage.GetAbsolutePath(SmartFillResultArchivePathPolicy.Namespace);
+        if (Directory.Exists(archiveRoot))
+        {
+            Directory.EnumerateFiles(archiveRoot, "*", SearchOption.AllDirectories)
+                .Should().BeEmpty("最终数据库提交失败时必须补偿删除结果存档");
+        }
+    }
+
+    private async Task<int> ResolveBusinessOrgUnitIdAsync()
+    {
+        if (_businessOrgUnitId.HasValue)
+            return _businessOrgUnitId.Value;
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        _businessOrgUnitId = await db.OrgUnits
+            .OrderBy(org => org.UnitType == OrgUnitType.Company ? 1 : 0)
+            .Select(org => org.Id)
+            .FirstAsync();
+        return _businessOrgUnitId.Value;
     }
 }
 
