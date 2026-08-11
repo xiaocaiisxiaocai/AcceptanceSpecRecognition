@@ -57,6 +57,17 @@ export default {
         title: getPageTitle("base-data-specs"),
         permissions: getPagePermission("base-data-specs")
       }
+    },
+    {
+      path: "/base-data/spec-cleanup",
+      name: "AcceptanceSpecCleanup",
+      component: () => import("@/views/base-data/spec-cleanup/index.vue"),
+      meta: {
+        icon: "ri:first-aid-kit-line",
+        title: "验规清理",
+        showLink: false,
+        permissions: getPagePermission("base-data-specs")
+      }
     }
   ]
 } satisfies RouteConfigsTable;

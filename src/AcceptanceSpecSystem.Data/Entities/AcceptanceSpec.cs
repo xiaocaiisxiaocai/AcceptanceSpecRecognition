@@ -55,6 +55,28 @@ public class AcceptanceSpec
     /// </summary>
     public long ReferenceVersion { get; set; } = 1;
 
+    public AcceptanceSpecCleanupStatus CleanupStatus { get; set; } = AcceptanceSpecCleanupStatus.Active;
+
+    public bool CleanupScanIgnored { get; set; }
+
+    public DateTime? CleanupScanIgnoredAtUtc { get; set; }
+
+    public int? CleanupScanIgnoredByUserId { get; set; }
+
+    public string? CleanupScanIgnoreReason { get; set; }
+
+    public DateTime? QuarantinedAtUtc { get; set; }
+
+    public DateTime? QuarantineExpiresAtUtc { get; set; }
+
+    public int? QuarantinedByUserId { get; set; }
+
+    public string? QuarantineReason { get; set; }
+
+    public string? QuarantineSourceScanId { get; set; }
+
+    public long? QuarantinedReferenceVersion { get; set; }
+
     /// <summary>
     /// 数据归属组织节点ID（用于数据范围控制）
     /// </summary>
@@ -116,4 +138,7 @@ public class AcceptanceSpec
     /// </summary>
     public ICollection<AcceptanceSpecContentVersion> ContentVersions { get; set; } =
         new List<AcceptanceSpecContentVersion>();
+
+    public ICollection<AcceptanceSpecCleanupScanItem> CleanupScanItems { get; set; } =
+        new List<AcceptanceSpecCleanupScanItem>();
 }

@@ -34,6 +34,7 @@ import SpecReferenceHistoryDrawer from "./SpecReferenceHistoryDrawer.vue";
 import SpecContentVersionDrawer from "./SpecContentVersionDrawer.vue";
 import SpecRemarkReplaceDialog from "./SpecRemarkReplaceDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
+import AcceptanceSpecCleanup from "../../spec-cleanup/index.vue";
 
 const props = withDefaults(
   defineProps<{
@@ -59,7 +60,6 @@ const props = withDefaults(
 const emit = defineEmits<{
   "data-change": [];
 }>();
-
 const tableData = ref<AcceptanceSpec[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -104,6 +104,7 @@ const contentVersionVisible = ref(false);
 const contentVersionSpec = ref<AcceptanceSpec | null>(null);
 const semanticSearchDialogVisible = ref(false);
 const remarkReplaceDialogVisible = ref(false);
+const cleanupDialogVisible = ref(false);
 const semanticSearchDialogRef = ref<InstanceType<
   typeof SpecSemanticSearchDialog
 > | null>(null);
@@ -114,6 +115,7 @@ const canDelete = computed(() => hasPerms("btn:spec:delete"));
 const canBatchDelete = computed(() => hasPerms("btn:spec:delete-batch"));
 const canSemanticSearch = computed(() => hasPerms("btn:spec:semantic-search"));
 const canRemarkReplace = computed(() => hasPerms("btn:spec:remark-replace"));
+const canCleanup = computed(() => hasPerms("api:spec-cleanup:read"));
 const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
 );
@@ -134,7 +136,8 @@ const showToolbarRight = computed(
     canCreate.value ||
     canBatchDelete.value ||
     canSemanticSearch.value ||
-    canRemarkReplace.value
+    canRemarkReplace.value ||
+    canCleanup.value
 );
 const actionColumnWidth = computed(() => {
   const visibleActionCount =
@@ -568,6 +571,9 @@ const scopeBreadcrumbItems = computed(() =>
         <el-button @click="handleReset">重置</el-button>
       </div>
       <div v-if="showToolbarRight" class="toolbar-right">
+        <el-button v-if="canCleanup" @click="cleanupDialogVisible = true">
+          验规清理
+        </el-button>
         <el-button v-if="canSemanticSearch" @click="handleOpenSemanticSearch">
           AI搜索
         </el-button>
@@ -716,6 +722,18 @@ const scopeBreadcrumbItems = computed(() =>
         @current-change="handlePageChange"
       />
     </div>
+
+    <el-dialog
+      v-model="cleanupDialogVisible"
+      class="spec-cleanup-modal"
+      width="min(1560px, calc(100vw - 48px))"
+      top="3vh"
+      append-to-body
+      destroy-on-close
+      @closed="loadData"
+    >
+      <AcceptanceSpecCleanup embedded />
+    </el-dialog>
 
     <el-dialog
       v-model="dialogVisible"
@@ -967,5 +985,29 @@ const scopeBreadcrumbItems = computed(() =>
   line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+:global(.spec-cleanup-modal) {
+  max-height: 94vh;
+  margin-bottom: 0;
+  overflow: hidden;
+  border-radius: var(--app-radius-sm);
+}
+
+:global(.spec-cleanup-modal .el-dialog__header) {
+  height: 40px;
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--app-border);
+}
+
+:global(.spec-cleanup-modal .el-dialog__headerbtn) {
+  top: 0;
+  width: 40px;
+  height: 40px;
+}
+
+:global(.spec-cleanup-modal .el-dialog__body) {
+  padding: 12px 16px 16px;
 }
 </style>

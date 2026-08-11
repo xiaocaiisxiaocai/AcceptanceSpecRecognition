@@ -48,6 +48,15 @@ public class AppDbContext : DbContext
     public DbSet<AcceptanceSpecContentVersion> AcceptanceSpecContentVersions =>
         Set<AcceptanceSpecContentVersion>();
 
+    public DbSet<AcceptanceSpecCleanupScan> AcceptanceSpecCleanupScans =>
+        Set<AcceptanceSpecCleanupScan>();
+
+    public DbSet<AcceptanceSpecCleanupScanItem> AcceptanceSpecCleanupScanItems =>
+        Set<AcceptanceSpecCleanupScanItem>();
+
+    public DbSet<AcceptanceSpecCleanupDeletionRecord> AcceptanceSpecCleanupDeletionRecords =>
+        Set<AcceptanceSpecCleanupDeletionRecord>();
+
     /// <summary>
     /// 向量缓存表
     /// </summary>
@@ -235,10 +244,18 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AcceptanceSpec>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e => e.CleanupStatus == AcceptanceSpecCleanupStatus.Active);
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired();
-            entity.Property(e => e.ReferenceCount).HasDefaultValue(0L);
+            entity.Property(e => e.ReferenceCount).HasDefaultValue(0L).IsConcurrencyToken();
             entity.Property(e => e.ReferenceVersion).HasDefaultValue(1L).IsConcurrencyToken();
+            entity.Property(e => e.CleanupStatus).HasDefaultValue(AcceptanceSpecCleanupStatus.Active);
+            entity.Property(e => e.CleanupScanIgnored).HasDefaultValue(false);
+            entity.Property(e => e.CleanupScanIgnoreReason).HasMaxLength(500);
+            entity.Property(e => e.QuarantineReason).HasMaxLength(500);
+            entity.Property(e => e.QuarantineSourceScanId).HasMaxLength(32);
+            entity.HasIndex(e => new { e.CleanupStatus, e.QuarantineExpiresAtUtc, e.Id });
+            entity.HasIndex(e => new { e.CleanupStatus, e.CleanupScanIgnored, e.Id });
             entity.HasIndex(e => new
             {
                 e.CustomerId,
@@ -280,6 +297,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AcceptanceSpecReferenceEvent>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e =>
+                e.AcceptanceSpec.CleanupStatus == AcceptanceSpecCleanupStatus.Active);
             entity.Property(e => e.TaskId).HasMaxLength(64);
             entity.Property(e => e.OccurrenceCount).HasDefaultValue(1L);
             entity.ToTable(table => table.HasCheckConstraint(
@@ -308,6 +327,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AcceptanceSpecContentVersion>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e =>
+                e.AcceptanceSpec.CleanupStatus == AcceptanceSpecCleanupStatus.Active);
             entity.Property(e => e.Project).IsRequired().HasMaxLength(500);
             entity.Property(e => e.Specification).IsRequired().HasMaxLength(4000);
             entity.Property(e => e.Acceptance).HasMaxLength(4000);
@@ -327,10 +348,48 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<AcceptanceSpecCleanupScan>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasMaxLength(32);
+            entity.Property(e => e.ScopeOrgUnitIds).HasMaxLength(4000);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(1000);
+            entity.HasIndex(e => new { e.Status, e.CreatedAtUtc, e.Id });
+            entity.HasIndex(e => new { e.CompanyId, e.RequestedByUserId, e.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<AcceptanceSpecCleanupScanItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e =>
+                e.AcceptanceSpec.CleanupStatus == AcceptanceSpecCleanupStatus.Active);
+            entity.Property(e => e.ScanId).HasMaxLength(32);
+            entity.HasIndex(e => new { e.ScanId, e.AcceptanceSpecId }).IsUnique();
+            entity.HasIndex(e => new { e.ScanId, e.Category, e.Id });
+            entity.HasOne(e => e.Scan)
+                .WithMany(scan => scan.Items)
+                .HasForeignKey(e => e.ScanId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.AcceptanceSpec)
+                .WithMany(spec => spec.CleanupScanItems)
+                .HasForeignKey(e => e.AcceptanceSpecId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AcceptanceSpecCleanupDeletionRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceScanId).HasMaxLength(32);
+            entity.HasIndex(e => new { e.CompanyId, e.DeletedAtUtc, e.Id });
+            entity.HasIndex(e => e.OriginalAcceptanceSpecId);
+        });
+
         // EmbeddingCache配置
         modelBuilder.Entity<EmbeddingCache>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.HasQueryFilter(e =>
+                e.Spec.CleanupStatus == AcceptanceSpecCleanupStatus.Active);
             entity.Property(e => e.ModelName).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Usage).IsRequired().HasMaxLength(64).HasDefaultValue(EmbeddingCache.DefaultUsage);
             entity.Property(e => e.TextHash).IsRequired().HasMaxLength(128).HasDefaultValue(string.Empty);
