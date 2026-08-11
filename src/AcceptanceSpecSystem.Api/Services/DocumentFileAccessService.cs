@@ -12,13 +12,16 @@ public sealed class DocumentFileAccessService : IDocumentFileAccessService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _fileStorage;
+    private readonly IUploadedDocumentSnapshotInvalidator _snapshotInvalidator;
 
     public DocumentFileAccessService(
         IUnitOfWork unitOfWork,
-        IFileStorageService fileStorage)
+        IFileStorageService fileStorage,
+        IUploadedDocumentSnapshotInvalidator snapshotInvalidator)
     {
         _unitOfWork = unitOfWork;
         _fileStorage = fileStorage;
+        _snapshotInvalidator = snapshotInvalidator;
     }
 
     public IQueryable<WordFile> ApplyScopedQuery(
@@ -259,6 +262,7 @@ public sealed class DocumentFileAccessService : IDocumentFileAccessService
 
         wordFile.FileContent = Array.Empty<byte>();
         wordFile.FileHash = FileStorageService.ComputeSha256(updatedContent);
+        _snapshotInvalidator.Invalidate(wordFile.Id);
     }
 
     public Task DeleteIfExistsAsync(string? relativePath, CancellationToken cancellationToken = default)

@@ -38,17 +38,20 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
     private readonly IUnitOfWork _unitOfWork;
     private readonly AppDbContext? _dbContext;
     private readonly IDocumentFileAccessService _documentFileAccessService;
+    private readonly IUploadedDocumentSnapshotInvalidator _snapshotInvalidator;
     private readonly ILogger<DocumentFileAppService> _logger;
 
     public DocumentFileAppService(
         IUnitOfWork unitOfWork,
         AppDbContext dbContext,
         IDocumentFileAccessService documentFileAccessService,
+        IUploadedDocumentSnapshotInvalidator snapshotInvalidator,
         ILogger<DocumentFileAppService> logger)
     {
         _unitOfWork = unitOfWork;
         _dbContext = dbContext;
         _documentFileAccessService = documentFileAccessService;
+        _snapshotInvalidator = snapshotInvalidator;
         _logger = logger;
     }
 
@@ -59,6 +62,7 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
     {
         _unitOfWork = unitOfWork;
         _documentFileAccessService = documentFileAccessService;
+        _snapshotInvalidator = NoOpUploadedDocumentSnapshotInvalidator.Instance;
         _logger = logger;
     }
 
@@ -278,6 +282,7 @@ public sealed class DocumentFileAppService : IDocumentFileAppService
         wordFile.DeletionLeaseExpiresAt = null;
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        _snapshotInvalidator.Invalidate(wordFile.Id);
 
         _logger.LogInformation("文件已移入待删除队列: {FileId} - {FileName}", wordFile.Id, wordFile.FileName);
     }

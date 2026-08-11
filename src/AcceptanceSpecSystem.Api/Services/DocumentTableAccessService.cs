@@ -14,18 +14,18 @@ namespace AcceptanceSpecSystem.Api.Services;
 public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBatchReplyDocumentTablePort
 {
     private readonly DocumentServiceFactory _documentServiceFactory;
-    private readonly DocumentFileAccessService _documentFileAccessService;
+    private readonly IUploadedDocumentSnapshotProvider _snapshotProvider;
     private readonly IResourceBudgetGovernor _resourceBudgetGovernor;
     private readonly ILogger<DocumentTableAccessService> _logger;
 
     public DocumentTableAccessService(
         DocumentServiceFactory documentServiceFactory,
-        DocumentFileAccessService documentFileAccessService,
+        IUploadedDocumentSnapshotProvider snapshotProvider,
         IResourceBudgetGovernor resourceBudgetGovernor,
         ILogger<DocumentTableAccessService> logger)
     {
         _documentServiceFactory = documentServiceFactory;
-        _documentFileAccessService = documentFileAccessService;
+        _snapshotProvider = snapshotProvider;
         _resourceBudgetGovernor = resourceBudgetGovernor;
         _logger = logger;
     }
@@ -64,26 +64,17 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
     {
         var totalStopwatch = Stopwatch.StartNew();
         var traceId = Activity.Current?.TraceId.ToString() ?? "none";
-        var parser = GetRequiredParser(wordFile.FileType);
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-        ValidateDocumentStreamSize(stream);
-        var queueStopwatch = Stopwatch.StartNew();
-        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
-            ResourceWorkload.DocumentParsing,
-            cancellationToken);
-        var queueElapsedMs = queueStopwatch.ElapsedMilliseconds;
-        var parseStopwatch = Stopwatch.StartNew();
-        var tables = await parser.GetTablesAsync(stream, cancellationToken);
+        var snapshot = await _snapshotProvider.GetSnapshotAsync(wordFile, cancellationToken);
         _logger.LogInformation(
             "文档表格元数据读取完成: FileId={FileId}, FileType={FileType}, TableCount={TableCount}, QueueMs={QueueMs}, ParseMs={ParseMs}, ElapsedMs={ElapsedMs}, TraceId={TraceId}",
             wordFile.Id,
             wordFile.FileType,
-            tables.Count,
-            queueElapsedMs,
-            parseStopwatch.ElapsedMilliseconds,
+            snapshot.Tables.Count,
+            0,
+            0,
             totalStopwatch.ElapsedMilliseconds,
             traceId);
-        return tables;
+        return snapshot.Tables;
     }
 
     public async Task<TableData> ExtractTableDataAsync(
@@ -93,16 +84,10 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         int? maxDataRowCount = null,
         CancellationToken cancellationToken = default)
     {
-        var parser = GetRequiredParser(wordFile.FileType);
-        using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-        ValidateDocumentStreamSize(stream);
-        using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
-            ResourceWorkload.DocumentParsing,
-            cancellationToken);
         try
         {
-            return await parser.ExtractTableDataAsync(
-                stream,
+            return await ExtractProjectedTableDataAsync(
+                wordFile,
                 tableIndex,
                 mapping,
                 maxDataRowCount,
@@ -168,24 +153,17 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         bool filterEmptySourceRows = true,
         CancellationToken cancellationToken = default)
     {
-        var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
-        if (parser == null)
-        {
-            return [];
-        }
-
-        // Excel 与 Word 的表格坐标口径不同：Excel 需要先按已用区域换算相对行号，
-        // 后续写回才能继续使用解析器返回的行索引。
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
         int? maxDataRowCount = null;
         try
         {
-            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-            ValidateDocumentStreamSize(stream);
-            using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
-                ResourceWorkload.DocumentParsing,
-                cancellationToken);
+            var snapshot = await _snapshotProvider.GetSnapshotAsync(wordFile, cancellationToken);
+            if (tableIndex < 0 || tableIndex >= snapshot.Tables.Count)
+            {
+                return [];
+            }
+
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -195,18 +173,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
 
             if (wordFile.FileType == UploadedFileType.ExcelXlsx)
             {
-                IReadOnlyList<TableInfo> tables;
-                using (var metaStream = _documentFileAccessService.OpenReadStream(wordFile))
-                {
-                    tables = await parser.GetTablesAsync(metaStream, cancellationToken);
-                }
-
-                if (tableIndex < 0 || tableIndex >= tables.Count)
-                {
-                    return [];
-                }
-
-                var sheetInfo = tables[tableIndex];
+                var sheetInfo = snapshot.Tables[tableIndex];
                 var usedStartRow = Math.Max(1, sheetInfo.UsedRangeStartRow);
 
                 var normalizedHeaderRowStart = headerRowStart.GetValueOrDefault(usedStartRow);
@@ -221,7 +188,6 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     normalizedHeaderRowCount = 0;
                 }
 
-                // Excel 的数据起始行来自工作表绝对行号，这里转换成相对已用区域的偏移。
                 var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
                 var normalizedDataStartRow = dataStartRow.GetValueOrDefault(minDataStartRow);
                 if (normalizedDataStartRow < minDataStartRow)
@@ -244,8 +210,6 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
             }
             else if (headerRowStart.HasValue || headerRowCount.HasValue || dataStartRow.HasValue || dataEndRow.HasValue)
             {
-                // Word 的调用契约同样使用 1-based 行号；解析器使用 0-based。
-                // DataEndRow 是闭区间，因此最大行数必须包含首尾两行。
                 var normalizedHeaderRowStart = Math.Max(1, headerRowStart.GetValueOrDefault(1));
                 var normalizedHeaderRowCount = Math.Max(0, headerRowCount.GetValueOrDefault(1));
                 var minDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
@@ -271,8 +235,8 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                 }
             }
 
-            tableData = await parser.ExtractTableDataAsync(
-                stream,
+            tableData = ProjectFromSnapshot(
+                snapshot,
                 tableIndex,
                 mapping,
                 maxDataRowCount,
@@ -341,22 +305,17 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         BatchTableConfig config,
         CancellationToken cancellationToken = default)
     {
-        var parser = _documentServiceFactory.GetParser(GetDocumentType(wordFile.FileType));
-        if (parser == null)
-        {
-            return [];
-        }
-
         TableData tableData;
         var excelDataStartRowIndexForWriteBack = 1;
         int? maxDataRowCount = null;
         try
         {
-            using var stream = _documentFileAccessService.OpenReadStream(wordFile);
-            ValidateDocumentStreamSize(stream);
-            using var resourceLease = await _resourceBudgetGovernor.AcquireAsync(
-                ResourceWorkload.DocumentParsing,
-                cancellationToken);
+            var snapshot = await _snapshotProvider.GetSnapshotAsync(wordFile, cancellationToken);
+            if (config.TableIndex < 0 || config.TableIndex >= snapshot.Tables.Count)
+            {
+                return [];
+            }
+
             var mapping = new ColumnMapping
             {
                 HeaderRowIndex = 0,
@@ -366,18 +325,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
 
             if (wordFile.FileType == UploadedFileType.ExcelXlsx)
             {
-                IReadOnlyList<TableInfo> tables;
-                using (var metaStream = _documentFileAccessService.OpenReadStream(wordFile))
-                {
-                    tables = await parser.GetTablesAsync(metaStream, cancellationToken);
-                }
-
-                if (config.TableIndex < 0 || config.TableIndex >= tables.Count)
-                {
-                    return [];
-                }
-
-                var sheetInfo = tables[config.TableIndex];
+                var sheetInfo = snapshot.Tables[config.TableIndex];
                 var usedStartRow = Math.Max(1, sheetInfo.UsedRangeStartRow);
                 var normalizedHeaderRowStart = Math.Max(
                     usedStartRow,
@@ -402,8 +350,8 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                 }
             }
 
-            tableData = await parser.ExtractTableDataAsync(
-                stream,
+            tableData = ProjectFromSnapshot(
+                snapshot,
                 config.TableIndex,
                 mapping,
                 maxDataRowCount,
@@ -473,6 +421,62 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         return items;
     }
 
+    private async Task<TableData> ExtractProjectedTableDataAsync(
+        WordFile wordFile,
+        int tableIndex,
+        ColumnMapping mapping,
+        int? maxDataRowCount,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await _snapshotProvider.GetSnapshotAsync(wordFile, cancellationToken);
+        return ProjectFromSnapshot(snapshot, tableIndex, mapping, maxDataRowCount, cancellationToken);
+    }
+
+    private static TableData ProjectFromSnapshot(
+        DocumentTableSnapshot snapshot,
+        int tableIndex,
+        ColumnMapping mapping,
+        int? maxDataRowCount,
+        CancellationToken cancellationToken)
+    {
+        if (tableIndex < 0 || tableIndex >= snapshot.TableData.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tableIndex));
+        }
+
+        var projected = TableDataProjection.Project(
+            snapshot.TableData[tableIndex],
+            mapping,
+            cancellationToken);
+        return ApplyMaxDataRowCount(projected, maxDataRowCount);
+    }
+
+    private static TableData ApplyMaxDataRowCount(TableData tableData, int? maxDataRowCount)
+    {
+        if (!maxDataRowCount.HasValue || tableData.Rows.Count <= maxDataRowCount.Value)
+        {
+            return tableData;
+        }
+
+        return new TableData
+        {
+            TableIndex = tableData.TableIndex,
+            Headers = tableData.Headers.ToList(),
+            Rows = tableData.Rows.Take(maxDataRowCount.Value).Select(DocumentTableSnapshotCloner.CloneRow).ToList(),
+            TotalDataRowCount = tableData.TotalDataRowCount,
+            OriginalRowCount = tableData.OriginalRowCount,
+            MergedCells = tableData.MergedCells
+                .Select(merged => new MergedCellInfo
+                {
+                    StartRow = merged.StartRow,
+                    StartColumn = merged.StartColumn,
+                    EndRow = merged.EndRow,
+                    EndColumn = merged.EndColumn
+                })
+                .ToList()
+        };
+    }
+
     private ApplicationServiceException CreateDocumentParsingException(
         WordFile wordFile,
         int tableIndex,
@@ -489,25 +493,6 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         return new ApplicationServiceException(
             400,
             "文档解析失败，请确认文件完整且未被占用");
-    }
-
-    private void ValidateDocumentStreamSize(Stream stream)
-    {
-        if (stream.CanSeek)
-        {
-            _resourceBudgetGovernor.ValidateDocumentSize(stream.Length);
-        }
-    }
-
-    private IDocumentParser GetRequiredParser(UploadedFileType fileType)
-    {
-        var parser = _documentServiceFactory.GetParser(GetDocumentType(fileType));
-        if (parser == null)
-        {
-            throw new ApplicationServiceException(500, "文档解析器不可用");
-        }
-
-        return parser;
     }
 
     private static DocumentType GetDocumentType(UploadedFileType fileType)

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Linq.Expressions;
+using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Api.Services;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
@@ -57,7 +58,10 @@ public sealed class FilePersistenceCompensationTests
         using var unitOfWork = new FailingUnitOfWork(
             repository,
             failOnAdd ? null : persistenceException);
-        var fileAccessService = new DocumentFileAccessService(unitOfWork, storage);
+        var fileAccessService = new DocumentFileAccessService(
+            unitOfWork,
+            storage,
+            NoOpUploadedDocumentSnapshotInvalidator.Instance);
         var logger = new CollectingLogger<DocumentFileAppService>();
         var service = new DocumentFileAppService(unitOfWork, fileAccessService, logger);
 
@@ -87,7 +91,10 @@ public sealed class FilePersistenceCompensationTests
         storage.DeleteException = cleanupException;
         var repository = new FailingWordFileRepository(persistenceException);
         using var unitOfWork = new FailingUnitOfWork(repository, saveException: null);
-        var fileAccessService = new DocumentFileAccessService(unitOfWork, storage);
+        var fileAccessService = new DocumentFileAccessService(
+            unitOfWork,
+            storage,
+            NoOpUploadedDocumentSnapshotInvalidator.Instance);
         var logger = new CollectingLogger<DocumentFileAppService>();
         var service = new DocumentFileAppService(unitOfWork, fileAccessService, logger);
 

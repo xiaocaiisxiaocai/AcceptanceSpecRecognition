@@ -45,38 +45,35 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     private static readonly Histogram<double> AiAssistDuration =
         AiAssistMeter.CreateHistogram<double>("smart_configuration_ai_assist_duration_ms", "ms");
     private readonly IUnitOfWork _unitOfWork;
-    private readonly DocumentServiceFactory _documentServiceFactory;
+    private readonly IUploadedDocumentSnapshotProvider _snapshotProvider;
     private readonly IDocumentIntelligenceService _intelligenceService;
     private readonly ILlmDocumentStructureAdjudicationService _structureAdjudicationService;
     private readonly ILlmColumnSemanticRecallService _columnSemanticRecallService;
     private readonly DocumentTemplateAppService _templateService;
     private readonly SmartConfigurationLearningService _learningService;
-    private readonly IUploadedDocumentPathResolver _documentPathResolver;
     private readonly ISmartConfigurationFileAccessService _fileAccessService;
     private readonly ILogger<SmartConfigurationAppService> _logger;
     private readonly SmartConfigurationOptions _options;
 
     public SmartConfigurationAppService(
         IUnitOfWork unitOfWork,
-        DocumentServiceFactory documentServiceFactory,
+        IUploadedDocumentSnapshotProvider snapshotProvider,
         IDocumentIntelligenceService intelligenceService,
         ILlmDocumentStructureAdjudicationService structureAdjudicationService,
         ILlmColumnSemanticRecallService columnSemanticRecallService,
         DocumentTemplateAppService templateService,
         SmartConfigurationLearningService learningService,
-        IUploadedDocumentPathResolver documentPathResolver,
         ISmartConfigurationFileAccessService fileAccessService,
         ILogger<SmartConfigurationAppService> logger,
         IOptions<SmartConfigurationOptions> options)
     {
         _unitOfWork = unitOfWork;
-        _documentServiceFactory = documentServiceFactory;
+        _snapshotProvider = snapshotProvider;
         _intelligenceService = intelligenceService;
         _structureAdjudicationService = structureAdjudicationService;
         _columnSemanticRecallService = columnSemanticRecallService;
         _templateService = templateService;
         _learningService = learningService;
-        _documentPathResolver = documentPathResolver;
         _fileAccessService = fileAccessService;
         _logger = logger;
         _options = options.Value;
@@ -114,16 +111,8 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             throw new ApplicationServiceException(404, $"客户不存在或无权访问：{command.CustomerId.Value}");
         }
 
-        var documentType = file.FileType == UploadedFileType.ExcelXlsx
-            ? DocumentType.Excel
-            : DocumentType.Word;
-        var parser = _documentServiceFactory.GetParser(documentType)
-            ?? throw new ApplicationServiceException(400, "文档解析器不可用");
-
-        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
         var stageStopwatch = Stopwatch.StartNew();
-        await using var stream = File.OpenRead(absolutePath);
-        var documentSnapshot = await parser.ExtractDocumentSnapshotAsync(stream, cancellationToken);
+        var documentSnapshot = await _snapshotProvider.GetSnapshotAsync(file, cancellationToken);
         var tablesInfo = documentSnapshot.Tables;
         var tablesData = documentSnapshot.TableData;
         _logger.LogInformation(
@@ -2880,17 +2869,16 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        await using var stream = File.OpenRead(context.AbsolutePath);
-        var extracted = await context.Parser.ExtractTableDataAsync(
-            stream,
-            command.TableIndex,
+        var snapshot = await _snapshotProvider.GetSnapshotAsync(context.File, cancellationToken);
+        var extracted = TableDataProjection.Project(
+            snapshot.TableData[command.TableIndex],
             new ColumnMapping
             {
                 HeaderRowIndex = command.HeaderRowIndex,
                 HeaderRowCount = command.HeaderRowCount,
                 DataStartRowIndex = command.DataStartRowIndex
             },
-            cancellationToken: cancellationToken);
+            cancellationToken);
         var headers = extracted.Headers.Select(NormalizeConfirmedHeader).ToList();
         if (headers.Count == 0)
         {
@@ -2927,20 +2915,14 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
             throw new ApplicationServiceException(400, "文件路径为空");
         }
 
-        var documentType = file.FileType == UploadedFileType.ExcelXlsx
-            ? DocumentType.Excel
-            : DocumentType.Word;
-        var parser = _documentServiceFactory.GetParser(documentType)
-            ?? throw new ApplicationServiceException(400, "文档解析器不可用");
-        var absolutePath = _documentPathResolver.ResolveAbsolutePath(file.FilePath);
-        var table = (await parser.GetTablesAsync(absolutePath, cancellationToken))
-            .FirstOrDefault(item => item.Index == command.TableIndex);
+        var snapshot = await _snapshotProvider.GetSnapshotAsync(file, cancellationToken);
+        var table = snapshot.Tables.FirstOrDefault(item => item.Index == command.TableIndex);
         if (table == null)
         {
             throw new ApplicationServiceException(400, $"表格索引超出范围：{command.TableIndex}");
         }
 
-        return new ConfirmedTableContext(parser, absolutePath, table, file.FileType);
+        return new ConfirmedTableContext(file, table, file.FileType);
     }
 
     private static void ValidateDataEndRowIndex(
@@ -2954,8 +2936,7 @@ public sealed class SmartConfigurationAppService : ISmartConfigurationAppService
     }
 
     private sealed record ConfirmedTableContext(
-        IDocumentParser Parser,
-        string AbsolutePath,
+        WordFile File,
         TableInfo Table,
         UploadedFileType FileType);
 
