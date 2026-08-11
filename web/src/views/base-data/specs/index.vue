@@ -139,7 +139,7 @@ onMounted(async () => {
         </el-tag>
       </div>
       <span class="scope-bar__hint">
-        分组、列表、重复排查和 AI 搜索均按“{{ currentScopeLabel }}”显示
+        分组、列表和 AI 搜索均按“{{ currentScopeLabel }}”显示
       </span>
     </div>
 

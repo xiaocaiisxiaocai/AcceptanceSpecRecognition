@@ -8,7 +8,6 @@ import {
 } from "element-plus";
 import {
   getSpecList,
-  detectSpecDuplicateGroups,
   createSpec,
   updateSpec,
   deleteSpec,
@@ -16,8 +15,7 @@ import {
   type AcceptanceSpec,
   type SpecSemanticSearchItem,
   type SpecSemanticSearchRequest,
-  type SpecListRequest,
-  type SpecDuplicateDetectionResult
+  type SpecListRequest
 } from "@/api/spec";
 import type { BusinessOrgOption } from "@/api/org-unit";
 import { hasPerms } from "@/utils/auth";
@@ -32,7 +30,6 @@ import {
   isGloballyHandledAuthError
 } from "@/utils/error-message";
 import { isMessageBoxCancel } from "@/utils/message-box";
-import SpecDuplicateDialog from "./SpecDuplicateDialog.vue";
 import SpecReferenceHistoryDrawer from "./SpecReferenceHistoryDrawer.vue";
 import SpecRemarkReplaceDialog from "./SpecRemarkReplaceDialog.vue";
 import SpecSemanticSearchDialog from "./SpecSemanticSearchDialog.vue";
@@ -71,8 +68,7 @@ let latestLoadRequestId = 0;
 const queryParams = reactive({
   page: 1,
   pageSize: 100,
-  keyword: "",
-  globalSearch: props.customerId == null
+  keyword: ""
 });
 
 const dialogVisible = ref(false);
@@ -101,9 +97,6 @@ const detailDialogVisible = ref(false);
 const detailData = ref<AcceptanceSpec | null>(null);
 const referenceHistoryVisible = ref(false);
 const referenceHistorySpec = ref<AcceptanceSpec | null>(null);
-const duplicateDialogVisible = ref(false);
-const duplicateLoading = ref(false);
-const duplicateResult = ref<SpecDuplicateDetectionResult | null>(null);
 const semanticSearchDialogVisible = ref(false);
 const remarkReplaceDialogVisible = ref(false);
 const semanticSearchDialogRef = ref<InstanceType<
@@ -115,7 +108,6 @@ const canUpdate = computed(() => hasPerms("btn:spec:update"));
 const canDelete = computed(() => hasPerms("btn:spec:delete"));
 const canBatchDelete = computed(() => hasPerms("btn:spec:delete-batch"));
 const canSemanticSearch = computed(() => hasPerms("btn:spec:semantic-search"));
-const canInspectDuplicates = computed(() => hasPerms("api:spec:read"));
 const canRemarkReplace = computed(() => hasPerms("btn:spec:remark-replace"));
 const canSubmit = computed(() =>
   isEdit.value ? canUpdate.value : canCreate.value
@@ -136,7 +128,6 @@ const showToolbarRight = computed(
   () =>
     canCreate.value ||
     canBatchDelete.value ||
-    canInspectDuplicates.value ||
     canSemanticSearch.value ||
     canRemarkReplace.value
 );
@@ -161,52 +152,20 @@ const buildRequestParams = (): SpecListRequest => {
     params.keyword = queryParams.keyword;
   }
 
-  if (queryParams.globalSearch) {
-    return params;
-  }
+  if (props.customerId != null) {
+    params.customerId = props.customerId;
 
-  params.customerId = props.customerId;
+    if (props.machineModelId != null) {
+      params.machineModelId = props.machineModelId;
+    } else {
+      params.machineModelIdIsNull = true;
+    }
 
-  if (props.machineModelId != null) {
-    params.machineModelId = props.machineModelId;
-  } else {
-    params.machineModelIdIsNull = true;
-  }
-
-  if (props.processId != null) {
-    params.processId = props.processId;
-  } else {
-    params.processIdIsNull = true;
-  }
-
-  return params;
-};
-
-const buildGroupRequestParams = (): SpecListRequest => {
-  const params: SpecListRequest = {
-    page: queryParams.page,
-    pageSize: queryParams.pageSize
-  };
-  if (props.orgUnitId != null) {
-    params.orgUnitId = props.orgUnitId;
-  }
-
-  if (queryParams.keyword) {
-    params.keyword = queryParams.keyword;
-  }
-
-  params.customerId = props.customerId;
-
-  if (props.machineModelId != null) {
-    params.machineModelId = props.machineModelId;
-  } else {
-    params.machineModelIdIsNull = true;
-  }
-
-  if (props.processId != null) {
-    params.processId = props.processId;
-  } else {
-    params.processIdIsNull = true;
+    if (props.processId != null) {
+      params.processId = props.processId;
+    } else {
+      params.processIdIsNull = true;
+    }
   }
 
   return params;
@@ -249,10 +208,7 @@ watch(
   () => {
     queryParams.page = 1;
     queryParams.keyword = "";
-    queryParams.globalSearch = props.customerId == null;
     selectedRows.value = [];
-    duplicateDialogVisible.value = false;
-    duplicateResult.value = null;
     semanticSearchDialogVisible.value = false;
     remarkReplaceDialogVisible.value = false;
     referenceHistoryVisible.value = false;
@@ -269,15 +225,6 @@ const handleSearch = () => {
 
 const handleReset = () => {
   queryParams.keyword = "";
-  queryParams.globalSearch = props.customerId == null;
-  queryParams.page = 1;
-  loadData();
-};
-
-const handleGlobalSearchChange = () => {
-  if (!hasSelectedGroup.value) {
-    queryParams.globalSearch = true;
-  }
   queryParams.page = 1;
   loadData();
 };
@@ -435,39 +382,6 @@ const handleBatchDelete = async () => {
   }
 };
 
-const handleInspectDuplicates = async () => {
-  if (!canInspectDuplicates.value) {
-    ElMessage.error("权限不足，无法执行重复排查");
-    return;
-  }
-  if (!hasSelectedGroup.value) {
-    ElMessage.warning("请先在左侧选择分组后再执行重复排查");
-    return;
-  }
-
-  duplicateDialogVisible.value = true;
-  duplicateLoading.value = true;
-  duplicateResult.value = null;
-
-  try {
-    const res = await detectSpecDuplicateGroups({
-      ...buildGroupRequestParams(),
-      maxGroups: 30
-    });
-    if (res.code === 0) {
-      duplicateResult.value = res.data;
-    } else {
-      duplicateResult.value = null;
-      ElMessage.error(res.message);
-    }
-  } catch {
-    duplicateResult.value = null;
-    ElMessage.error("重复排查失败");
-  } finally {
-    duplicateLoading.value = false;
-  }
-};
-
 const handleOpenSemanticSearch = () => {
   if (!canSemanticSearch.value) {
     ElMessage.error("权限不足，无法执行AI搜索");
@@ -493,8 +407,6 @@ const handleOpenRemarkReplace = () => {
 };
 
 const handleRemarkReplaceSuccess = async () => {
-  duplicateDialogVisible.value = false;
-  duplicateResult.value = null;
   await loadData();
   await reloadSemanticSearchIfNeeded();
   emit("data-change");
@@ -575,7 +487,7 @@ const handleSizeChange = (size: number) => {
 const groupLabel = () => {
   const prefix = props.scopeLabel ? `${props.scopeLabel} / ` : "";
   if (props.customerId == null) {
-    return `${prefix}全局搜索`;
+    return `${prefix}公司总体`;
   }
   const parts = [props.customerName];
   parts.push(props.machineModelName || "未指定机型");
@@ -584,8 +496,8 @@ const groupLabel = () => {
 };
 
 const scopeBreadcrumbItems = computed(() =>
-  queryParams.globalSearch
-    ? [props.scopeLabel, "验收规格", "全局搜索"]
+  props.customerId == null
+    ? [props.scopeLabel, "验收规格", "公司总体"]
     : [
         props.scopeLabel,
         props.customerName || "未选择客户",
@@ -621,20 +533,10 @@ const scopeBreadcrumbItems = computed(() =>
           style="width: 260px"
           @keyup.enter="handleSearch"
         />
-        <el-checkbox
-          v-model="queryParams.globalSearch"
-          :disabled="!hasSelectedGroup"
-          @change="handleGlobalSearchChange"
-        >
-          全局搜索
-        </el-checkbox>
         <el-button type="primary" @click="handleSearch">搜索</el-button>
         <el-button @click="handleReset">重置</el-button>
       </div>
       <div v-if="showToolbarRight" class="toolbar-right">
-        <el-button v-if="canInspectDuplicates" @click="handleInspectDuplicates">
-          重复排查
-        </el-button>
         <el-button v-if="canSemanticSearch" @click="handleOpenSemanticSearch">
           AI搜索
         </el-button>
@@ -910,13 +812,6 @@ const scopeBreadcrumbItems = computed(() =>
         <el-button @click="detailDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
-
-    <SpecDuplicateDialog
-      v-model="duplicateDialogVisible"
-      :loading="duplicateLoading"
-      :result="duplicateResult"
-      :group-label="groupLabel()"
-    />
 
     <SpecSemanticSearchDialog
       ref="semanticSearchDialogRef"
