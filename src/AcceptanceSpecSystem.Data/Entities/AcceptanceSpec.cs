@@ -110,4 +110,10 @@ public class AcceptanceSpec
     /// </summary>
     public ICollection<AcceptanceSpecReferenceEvent> ReferenceEvents { get; set; } =
         new List<AcceptanceSpecReferenceEvent>();
+
+    /// <summary>
+    /// 该规格可追溯的不可变内容版本。
+    /// </summary>
+    public ICollection<AcceptanceSpecContentVersion> ContentVersions { get; set; } =
+        new List<AcceptanceSpecContentVersion>();
 }

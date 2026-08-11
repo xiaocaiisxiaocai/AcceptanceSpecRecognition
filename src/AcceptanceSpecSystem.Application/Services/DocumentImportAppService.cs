@@ -44,6 +44,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
     private readonly ColumnMappingLearningService _columnMappingLearningService;
     private readonly IMatchingApprovalTokenProtector _decisionTokenProtector;
     private readonly IBusinessOrgScopeService _businessOrgScopeService;
+    private readonly AcceptanceSpecContentVersionCoordinator _contentVersionCoordinator;
     private readonly ILogger<DocumentImportAppService> _logger;
 
     public DocumentImportAppService(
@@ -57,6 +58,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         ColumnMappingLearningService columnMappingLearningService,
         IMatchingApprovalTokenProtector decisionTokenProtector,
         IBusinessOrgScopeService businessOrgScopeService,
+        AcceptanceSpecContentVersionCoordinator contentVersionCoordinator,
         ILogger<DocumentImportAppService> logger)
     {
         _unitOfWork = unitOfWork;
@@ -69,6 +71,7 @@ public sealed partial class DocumentImportAppService : IDocumentImportAppService
         _columnMappingLearningService = columnMappingLearningService;
         _decisionTokenProtector = decisionTokenProtector;
         _businessOrgScopeService = businessOrgScopeService;
+        _contentVersionCoordinator = contentVersionCoordinator;
         _logger = logger;
     }
 

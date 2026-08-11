@@ -114,6 +114,81 @@ public sealed class AcceptanceSpecReferenceHistoryItemModel
     public DateTime ReferencedAtUtc { get; set; }
 }
 
+public sealed class AcceptanceSpecContentVersionHistoryModel
+{
+    public int SpecId { get; set; }
+
+    public long CurrentVersion { get; set; }
+
+    public long EarliestAvailableVersion { get; set; }
+
+    public bool HasUnavailableEarlierVersions { get; set; }
+
+    public string Sort { get; set; } = "newest";
+
+    public List<AcceptanceSpecContentVersionItemModel> Items { get; set; } = [];
+
+    public int Total { get; set; }
+
+    public int Page { get; set; }
+
+    public int PageSize { get; set; }
+}
+
+public class AcceptanceSpecContentVersionItemModel
+{
+    public long Version { get; set; }
+
+    public DateTime ChangedAtUtc { get; set; }
+
+    public int? ChangedByUserId { get; set; }
+
+    public string? ChangedByNameSnapshot { get; set; }
+
+    public string ChangeSource { get; set; } = string.Empty;
+
+    public string? ChangeReason { get; set; }
+
+    public long? RestoredFromVersion { get; set; }
+
+    public bool IsMigrationBaseline { get; set; }
+
+    public List<string> ChangedFields { get; set; } = [];
+}
+
+public sealed class AcceptanceSpecContentVersionDetailModel : AcceptanceSpecContentVersionItemModel
+{
+    public int SpecId { get; set; }
+
+    public string Project { get; set; } = string.Empty;
+
+    public string Specification { get; set; } = string.Empty;
+
+    public string? Acceptance { get; set; }
+
+    public string? Remark { get; set; }
+}
+
+public sealed class AcceptanceSpecContentVersionDiffModel
+{
+    public int SpecId { get; set; }
+
+    public long FromVersion { get; set; }
+
+    public long ToVersion { get; set; }
+
+    public Dictionary<string, AcceptanceSpecContentFieldDiffModel> Fields { get; set; } = [];
+}
+
+public sealed class AcceptanceSpecContentFieldDiffModel
+{
+    public string? Before { get; set; }
+
+    public string? After { get; set; }
+
+    public bool Changed { get; set; }
+}
+
 public sealed class SpecRemarkReplacePreviewModel
 {
     public int AffectedSpecCount { get; set; }

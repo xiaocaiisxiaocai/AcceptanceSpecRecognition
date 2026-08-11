@@ -67,10 +67,62 @@ export interface CreateSpecRequest {
 
 /** 更新验收规格请求 */
 export interface UpdateSpecRequest {
+  expectedReferenceVersion?: number;
+  changeReason?: string;
   project: string;
   specification: string;
   acceptance?: string;
   remark?: string;
+}
+
+export type SpecContentVersionSort = "oldest" | "newest";
+
+export interface SpecContentVersionItem {
+  version: number;
+  changedAtUtc: string;
+  changedByUserId?: number | null;
+  changedByNameSnapshot?: string | null;
+  changeSource: string;
+  changeReason?: string | null;
+  restoredFromVersion?: number | null;
+  isMigrationBaseline: boolean;
+  changedFields: string[];
+}
+
+export interface SpecContentVersionHistory {
+  specId: number;
+  currentVersion: number;
+  earliestAvailableVersion: number;
+  hasUnavailableEarlierVersions: boolean;
+  sort: SpecContentVersionSort;
+  items: SpecContentVersionItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface SpecContentVersionDetail extends SpecContentVersionItem {
+  specId: number;
+  project: string;
+  specification: string;
+  acceptance?: string | null;
+  remark?: string | null;
+}
+
+export interface SpecContentFieldDiff {
+  before?: string | null;
+  after?: string | null;
+  changed: boolean;
+}
+
+export interface SpecContentVersionDiff {
+  specId: number;
+  fromVersion: number;
+  toVersion: number;
+  fields: Record<
+    "project" | "specification" | "acceptance" | "remark",
+    SpecContentFieldDiff
+  >;
 }
 
 /** 验收规格列表请求参数 */
@@ -262,6 +314,56 @@ export const getSpecReferenceHistory = (
     "get",
     `${baseUrl}/${id}/reference-history`,
     { params }
+  );
+};
+
+/** 获取验收规格完整内容版本列表 */
+export const getSpecContentVersions = (
+  id: number,
+  params: {
+    page: number;
+    pageSize: number;
+    sort?: SpecContentVersionSort;
+  }
+) => {
+  return http.request<ApiResponse<SpecContentVersionHistory>>(
+    "get",
+    `${baseUrl}/${id}/content-versions`,
+    { params }
+  );
+};
+
+/** 获取验收规格指定内容版本 */
+export const getSpecContentVersion = (id: number, version: number) => {
+  return http.request<ApiResponse<SpecContentVersionDetail>>(
+    "get",
+    `${baseUrl}/${id}/content-versions/${version}`
+  );
+};
+
+/** 比较验收规格的两个内容版本 */
+export const getSpecContentVersionDiff = (
+  id: number,
+  fromVersion: number,
+  toVersion: number
+) => {
+  return http.request<ApiResponse<SpecContentVersionDiff>>(
+    "get",
+    `${baseUrl}/${id}/content-version-diff`,
+    { params: { fromVersion, toVersion } }
+  );
+};
+
+/** 将旧内容恢复为新的当前版本 */
+export const restoreSpecContentVersion = (
+  id: number,
+  version: number,
+  data: { expectedCurrentVersion: number; reason?: string }
+) => {
+  return http.request<ApiResponse<AcceptanceSpec>>(
+    "post",
+    `${baseUrl}/${id}/content-versions/${version}/restore`,
+    { data }
   );
 };
 

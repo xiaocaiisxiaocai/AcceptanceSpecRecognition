@@ -137,6 +137,80 @@ internal static class ApplicationModelMappingExtensions
         };
     }
 
+    public static AcceptanceSpecContentVersionHistoryDto ToDto(
+        this AcceptanceSpecContentVersionHistoryModel model)
+    {
+        return new AcceptanceSpecContentVersionHistoryDto
+        {
+            SpecId = model.SpecId,
+            CurrentVersion = model.CurrentVersion,
+            EarliestAvailableVersion = model.EarliestAvailableVersion,
+            HasUnavailableEarlierVersions = model.HasUnavailableEarlierVersions,
+            Sort = model.Sort,
+            Items = model.Items.Select(ToDto).ToList(),
+            Total = model.Total,
+            Page = model.Page,
+            PageSize = model.PageSize
+        };
+    }
+
+    public static AcceptanceSpecContentVersionDetailDto ToDto(
+        this AcceptanceSpecContentVersionDetailModel model)
+    {
+        var dto = new AcceptanceSpecContentVersionDetailDto
+        {
+            SpecId = model.SpecId,
+            Project = model.Project,
+            Specification = model.Specification,
+            Acceptance = model.Acceptance,
+            Remark = model.Remark
+        };
+        MapContentVersionFields(model, dto);
+        return dto;
+    }
+
+    public static AcceptanceSpecContentVersionDiffDto ToDto(
+        this AcceptanceSpecContentVersionDiffModel model)
+    {
+        return new AcceptanceSpecContentVersionDiffDto
+        {
+            SpecId = model.SpecId,
+            FromVersion = model.FromVersion,
+            ToVersion = model.ToVersion,
+            Fields = model.Fields.ToDictionary(
+                pair => pair.Key,
+                pair => new AcceptanceSpecContentFieldDiffDto
+                {
+                    Before = pair.Value.Before,
+                    After = pair.Value.After,
+                    Changed = pair.Value.Changed
+                })
+        };
+    }
+
+    private static AcceptanceSpecContentVersionItemDto ToDto(
+        AcceptanceSpecContentVersionItemModel model)
+    {
+        var dto = new AcceptanceSpecContentVersionItemDto();
+        MapContentVersionFields(model, dto);
+        return dto;
+    }
+
+    private static void MapContentVersionFields(
+        AcceptanceSpecContentVersionItemModel model,
+        AcceptanceSpecContentVersionItemDto dto)
+    {
+        dto.Version = model.Version;
+        dto.ChangedAtUtc = model.ChangedAtUtc;
+        dto.ChangedByUserId = model.ChangedByUserId;
+        dto.ChangedByNameSnapshot = model.ChangedByNameSnapshot;
+        dto.ChangeSource = model.ChangeSource;
+        dto.ChangeReason = model.ChangeReason;
+        dto.RestoredFromVersion = model.RestoredFromVersion;
+        dto.IsMigrationBaseline = model.IsMigrationBaseline;
+        dto.ChangedFields = model.ChangedFields;
+    }
+
     public static SpecGroupDto ToDto(this SpecGroupSummary item)
     {
         return new SpecGroupDto

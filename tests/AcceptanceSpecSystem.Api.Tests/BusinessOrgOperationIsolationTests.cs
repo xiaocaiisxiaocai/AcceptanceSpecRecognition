@@ -286,6 +286,13 @@ public sealed class BusinessOrgOperationIsolationTests
             remarks[replaceFixture.DepartmentASpecIds[1]].Should().Be("仅新字段");
             remarks[replaceFixture.DepartmentBSpecId].Should().Be("旧字段 / B部门");
 
+            var replacementVersions = await db.AcceptanceSpecContentVersions
+                .Where(version => replaceFixture.DepartmentASpecIds.Contains(version.AcceptanceSpecId))
+                .ToListAsync();
+            replacementVersions.Should().HaveCount(2);
+            replacementVersions.Should().OnlyContain(version =>
+                version.Version == 2 && version.ChangeSource == "remark-replace");
+
             var remainingCacheSpecIds = await db.EmbeddingCaches
                 .Where(cache => replaceFixture.AllSpecIds.Contains(cache.SpecId))
                 .Select(cache => cache.SpecId)
