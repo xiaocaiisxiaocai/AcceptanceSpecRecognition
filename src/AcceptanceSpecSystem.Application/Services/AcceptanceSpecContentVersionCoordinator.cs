@@ -71,6 +71,10 @@ public sealed class AcceptanceSpecContentVersionCoordinator
         spec.ReferenceCount = 0;
         spec.ReferenceVersion++;
         spec.UpdatedAt = now;
+        spec.CleanupScanIgnored = false;
+        spec.CleanupScanIgnoredAtUtc = null;
+        spec.CleanupScanIgnoredByUserId = null;
+        spec.CleanupScanIgnoreReason = null;
 
         await AddSnapshotAsync(
             spec,

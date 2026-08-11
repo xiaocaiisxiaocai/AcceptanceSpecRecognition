@@ -71,7 +71,8 @@ public static class DatabaseInitializer
         "20260731064919_AddExecutionHistoryBusinessOrg",
         "20260805032114_AddAcceptanceSpecReferenceCount",
         "20260806065524_AddAcceptanceSpecReferenceHistory",
-        "20260811033921_AddAcceptanceSpecContentVersionHistory"
+        "20260811033921_AddAcceptanceSpecContentVersionHistory",
+        "20260811064828_AddAcceptanceSpecCleanupScanner"
     };
 
     /// <summary>

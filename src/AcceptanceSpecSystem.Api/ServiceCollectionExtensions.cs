@@ -105,6 +105,17 @@ public static class ApiServiceCollectionExtensions
             .Validate(options => DashboardTimeZoneResolver.TryResolveFixedOffset(options.TimeZoneId, out _),
                 "Dashboard 时区必须有效，且当前业务统计窗口内 UTC 偏移必须保持稳定")
             .ValidateOnStart();
+        services.AddOptions<AcceptanceSpecCleanupOptions>()
+            .Bind(configuration.GetSection(AcceptanceSpecCleanupOptions.SectionName))
+            .Validate(options => options.BatchSize is > 0 and <= 1000,
+                "验收规格清理扫描批大小必须在 1 到 1000 之间")
+            .Validate(options => options.QuarantineDays > 0,
+                "验收规格隔离期必须大于 0 天")
+            .Validate(options => options.ScanRetentionDays > 0,
+                "验收规格扫描结果保留期必须大于 0 天")
+            .Validate(options => options.PollIntervalMilliseconds is >= 100 and <= 10000,
+                "验收规格扫描轮询间隔必须在 100 到 10000 毫秒之间")
+            .ValidateOnStart();
         services.Configure<SmartConfigurationOptions>(
             configuration.GetSection(SmartConfigurationOptions.SectionName));
         services.Configure<RequestTracingOptions>(
@@ -247,6 +258,7 @@ public static class ApiServiceCollectionExtensions
         services.AddHostedService<OrphanFileInspectionHostedService>();
         services.AddHostedService<WordFileDeletionCleanupHostedService>();
         services.AddHostedService<FileCompareTemporaryCleanupHostedService>();
+        services.AddHostedService<AcceptanceSpecCleanupHostedService>();
 
         return services;
     }

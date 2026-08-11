@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<MachineModelAppService>();
         services.AddScoped<AcceptanceSpecAppService>();
         services.AddScoped<AcceptanceSpecContentVersionCoordinator>();
+        services.AddScoped<IAcceptanceSpecCleanupAppService, AcceptanceSpecCleanupAppService>();
         services.AddSingleton<IAuthPasswordService, AuthPasswordService>();
         services.AddScoped<IAuthAccessService, AuthAccessService>();
         services.AddScoped<IAuthLoginAppService, AuthLoginAppService>();
