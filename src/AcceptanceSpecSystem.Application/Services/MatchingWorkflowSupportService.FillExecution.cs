@@ -316,6 +316,7 @@ public sealed partial class MatchingWorkflowSupportService
                 EnsureWriteBackCompleted(renderedFile.Summary);
 
                 var finalCommitConfirmed = false;
+                SmartFillResultArchiveDraft? resultArchive = null;
                 await _unitOfWork.BeginTransactionAsync(cancellationToken);
                 try
                 {
@@ -331,6 +332,10 @@ public sealed partial class MatchingWorkflowSupportService
                         wordFile,
                         renderedFile.Content,
                         cancellationToken);
+                    resultArchive = await SaveSmartFillResultArchiveAsync(
+                        wordFile,
+                        renderedFile.Content,
+                        cancellationToken);
                     await SaveExecutionHistoryAsync(
                         user,
                         wordFile,
@@ -342,6 +347,7 @@ public sealed partial class MatchingWorkflowSupportService
                         specDict,
                         adoptedRowLookup,
                         currentMatchLookups,
+                        resultArchive,
                         saveImmediately: false,
                         cancellationToken: cancellationToken);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -382,6 +388,7 @@ public sealed partial class MatchingWorkflowSupportService
                     if (!finalCommitConfirmed)
                     {
                         await DeleteFailedDownloadArtifactAsync(persistedTaskResult);
+                        await DeleteFailedResultArchiveAsync(resultArchive);
                         _matchingTaskSnapshotService.DiscardDeferredExpiredArtifactCleanup();
                         throw;
                     }

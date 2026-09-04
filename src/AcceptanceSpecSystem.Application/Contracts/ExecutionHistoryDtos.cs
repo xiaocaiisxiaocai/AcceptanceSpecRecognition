@@ -40,6 +40,41 @@ public class ExecutionHistoryListItemDto
     public DateTime CreatedAt { get; set; }
 }
 
+public sealed class SmartFillArchiveListItemDto
+{
+    public int Id { get; set; }
+
+    public string TaskId { get; set; } = string.Empty;
+
+    public string SourceFileName { get; set; } = string.Empty;
+
+    public UploadedFileType? SourceFileType { get; set; }
+
+    public int TotalRowCount { get; set; }
+
+    public int AdoptedRowCount { get; set; }
+
+    public int SkippedRowCount { get; set; }
+
+    public int UnmatchedRowCount { get; set; }
+
+    public int? OwnerOrgUnitId { get; set; }
+
+    public string OwnerOrgUnitName { get; set; } = string.Empty;
+
+    public int? CreatedByUserId { get; set; }
+
+    public string CreatedByDisplayName { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; }
+
+    public bool HasResultArchive { get; set; }
+
+    public string? ResultFileName { get; set; }
+
+    public long? ResultFileSizeBytes { get; set; }
+}
+
 /// <summary>
 /// 执行记录详情
 /// </summary>

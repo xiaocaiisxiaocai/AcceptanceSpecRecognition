@@ -32,6 +32,11 @@ public interface IFileStorageService
     Task<string> SaveSmartFillPlaybackArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 保存智能填充最终结果文件的长期存档，返回相对路径。
+    /// </summary>
+    Task<string> SaveSmartFillResultArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 以只读、异步、顺序读取方式打开存储文件。调用方负责释放返回的流。
     /// </summary>
     Stream OpenReadStream(string relativePath);
@@ -64,6 +69,37 @@ public interface IFileStorageService
         if (!WordFileStoragePathPolicy.IsAllowed(relativePath, fileType))
             throw new UnsafeWordFilePathException();
         return Task.FromException(new NotSupportedException("当前文件存储实现未提供持久上传文件安全删除能力"));
+    }
+}
+
+public static class SmartFillResultArchivePathPolicy
+{
+    public const string Namespace = "uploads/execution-history/smart-fill-results";
+
+    public static bool IsAllowed(string? relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+            return false;
+
+        var normalized = relativePath.Replace('\\', '/');
+        if (normalized.Contains("//", StringComparison.Ordinal) ||
+            normalized.Split('/').Any(segment => segment is "." or ".."))
+            return false;
+
+        var parts = normalized.Split('/');
+        if (parts.Length != 5 ||
+            parts[0] != "uploads" ||
+            parts[1] != "execution-history" ||
+            parts[2] != "smart-fill-results" ||
+            !DateOnly.TryParseExact(parts[3], "yyyy-MM-dd", out _))
+            return false;
+
+        var extension = Path.GetExtension(parts[4]);
+        var stem = Path.GetFileNameWithoutExtension(parts[4]);
+        return (extension.Equals(".docx", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)) &&
+               stem.Length == 32 &&
+               stem.All(Uri.IsHexDigit);
     }
 }
 

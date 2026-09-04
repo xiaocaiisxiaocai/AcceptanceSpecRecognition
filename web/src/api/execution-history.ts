@@ -6,6 +6,33 @@ export interface ExecutionHistoryListRequest extends PagedRequest {
   taskType?: string;
 }
 
+export interface SmartFillArchiveListRequest extends PagedRequest {
+  keyword?: string;
+  from?: string;
+  to?: string;
+  orgUnitId?: number;
+  operatorKeyword?: string;
+}
+
+export interface SmartFillArchiveListItem {
+  id: number;
+  taskId: string;
+  sourceFileName: string;
+  sourceFileType?: number;
+  totalRowCount: number;
+  adoptedRowCount: number;
+  skippedRowCount: number;
+  unmatchedRowCount: number;
+  ownerOrgUnitId?: number;
+  ownerOrgUnitName: string;
+  createdByUserId?: number;
+  createdByDisplayName: string;
+  createdAt: string;
+  hasResultArchive: boolean;
+  resultFileName?: string;
+  resultFileSizeBytes?: number;
+}
+
 export interface ExecutionHistoryListItem {
   id: number;
   taskId: string;
@@ -164,5 +191,24 @@ export const getExecutionHistorySmartFillRow = (
     "get",
     `${baseUrl}/${id}/smart-fill/rows`,
     { params, signal }
+  );
+};
+
+export const getSmartFillArchiveList = (
+  params: SmartFillArchiveListRequest,
+  signal?: AbortSignal
+) => {
+  return http.request<ApiResponse<PagedData<SmartFillArchiveListItem>>>(
+    "get",
+    `${baseUrl}/smart-fill-archives`,
+    { params, signal }
+  );
+};
+
+export const downloadSmartFillArchive = (id: number) => {
+  return http.request<Blob>(
+    "get",
+    `${baseUrl}/smart-fill-archives/${id}/download`,
+    { responseType: "blob" }
   );
 };

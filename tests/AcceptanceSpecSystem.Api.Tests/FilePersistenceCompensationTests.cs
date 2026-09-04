@@ -262,6 +262,11 @@ public sealed class FilePersistenceCompensationTests
             byte[] content,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+        public Task<string> SaveSmartFillResultArchiveAsync(
+            string originalFileName,
+            byte[] content,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
         public Stream OpenReadStream(string relativePath) => throw new NotSupportedException();
 
         public Task<string> WriteHealthCheckFileAsync(

@@ -353,6 +353,7 @@ public sealed partial class BatchReplyAppService
             targetConfig.DataEndRow,
             targetConfig.FilterEmptySourceRows ?? true,
             cancellationToken);
+        OffsetWordTargetRowsToPhysicalCoordinates(targetFile, targetRows, targetConfig);
 
         var sourceLookupResult = BuildSourceRowLookup(sourceTable);
         if (sourceLookupResult.DuplicateGroups.Count > 0)
@@ -413,6 +414,28 @@ public sealed partial class BatchReplyAppService
         };
 
         return result;
+    }
+
+    private static void OffsetWordTargetRowsToPhysicalCoordinates(
+        WordFile targetFile,
+        IEnumerable<MatchSourceItem> targetRows,
+        BatchTableConfig targetConfig)
+    {
+        if (targetFile.FileType == UploadedFileType.ExcelXlsx)
+            return;
+
+        var normalizedHeaderRowStart = Math.Max(1, targetConfig.HeaderRowStart.GetValueOrDefault(1));
+        var normalizedHeaderRowCount = Math.Max(0, targetConfig.HeaderRowCount.GetValueOrDefault(1));
+        var minimumDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+        var normalizedDataStartRow = Math.Max(
+            minimumDataStartRow,
+            targetConfig.DataStartRow.GetValueOrDefault(minimumDataStartRow));
+        var physicalRowOffset = normalizedDataStartRow - 1;
+
+        foreach (var row in targetRows)
+        {
+            row.RowIndex += physicalRowOffset;
+        }
     }
 
 

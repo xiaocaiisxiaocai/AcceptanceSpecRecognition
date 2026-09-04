@@ -23,6 +23,7 @@ public sealed partial class MatchingWorkflowSupportService
     private readonly IDocumentFileAccessService _documentFileAccessService;
     private readonly IBatchReplyDocumentTablePort _documentTableAccessService;
     private readonly IMatchingResultWriteBackPort _matchingResultWriteBackService;
+    private readonly IFileStorageService _fileStorage;
     private readonly ITextPreprocessingPipeline _textPipeline;
     private readonly IAuthDataScopeService _authDataScopeService;
     private readonly IBusinessOrgScopeService _businessOrgScopeService;
@@ -80,6 +81,7 @@ public sealed partial class MatchingWorkflowSupportService
         IDocumentFileAccessService documentFileAccessService,
         IBatchReplyDocumentTablePort documentTableAccessService,
         IMatchingResultWriteBackPort matchingResultWriteBackService,
+        IFileStorageService fileStorage,
         ITextPreprocessingPipeline textPipeline,
         IAuthDataScopeService authDataScopeService,
         IBusinessOrgScopeService businessOrgScopeService,
@@ -98,6 +100,7 @@ public sealed partial class MatchingWorkflowSupportService
         _documentFileAccessService = documentFileAccessService;
         _documentTableAccessService = documentTableAccessService;
         _matchingResultWriteBackService = matchingResultWriteBackService;
+        _fileStorage = fileStorage;
         _textPipeline = textPipeline;
         _authDataScopeService = authDataScopeService;
         _businessOrgScopeService = businessOrgScopeService;

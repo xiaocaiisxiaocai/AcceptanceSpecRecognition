@@ -552,6 +552,10 @@ public class AuthPermissionsTests : IClassFixture<ApiWebApplicationFactory>
         permissions.Should().Contain("api:matching-fill:spec-backfill");
         permissions.Should().Contain("api:dashboard:read");
         permissions.Should().Contain("api:matching:read");
+        permissions.Should().Contain("menu:other");
+        permissions.Should().Contain("page:other:smart-fill-archives");
+        permissions.Should().Contain("api:execution-history:read");
+        permissions.Should().Contain("api:execution-history:download");
         permissions.Should().Contain("menu:base-data");
         permissions.Should().Contain("page:base-data:customers");
         permissions.Should().Contain("page:base-data:processes");

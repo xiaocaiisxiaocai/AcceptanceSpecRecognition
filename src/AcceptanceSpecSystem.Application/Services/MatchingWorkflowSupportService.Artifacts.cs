@@ -3,6 +3,7 @@ using static AcceptanceSpecSystem.Application.Services.MatchingResultHelpers;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
 using AcceptanceSpecSystem.Core.AI.SemanticKernel;
 using AcceptanceSpecSystem.Core.Documents.Models;
 using AcceptanceSpecSystem.Core.Matching.Interfaces;
@@ -15,6 +16,42 @@ namespace AcceptanceSpecSystem.Application.Services;
 
 public sealed partial class MatchingWorkflowSupportService
 {
+    private async Task<SmartFillResultArchiveDraft> SaveSmartFillResultArchiveAsync(
+        WordFile wordFile,
+        byte[] content,
+        CancellationToken cancellationToken)
+    {
+        var fileName = GetDownloadFileName(wordFile);
+        var relativePath = await _fileStorage.SaveSmartFillResultArchiveAsync(
+            fileName,
+            content,
+            cancellationToken);
+        return new SmartFillResultArchiveDraft(
+            relativePath,
+            fileName,
+            GetDownloadContentType(wordFile.FileType),
+            content.LongLength,
+            Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant());
+    }
+
+    private async Task DeleteFailedResultArchiveAsync(SmartFillResultArchiveDraft? archive)
+    {
+        if (archive == null)
+            return;
+
+        try
+        {
+            await _fileStorage.DeleteIfExistsAsync(archive.RelativePath, CancellationToken.None);
+        }
+        catch (Exception cleanupException)
+        {
+            _logger.LogError(
+                cleanupException,
+                "填充失败后清理结果存档失败: {ArchivePath}",
+                archive.RelativePath);
+        }
+    }
+
     private sealed record SourceFileRollbackSnapshot(
         string? FilePath,
         byte[] FileContent,

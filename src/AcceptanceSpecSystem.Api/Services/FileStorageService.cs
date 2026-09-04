@@ -67,6 +67,11 @@ public class FileStorageService : IFileStorageService
         return await SaveAsync("uploads/execution-history/smart-fill", originalFileName, content, cancellationToken);
     }
 
+    public async Task<string> SaveSmartFillResultArchiveAsync(string originalFileName, byte[] content, CancellationToken cancellationToken = default)
+    {
+        return await SaveAsync(SmartFillResultArchivePathPolicy.Namespace, originalFileName, content, cancellationToken);
+    }
+
     public Stream OpenReadStream(string relativePath)
     {
         var fullPath = GetAbsolutePath(relativePath);

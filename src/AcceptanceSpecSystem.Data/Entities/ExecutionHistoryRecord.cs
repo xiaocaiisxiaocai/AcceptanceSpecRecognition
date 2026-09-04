@@ -76,6 +76,22 @@ public class ExecutionHistoryRecord
     public int ManualSelectedRowCount { get; set; }
 
     /// <summary>
+    /// 智能填充最终结果存档相对路径。
+    /// </summary>
+    public string? ResultArchiveRelativePath { get; set; }
+
+    /// <summary>
+    /// 用户下载时使用的原始文件名。
+    /// </summary>
+    public string? ResultArchiveFileName { get; set; }
+
+    public string? ResultArchiveContentType { get; set; }
+
+    public long? ResultArchiveSizeBytes { get; set; }
+
+    public string? ResultArchiveSha256 { get; set; }
+
+    /// <summary>
     /// 详情 JSON
     /// </summary>
     public string DetailJson { get; set; } = string.Empty;

@@ -418,6 +418,13 @@ public sealed class OrphanDatabaseReferenceQuery(IUnitOfWork unitOfWork) : IOrph
             }
         }
 
+        var resultArchivePaths = await unitOfWork.ExecutionHistoryRecords.Query()
+            .Where(record => record.ResultArchiveRelativePath != null &&
+                             record.ResultArchiveRelativePath != string.Empty)
+            .Select(record => record.ResultArchiveRelativePath!)
+            .ToListAsync(cancellationToken);
+        AddPaths(paths, resultArchivePaths);
+
         return new OrphanReferenceSnapshot(paths, incompleteNamespaces, failures);
     }
 
@@ -444,6 +451,13 @@ public sealed class OrphanDatabaseReferenceQuery(IUnitOfWork unitOfWork) : IOrph
         {
             var referenced = await unitOfWork.ExecutionHistoryRecords.Query()
                 .AnyAsync(record => record.DetailJson.Contains(normalized), cancellationToken);
+            return new OrphanReferenceProbe(referenced, true);
+        }
+
+        if (managedNamespace == OrphanFilePathRules.SmartFillResultArchivesNamespace)
+        {
+            var referenced = await unitOfWork.ExecutionHistoryRecords.Query()
+                .AnyAsync(record => record.ResultArchiveRelativePath == normalized, cancellationToken);
             return new OrphanReferenceProbe(referenced, true);
         }
 
@@ -519,13 +533,15 @@ public static class OrphanFilePathRules
     public const string ExcelFilesNamespace = "uploads/excel-files";
     public const string FilledFilesNamespace = "uploads/filled-files";
     public const string ExecutionHistoryNamespace = "uploads/execution-history/smart-fill";
+    public const string SmartFillResultArchivesNamespace = "uploads/execution-history/smart-fill-results";
 
     public static IReadOnlyList<string> ManagedNamespaces { get; } =
     [
         WordFilesNamespace,
         ExcelFilesNamespace,
         FilledFilesNamespace,
-        ExecutionHistoryNamespace
+        ExecutionHistoryNamespace,
+        SmartFillResultArchivesNamespace
     ];
 
     public static string Normalize(string path) => path.Trim().Replace('\\', '/').TrimStart('/');

@@ -77,7 +77,7 @@ public sealed partial class MatchingWorkflowSupportService
     {
         if (regions is not { Count: > 0 })
         {
-            return await _documentTableAccessService.ExtractMatchSourceItemsAsync(
+            var tableItems = await _documentTableAccessService.ExtractMatchSourceItemsAsync(
                 wordFile,
                 tableIndex,
                 projectColumnIndex,
@@ -88,6 +88,13 @@ public sealed partial class MatchingWorkflowSupportService
                 dataEndRow,
                 filterEmptySourceRows,
                 cancellationToken);
+            OffsetWordRowsToPhysicalCoordinates(
+                wordFile,
+                tableItems,
+                headerRowStart,
+                headerRowCount,
+                dataStartRow);
+            return tableItems;
         }
 
         var items = new List<MatchSourceItem>();
@@ -104,6 +111,12 @@ public sealed partial class MatchingWorkflowSupportService
                 region.DataEndRow,
                 filterEmptySourceRows,
                 cancellationToken);
+            OffsetWordRowsToPhysicalCoordinates(
+                wordFile,
+                regionItems,
+                region.HeaderRowStart,
+                region.HeaderRowCount,
+                region.DataStartRow);
             foreach (var item in regionItems)
             {
                 item.RegionId = string.IsNullOrWhiteSpace(region.RegionId)
@@ -121,5 +134,28 @@ public sealed partial class MatchingWorkflowSupportService
             .Select(group => group.First())
             .OrderBy(item => item.RowIndex)
             .ToList();
+    }
+
+    private static void OffsetWordRowsToPhysicalCoordinates(
+        WordFile wordFile,
+        IEnumerable<MatchSourceItem> items,
+        int? headerRowStart,
+        int? headerRowCount,
+        int? dataStartRow)
+    {
+        if (wordFile.FileType == UploadedFileType.ExcelXlsx)
+            return;
+
+        var normalizedHeaderRowStart = Math.Max(1, headerRowStart.GetValueOrDefault(1));
+        var normalizedHeaderRowCount = Math.Max(0, headerRowCount.GetValueOrDefault(1));
+        var minimumDataStartRow = normalizedHeaderRowStart + normalizedHeaderRowCount;
+        var normalizedDataStartRow = Math.Max(
+            minimumDataStartRow,
+            dataStartRow.GetValueOrDefault(minimumDataStartRow));
+        var physicalRowOffset = normalizedDataStartRow - 1;
+        foreach (var item in items)
+        {
+            item.RowIndex += physicalRowOffset;
+        }
     }
 }
