@@ -10,8 +10,11 @@ public class ArchitectureBoundaryTests
     [Fact]
     public void LlmMatchingAssistParsing_ShouldDisposeEveryParsedJsonDocument()
     {
+        // 结果解析方法已拆到 ResultParsing 分部文件，两份文件合并统计
         var content = ReadFile(
-            "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs");
+                          "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.cs") +
+                      ReadFile(
+                          "src/AcceptanceSpecSystem.Core/Matching/Services/LlmMatchingAssistService.ResultParsing.cs");
         var parseCount = Regex.Matches(content, @"TryParseJson\(raw, out var doc\)").Count;
         var disposeCount = Regex.Matches(content, @"using var parsedDocument = doc;").Count;
 

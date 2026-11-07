@@ -221,7 +221,8 @@ public partial class SemanticKernelMatchingService : IMatchingService
         MatchCandidate Candidate,
         string CanonicalProject,
         string SpecificationSkeleton,
-        IReadOnlyList<(double BaseValue, string Dimension, string OriginalExpression)> NormalizedValues);
+        IReadOnlyList<(double BaseValue, string Dimension, string OriginalExpression)> NormalizedValues,
+        IReadOnlyList<double> BareNumbers);
 
     private List<CandidateCanonicalSnapshot> BuildCandidateCanonicalSnapshots(
         IReadOnlyList<MatchCandidate> candidateList)
@@ -233,7 +234,8 @@ public partial class SemanticKernelMatchingService : IMatchingService
                 candidate,
                 _canonicalizer.Canonicalize(candidate.Project),
                 BuildCanonicalSpecificationSkeleton(candidate.Specification),
-                _canonicalizer.ExtractNormalizedValues(candidate.Specification)));
+                _canonicalizer.ExtractNormalizedValues(candidate.Specification),
+                _canonicalizer.ExtractBareNumbers(candidate.Specification)));
         }
 
         return snapshots;
@@ -259,12 +261,17 @@ public partial class SemanticKernelMatchingService : IMatchingService
         if (string.IsNullOrWhiteSpace(sourceSkeleton))
             return false;
 
+        // 裸数字（无单位数字）单独比对：骨架把数字统一替换成 #，带单位数字由 NormalizedValueSetsEqual 覆盖，
+        // 裸数字若不比对，"长度300 vs 长度3000"会被骨架抹平差异后确定性放行。
+        var sourceBareNumbers = _canonicalizer.ExtractBareNumbers(source.Specification);
+
         var candidatesForKey = candidateSnapshots
             .Where(snapshot =>
                 (sourceProject == null ||
                  string.Equals(snapshot.CanonicalProject, sourceProject, StringComparison.Ordinal)) &&
                 string.Equals(sourceSkeleton, snapshot.SpecificationSkeleton, StringComparison.Ordinal) &&
-                NormalizedValueSetsEqual(sourceValues, snapshot.NormalizedValues))
+                NormalizedValueSetsEqual(sourceValues, snapshot.NormalizedValues) &&
+                BareNumberSetsEqual(sourceBareNumbers, snapshot.BareNumbers))
             .Select(snapshot => snapshot.Candidate)
             .ToList();
 
@@ -310,10 +317,14 @@ public partial class SemanticKernelMatchingService : IMatchingService
             BuildRerankSummary(approximateCandidate),
             approximateCandidate.LlmEquivalence);
 
+        // 仅规格模式下同骨架+等价数值可能对应多条候选（验收/备注不同），与精确层、规范化层一致判歧义转人工，
+        // 避免静默取排序后第一条导致错填。项目+规格模式不判歧义（候选范围已限定同项目）。
+        var isAmbiguous = isSpecificationOnly && candidatesForKey.Count > 1;
+
         result = BuildMatchResult(
             approximateCandidate,
-            recalledCandidateCount: 1,
-            isAmbiguous: false,
+            recalledCandidateCount: isSpecificationOnly ? candidatesForKey.Count : 1,
+            isAmbiguous,
             scoreGap: null,
             config.MinScoreThreshold,
             config.HighConfidenceThreshold,
@@ -340,6 +351,32 @@ public partial class SemanticKernelMatchingService : IMatchingService
             if (remark != 0) return remark;
             return right.SpecId.CompareTo(left.SpecId);
         });
+    }
+
+    /// <summary>
+    /// 比较两组裸数字（无单位数字）是否在工程容差内构成同一集合。
+    /// 用于近似规范化层：裸数字没有量纲、不存在单位换算，直接用工程容差逐项比较。
+    /// 数量不同或任一对应项超容差即视为不等（如 300 vs 3000 差 10 倍，必判不等）。
+    /// </summary>
+    private static bool BareNumberSetsEqual(
+        IReadOnlyList<double> sourceBareNumbers,
+        IReadOnlyList<double> candidateBareNumbers)
+    {
+        if (sourceBareNumbers.Count == 0 && candidateBareNumbers.Count == 0)
+            return true;
+
+        if (sourceBareNumbers.Count != candidateBareNumbers.Count)
+            return false;
+
+        var sortedSource = sourceBareNumbers.OrderBy(value => value).ToList();
+        var sortedCandidate = candidateBareNumbers.OrderBy(value => value).ToList();
+        for (var i = 0; i < sortedSource.Count; i++)
+        {
+            if (IsNumericOutsideEngineeringTolerance(sortedSource[i], sortedCandidate[i]))
+                return false;
+        }
+
+        return true;
     }
 
     private List<EvaluatedCandidate> BuildShortcutCandidateSnapshots(

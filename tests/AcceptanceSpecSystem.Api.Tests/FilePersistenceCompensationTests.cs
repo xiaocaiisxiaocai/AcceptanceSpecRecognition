@@ -2,11 +2,14 @@ using System.IO.Compression;
 using System.Linq.Expressions;
 using AcceptanceSpecSystem.Application.Services;
 using AcceptanceSpecSystem.Api.Services;
+using AcceptanceSpecSystem.Data.Context;
 using AcceptanceSpecSystem.Data.Entities;
 using AcceptanceSpecSystem.Data.Repositories;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
@@ -110,13 +113,16 @@ public sealed class FilePersistenceCompensationTests
         File.Exists(storage.GetAbsolutePath(storage.LastSavedRelativePath!)).Should().BeTrue();
     }
 
+    private const int ScopeCompanyId = 20;
+    private const int ScopeOrgUnitId = 30;
+
     private static SpecAccessContext CreateScope()
     {
         return new SpecAccessContext
         {
             UserId = 10,
-            CompanyId = 20,
-            OrgUnitId = 30,
+            CompanyId = ScopeCompanyId,
+            OrgUnitId = ScopeOrgUnitId,
             IsAll = true
         };
     }
@@ -326,11 +332,41 @@ public sealed class FilePersistenceCompensationTests
     private sealed class FailingUnitOfWork : IUnitOfWork
     {
         private readonly Exception? _saveException;
+        private readonly SqliteConnection _orgConnection;
+        private readonly AppDbContext _orgDbContext;
 
         public FailingUnitOfWork(IWordFileRepository wordFiles, Exception? saveException)
         {
             WordFiles = wordFiles;
             _saveException = saveException;
+
+            // 上传前会校验业务归属部门（异步 EF 查询），用真实的 SQLite 内存库承载 CreateScope() 对应的部门，
+            // 让测试继续聚焦于“文件落盘后持久化失败的补偿”。
+            _orgConnection = new SqliteConnection("DataSource=:memory:");
+            _orgConnection.Open();
+            _orgDbContext = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite(_orgConnection)
+                .Options);
+            _orgDbContext.Database.EnsureCreated();
+            _orgDbContext.OrgCompanies.Add(new OrgCompany
+            {
+                Id = ScopeCompanyId,
+                Code = "TEST_COMPANY",
+                Name = "测试公司"
+            });
+            _orgDbContext.OrgUnits.Add(new OrgUnit
+            {
+                Id = ScopeOrgUnitId,
+                CompanyId = ScopeCompanyId,
+                UnitType = OrgUnitType.Department,
+                Code = "TEST_DEPARTMENT",
+                Name = "测试部门",
+                Path = $"/{ScopeOrgUnitId}/",
+                Depth = 1,
+                IsActive = true
+            });
+            _orgDbContext.SaveChanges();
+            OrgUnits = new OrgUnitRepository(_orgDbContext);
         }
 
         public ICustomerRepository Customers => null!;
@@ -349,7 +385,7 @@ public sealed class FilePersistenceCompensationTests
         public IAuditLogRepository AuditLogs => null!;
         public IMatchingFillTaskRepository MatchingFillTasks => null!;
         public IExecutionHistoryRecordRepository ExecutionHistoryRecords => null!;
-        public IOrgUnitRepository OrgUnits => null!;
+        public IOrgUnitRepository OrgUnits { get; }
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
@@ -362,7 +398,12 @@ public sealed class FilePersistenceCompensationTests
         public Task BeginTransactionAsync() => throw new NotSupportedException();
         public Task CommitTransactionAsync() => throw new NotSupportedException();
         public Task RollbackTransactionAsync() => throw new NotSupportedException();
-        public void Dispose() { }
+
+        public void Dispose()
+        {
+            _orgDbContext.Dispose();
+            _orgConnection.Dispose();
+        }
     }
 
     private sealed class FailingWordFileRepository : IWordFileRepository

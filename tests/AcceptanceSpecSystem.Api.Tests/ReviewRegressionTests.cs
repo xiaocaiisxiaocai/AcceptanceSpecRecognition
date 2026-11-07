@@ -1212,7 +1212,7 @@ public class ReviewRegressionTests
                 .Replace('/', Path.DirectorySeparatorChar)));
 
         pageContent.Should().Contain("自定义组织", "角色应支持配置多个指定组织节点");
-        pageContent.Should().Contain("scopeType === 3", "自定义组织范围应保留全部有效节点");
+        scopeContent.Should().Contain("if (scopeType === 3) return normalized;", "自定义组织范围应保留全部有效节点");
         dialogContent.Should().Contain("multiple", "自定义组织范围应使用多选控件");
         scopeContent.Should().Contain("请至少选择一个组织节点", "空的自定义范围必须在提交前阻止");
     }

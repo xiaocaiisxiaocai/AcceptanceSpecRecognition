@@ -862,7 +862,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             Acceptance = acceptance,
             Remark = remark,
             WordFileId = wordFile.Id,
-            OwnerOrgUnitId = 1,
+            OwnerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(dbContext),
             CreatedByUserId = 1,
             ImportedAt = DateTime.UtcNow
         };
@@ -893,6 +893,7 @@ public class ImportDuplicateDetectionTests : IClassFixture<ApiWebApplicationFact
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", fileName);
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         using var response = await _client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

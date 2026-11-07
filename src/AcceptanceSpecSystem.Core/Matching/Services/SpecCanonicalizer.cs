@@ -15,6 +15,12 @@ public sealed partial class SpecCanonicalizer : ISpecCanonicalizer
 {
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
 
+    // 提取"无单位"的裸数字（如"长度300"中的 300），用于近似规范化层比对，
+    // 避免裸数字被规格骨架替换成 # 后差异被抹平。
+    private static readonly Regex BareNumberRegex = new(
+        @"-?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?",
+        RegexOptions.Compiled);
+
     // 移除汉字相邻处的空格：Word/Excel 复制的规格常在汉字间夹换行/空格，
     // "气缸 上升" 与 "气缸上升" 必须归一为同一文本，否则规范化精确匹配会漏。
     // 仅当空格至少一侧是汉字时移除，纯英文词间空格（如 "max load"）保留。
@@ -60,7 +66,7 @@ public sealed partial class SpecCanonicalizer : ISpecCanonicalizer
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         var numericUnitTokenPattern =
-            $@"(?:{BuildRegexAlternation(_unitRoots.Keys.Concat(["%"]))}|[A-Za-z][A-Za-z0-9]*(?:/[A-Za-z0-9一-鿿]+)?|[一-鿿]{{1,4}}(?:/[A-Za-z0-9一-鿿]+)?)";
+            $@"(?:{BuildCaseSensitiveRegexAlternation(_unitRoots.Keys.Concat(["%"]))}|[A-Za-z][A-Za-z0-9]*(?:/[A-Za-z0-9一-鿿]+)?|[一-鿿]{{1,4}}(?:/[A-Za-z0-9一-鿿]+)?)";
 
         _numericUnitRegex = new Regex(
             $@"(?<![A-Za-z0-9])(?<num>-?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?)\s*(?<unit>{numericUnitTokenPattern})",
@@ -184,6 +190,47 @@ public sealed partial class SpecCanonicalizer : ISpecCanonicalizer
                 continue;
 
             results.Add((baseVal, dim, match.Value));
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// 提取文本中"无单位"的裸数字（如"长度300"中的 300）。
+    /// 带单位数字（220V、10mm 等）由 <see cref="ExtractNormalizedValues"/> 处理并在此排除；
+    /// 裸数字无法归一量纲，但近似规范化层必须单独比对，否则"长度300 vs 长度3000"
+    /// 会被规格骨架替换成同一个 # 后误判为等价而确定性放行。
+    /// </summary>
+    public IReadOnlyList<double> ExtractBareNumbers(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return [];
+
+        // 标记所有"数字+单位"匹配覆盖的数字范围，避免把带单位数字重复计入裸数字
+        var unitCoveredRanges = new List<(int Start, int End)>();
+        foreach (Match match in _numericUnitRegex.Matches(text))
+        {
+            var numGroup = match.Groups["num"];
+            unitCoveredRanges.Add((numGroup.Index, numGroup.Index + numGroup.Length));
+        }
+
+        var results = new List<double>();
+        foreach (Match match in BareNumberRegex.Matches(text))
+        {
+            if (unitCoveredRanges.Any(range =>
+                    match.Index >= range.Start && match.Index < range.End))
+            {
+                continue;
+            }
+
+            var numStr = match.Value.Replace(",", ".");
+            if (double.TryParse(numStr,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var value))
+            {
+                results.Add(value);
+            }
         }
 
         return results;

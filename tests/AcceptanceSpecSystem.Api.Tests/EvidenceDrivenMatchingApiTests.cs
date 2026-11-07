@@ -325,10 +325,12 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
 
     private async Task CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance)
     {
+        var businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client);
         var specResp = await _client.PostAsync(
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId,
                 customerId,
                 processId,
                 project,
@@ -354,6 +356,7 @@ public class EvidenceDrivenMatchingApiTests : IClassFixture<ApiWebApplicationFac
             new[] { project, specification, "", "" }
         })), "file", $"evidence-preview-{Guid.NewGuid():N}.docx");
 
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();

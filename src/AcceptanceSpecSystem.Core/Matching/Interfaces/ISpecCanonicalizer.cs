@@ -31,6 +31,12 @@ public interface ISpecCanonicalizer
         ExtractNormalizedValues(string text);
 
     /// <summary>
+    /// 从文本中提取"无单位"的裸数字（如"长度300"中的 300）。
+    /// 供近似规范化层比对，避免裸数字差异被规格骨架抹平后误判等价。
+    /// </summary>
+    IReadOnlyList<double> ExtractBareNumbers(string text);
+
+    /// <summary>
     /// 从文本中提取带单位的数值表达式，但只返回当前规则库无法识别的单位 token。
     /// 用于阻断未知单位场景的确定性自动通过，交由 LLM 或人工确认。
     /// </summary>

@@ -69,6 +69,7 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "example.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -159,6 +160,7 @@ public class ExcelImportTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "cleanup-source.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();

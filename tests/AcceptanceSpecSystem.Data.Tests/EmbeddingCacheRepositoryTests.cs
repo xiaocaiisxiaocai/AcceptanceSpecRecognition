@@ -77,6 +77,7 @@ public class EmbeddingCacheRepositoryTests : TestBase
     [Fact]
     public async Task 按规格模型用途读取_应精确匹配且不跟踪结果()
     {
+        await SeedActiveSpecsAsync(21);
         var repository = new EmbeddingCacheRepository(Context);
         Context.EmbeddingCaches.AddRange(
             new EmbeddingCache
@@ -128,6 +129,7 @@ public class EmbeddingCacheRepositoryTests : TestBase
     [Fact]
     public async Task GetBySpecIdsAndModelAndUsageAsync_ShouldOnlyReturnMatchingUsage()
     {
+        await SeedActiveSpecsAsync(1, 2);
         var repository = new EmbeddingCacheRepository(Context);
 
         Context.EmbeddingCaches.AddRange(
@@ -170,6 +172,7 @@ public class EmbeddingCacheRepositoryTests : TestBase
     [Fact]
     public async Task EmbeddingCache_ShouldAllowSameSpecAndModelWithDifferentUsage()
     {
+        await SeedActiveSpecsAsync(10);
         Context.EmbeddingCaches.AddRange(
             new EmbeddingCache
             {
@@ -221,6 +224,36 @@ public class EmbeddingCacheRepositoryTests : TestBase
             .Select(property => property.Name)
             .Should()
             .Equal(nameof(EmbeddingCache.SpecId), nameof(EmbeddingCache.ModelName), nameof(EmbeddingCache.Usage));
+    }
+
+    /// <summary>
+    /// 向量缓存带有“所属规格处于正常状态”的全局查询过滤器，缓存必须挂在真实存在的正常规格下才可见。
+    /// </summary>
+    private async Task SeedActiveSpecsAsync(params int[] specIds)
+    {
+        var customer = new Customer { Name = $"缓存测试客户-{Guid.NewGuid():N}", CreatedAt = DateTime.UtcNow };
+        var wordFile = new WordFile
+        {
+            FileName = "embedding-cache.docx",
+            FileHash = Guid.NewGuid().ToString("N"),
+            FileContent = [],
+            UploadedAt = DateTime.UtcNow
+        };
+        Context.Customers.Add(customer);
+        Context.WordFiles.Add(wordFile);
+        await Context.SaveChangesAsync();
+
+        Context.AcceptanceSpecs.AddRange(specIds.Select(specId => new AcceptanceSpec
+        {
+            Id = specId,
+            CustomerId = customer.Id,
+            Project = $"项目-{specId}",
+            Specification = $"规格-{specId}",
+            WordFileId = wordFile.Id,
+            ImportedAt = DateTime.UtcNow
+        }));
+        await Context.SaveChangesAsync();
+        Context.ChangeTracker.Clear();
     }
 
     private static MySqlException CreateMySqlException(MySqlErrorCode errorCode, string message)

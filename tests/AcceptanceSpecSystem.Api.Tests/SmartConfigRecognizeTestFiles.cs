@@ -83,6 +83,7 @@ internal static class SmartConfigRecognizeTestFiles
             : contextData.GetProperty("options").EnumerateArray().First().GetProperty("id").GetInt32();
         content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(client);
         var response = await client.PostAsync("/api/documents/upload", content);
         var responseText = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, responseText);

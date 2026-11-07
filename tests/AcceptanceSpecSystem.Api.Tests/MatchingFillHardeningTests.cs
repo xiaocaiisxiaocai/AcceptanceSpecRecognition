@@ -115,6 +115,7 @@ public sealed class MatchingFillHardeningTests : IClassFixture<ApiWebApplication
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "matching-fill-hardening.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         var body = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         return body.Data.GetProperty("fileId").GetInt32();
@@ -144,6 +145,7 @@ public sealed class MatchingFillCommitCompensationTests : IClassFixture<CommitFa
         var processId = await CreateEntityAsync("/api/processes", "CommitCompensation-P");
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -217,6 +219,7 @@ public sealed class MatchingFillCommitCompensationTests : IClassFixture<CommitFa
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "commit-compensation.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         return (await response.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("fileId").GetInt32();
     }
@@ -266,6 +269,7 @@ public sealed class MatchingFillAmbiguousCommitTests : IClassFixture<AmbiguousCo
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "ambiguous-commit.xlsx");
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var upload = await _client.PostAsync("/api/documents/upload", uploadContent);
         var fileId = (await upload.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("fileId").GetInt32();
 
@@ -330,6 +334,7 @@ public sealed class MatchingWordFillAmbiguousCommitTests : IClassFixture<WordAmb
             ])),
             "file",
             "ambiguous-commit.docx");
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var upload = await _client.PostAsync("/api/documents/upload", uploadContent);
         upload.StatusCode.Should().Be(HttpStatusCode.OK);
         var fileId = (await upload.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("fileId").GetInt32();
@@ -446,6 +451,7 @@ internal sealed class AmbiguousCommitUnitOfWork : IUnitOfWork
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
     public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
+    public IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions => _inner.AcceptanceSpecContentVersions;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
@@ -487,6 +493,7 @@ internal sealed class CommitFailureUnitOfWork : IUnitOfWork
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
     public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
+    public IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions => _inner.AcceptanceSpecContentVersions;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;

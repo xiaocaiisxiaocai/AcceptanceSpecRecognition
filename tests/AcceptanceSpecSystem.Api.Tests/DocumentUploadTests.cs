@@ -34,6 +34,7 @@ public class DocumentUploadTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         content.Add(fileContent, "file", "example.docx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -62,6 +63,7 @@ public class DocumentUploadTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         content.Add(fileContent, "file", "example.docx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -96,6 +98,7 @@ public class DocumentUploadTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         content.Add(fileContent, "file", "example.docx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
 

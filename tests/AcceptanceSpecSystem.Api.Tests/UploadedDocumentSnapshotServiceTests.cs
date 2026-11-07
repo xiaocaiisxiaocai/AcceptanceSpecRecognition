@@ -410,7 +410,8 @@ public sealed class UploadedDocumentSnapshotServiceTests
 
     private sealed class CollectingLogger<T> : ILogger<T>
     {
-        public List<string> Messages { get; } = [];
+        // 并发 miss/shared 两个调用会在不同线程上同时写日志，必须用线程安全集合，否则偶发丢失一条。
+        public ConcurrentQueue<string> Messages { get; } = new();
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -422,6 +423,6 @@ public sealed class UploadedDocumentSnapshotServiceTests
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            Messages.Add(formatter(state, exception));
+            Messages.Enqueue(formatter(state, exception));
     }
 }

@@ -14,8 +14,11 @@ public partial class SemanticKernelMatchingService : IMatchingService
         // 语义优先模式：LLM Equivalent 具有最高权威，硬冲突规则降级。
         // 但置信度不足时不应盲目自动通过，转人工确认；
         // 型号/料号冲突按更高置信度门槛把关（错填物料是验收场景最危险错误）。
+        // 量纲型硬冲突（数值/单位、温度跨温标、尺寸元组）是确定性铁律，任何模式（含语义优先）都不允许 LLM 覆盖，
+        // 避免 LLM 幻觉把"数值差一个量级"的规格判成等价后直接填错；方向/极性等语义方向类硬冲突仍交由 LLM 裁决。
         if (config.EnableLlmSemanticPriority &&
             candidate.LlmEquivalence?.Verdict == LlmEquivalenceVerdict.Equivalent &&
+            !HasDimensionalHardConflict(candidate.Issues) &&
             MeetsEquivalenceConfidenceFloor(candidate, config))
             return MatchDecision.AutoApply;
 
@@ -26,10 +29,13 @@ public partial class SemanticKernelMatchingService : IMatchingService
 
         // 高 Embedding 自动通过：强语义相似 + 无结构化冲突 + 不歧义 + LLM 未判不同 → 自动通过（即使 uncertain）。
         // 硬冲突已在上方拦截；此处再排除型号/料号冲突与未识别(单位/品牌/格式)警告，作为精度闸门。
+        // LlmAdjudicationFailed 标记 LLM 超时/熔断/额度耗尽等"未实际裁决"的回退：此时不能凭 Embedding 单方面放行，
+        // 否则 LLM 服务越不稳定自动填充越多（fail-open）。只有 LLM 真实返回的 Uncertain 才允许强 Embedding 兜底。
         if (config.EmbeddingSemanticAutoApplyThreshold > 0 &&
             config.EmbeddingSemanticAutoApplyThreshold <= 1 &&
             candidate.EmbeddingScore >= config.EmbeddingSemanticAutoApplyThreshold - ScoreTieEpsilon &&
             !isAmbiguous &&
+            !candidate.LlmAdjudicationFailed &&
             !HasIdentifierConflict(candidate.Issues) &&
             !HasAutoApplyBlockingWarning(candidate.Issues) &&
             candidate.LlmEquivalence?.Verdict != LlmEquivalenceVerdict.Different)
@@ -465,34 +471,5 @@ public partial class SemanticKernelMatchingService : IMatchingService
     private static bool HasText(string? value)
     {
         return !string.IsNullOrWhiteSpace(value);
-    }
-
-    /// <summary>
-    /// 判断候选的问题列表中是否存在硬冲突（数值/单位、比较符、温度跨温标、方向/极性反义）。
-    /// 硬冲突一律强制人工，无视 Embedding 高分。
-    /// </summary>
-    private static bool HasHardConflict(IReadOnlyList<MatchIssue>? issues)
-    {
-        return issues != null && issues.Any(issue =>
-            string.Equals(issue.Severity, "hard_conflict", StringComparison.Ordinal));
-    }
-
-    private static bool HasAutoApplyBlockingWarning(IReadOnlyList<MatchIssue>? issues)
-    {
-        return issues != null && issues.Any(issue =>
-            string.Equals(issue.Severity, "warning", StringComparison.OrdinalIgnoreCase) &&
-            (string.Equals(issue.Code, "unknown_unit_token", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(issue.Code, "unknown_brand_token", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(issue.Code, "unsupported_format_token", StringComparison.OrdinalIgnoreCase)));
-    }
-
-    /// <summary>
-    /// 判断候选的问题列表中是否存在型号/料号冲突。
-    /// 此类行的 LLM Equivalent 结论需满足更高置信度门槛才可自动通过。
-    /// </summary>
-    private static bool HasIdentifierConflict(IReadOnlyList<MatchIssue>? issues)
-    {
-        return issues != null && issues.Any(issue =>
-            string.Equals(issue.Code, "identifier_conflict", StringComparison.OrdinalIgnoreCase));
     }
 }

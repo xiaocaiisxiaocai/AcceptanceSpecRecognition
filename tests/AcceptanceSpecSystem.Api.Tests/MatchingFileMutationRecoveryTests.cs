@@ -41,6 +41,7 @@ public sealed class MatchingFileMutationRecoveryTests : IClassFixture<ApiWebAppl
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "pending-recovery.xlsx");
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var upload = await _client.PostAsync("/api/documents/upload", uploadContent);
         var fileId = (await upload.ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("fileId").GetInt32();
 

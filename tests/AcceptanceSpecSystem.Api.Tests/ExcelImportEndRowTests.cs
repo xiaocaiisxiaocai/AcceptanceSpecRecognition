@@ -96,6 +96,7 @@ public class ExcelImportEndRowTests : IClassFixture<ApiWebApplicationFactory>
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", fileName);
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();

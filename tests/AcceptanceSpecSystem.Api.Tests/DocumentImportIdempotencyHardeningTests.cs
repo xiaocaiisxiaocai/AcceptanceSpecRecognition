@@ -416,7 +416,7 @@ public sealed class DocumentImportIdempotencyHardeningTests
             UploadedAt = DateTime.UtcNow,
             CreatedByUserId = 1,
             CompanyId = 1,
-            OwnerOrgUnitId = 1
+            OwnerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(db)
         };
         db.WordFiles.Add(sourceFile);
         await db.SaveChangesAsync();
@@ -429,7 +429,7 @@ public sealed class DocumentImportIdempotencyHardeningTests
             Remark = "旧备注",
             WordFileId = sourceFile.Id,
             CreatedByUserId = 1,
-            OwnerOrgUnitId = 1,
+            OwnerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(db),
             ImportedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
@@ -473,6 +473,7 @@ public sealed class DocumentImportIdempotencyHardeningTests
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", $"idempotency-{Guid.NewGuid():N}.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(client);
         using var response = await client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

@@ -45,6 +45,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         // 2) 上传
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", "batch-preview.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -58,9 +59,9 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
             .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
 
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
-        { customerId, processId, project = "P1", specification = "S1", acceptance = "AC-1", remark = "R1" }));
+        { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "P1", specification = "S1", acceptance = "AC-1", remark = "R1" }));
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
-        { customerId, processId, project = "P2", specification = "S2", acceptance = "AC-2", remark = "R2" }));
+        { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "P2", specification = "S2", acceptance = "AC-2", remark = "R2" }));
 
         // 4) 批量预览
         var batchResp = await _client.PostAsync("/api/matching/batch-preview",
@@ -208,6 +209,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         // 2) 上传
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", "batch-exec.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -221,12 +223,12 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
             .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
 
         var spec1Resp = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
-        { customerId, processId, project = "PA", specification = "SA", acceptance = "FILL-A", remark = "REM-A" })))
+        { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "PA", specification = "SA", acceptance = "FILL-A", remark = "REM-A" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
         spec1Resp.Data.GetProperty("id").GetInt32();
 
         var spec2Resp = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
-        { customerId, processId, project = "PB", specification = "SB", acceptance = "FILL-B", remark = "REM-B" })))
+        { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "PB", specification = "SB", acceptance = "FILL-B", remark = "REM-B" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
         spec2Resp.Data.GetProperty("id").GetInt32();
 
@@ -578,6 +580,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
     {
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", fileName);
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -614,6 +617,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
     {
         var response = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project,
@@ -668,6 +672,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var importedAt = DateTime.UtcNow;
+        var ownerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(db);
 
         var specs = Enumerable.Range(1, count)
             .Select(index => new AcceptanceSpec
@@ -678,7 +683,7 @@ public class BatchFillTests : IClassFixture<ApiWebApplicationFactory>
                 Specification = $"S{index:0000}",
                 Acceptance = $"AC-{index:0000}",
                 Remark = $"RM-{index:0000}",
-                OwnerOrgUnitId = 1,
+                OwnerOrgUnitId = ownerOrgUnitId,
                 CreatedByUserId = 1,
                 WordFileId = wordFileId,
                 ImportedAt = importedAt.AddSeconds(index)

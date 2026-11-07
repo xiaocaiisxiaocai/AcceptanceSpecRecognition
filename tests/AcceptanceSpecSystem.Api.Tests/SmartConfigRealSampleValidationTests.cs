@@ -230,6 +230,7 @@ public class SmartConfigRealSampleValidationTests : IClassFixture<ApiWebApplicat
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", Path.GetFileName(path));
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         var text = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, text);

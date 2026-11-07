@@ -154,7 +154,9 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         CancellationToken cancellationToken = default)
     {
         TableData tableData;
-        var excelDataStartRowIndexForWriteBack = 1;
+        // 快照投影后的数据行号从 0 开始（相对数据起始行），Word 与 Excel 统一加上数据起始行，
+        // 换算为写回使用的表格行号（0 基，含表头行）。
+        var dataStartRowIndexForWriteBack = 1;
         int? maxDataRowCount = null;
         try
         {
@@ -201,7 +203,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
-                excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                dataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
                 if (dataEndRow.HasValue)
                 {
                     var normalizedDataEndRow = Math.Max(normalizedDataStartRow, dataEndRow.Value);
@@ -222,6 +224,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
                     DataStartRowIndex = normalizedDataStartRow - 1
                 };
+                dataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
                 if (dataEndRow.HasValue)
                 {
                     if (dataEndRow.Value < normalizedDataStartRow)
@@ -280,11 +283,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                 continue;
             }
 
-            var writeBackRowIndex = row.Index;
-            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
-            {
-                writeBackRowIndex += excelDataStartRowIndexForWriteBack;
-            }
+            var writeBackRowIndex = row.Index + dataStartRowIndexForWriteBack;
 
             items.Add(new MatchSourceItem
             {
@@ -306,7 +305,9 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
         CancellationToken cancellationToken = default)
     {
         TableData tableData;
-        var excelDataStartRowIndexForWriteBack = 1;
+        // 快照投影后的数据行号从 0 开始（相对数据起始行），Word 与 Excel 统一加上数据起始行，
+        // 换算为写回使用的表格行号（0 基，含表头行）。
+        var dataStartRowIndexForWriteBack = 1;
         int? maxDataRowCount = null;
         try
         {
@@ -342,7 +343,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                     HeaderRowCount = Math.Max(1, normalizedHeaderRowCount == 0 ? 1 : normalizedHeaderRowCount),
                     DataStartRowIndex = Math.Max(0, normalizedDataStartRow - usedStartRow)
                 };
-                excelDataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
+                dataStartRowIndexForWriteBack = mapping.DataStartRowIndex;
                 if (config.DataEndRow.HasValue)
                 {
                     var normalizedDataEndRow = Math.Max(normalizedDataStartRow, config.DataEndRow.Value);
@@ -400,11 +401,7 @@ public sealed class DocumentTableAccessService : IDocumentImportTableReader, IBa
                 continue;
             }
 
-            var writeBackRowIndex = row.Index;
-            if (wordFile.FileType == UploadedFileType.ExcelXlsx)
-            {
-                writeBackRowIndex += excelDataStartRowIndexForWriteBack;
-            }
+            var writeBackRowIndex = row.Index + dataStartRowIndexForWriteBack;
 
             items.Add(new ReplySourceItem
             {

@@ -35,6 +35,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         using var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(originalBytes), "file", "matching-download-repeatable.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -47,6 +48,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -142,6 +144,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         using var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(originalBytes), "file", "matching-download-missing-artifact.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -154,6 +157,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -230,6 +234,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         using var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(originalBytes), "file", "matching-download-fixed-artifact.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -242,6 +247,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -325,6 +331,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
         var fileContent = new ByteArrayContent(originalBytes);
         fileContent.Headers.ContentType = new("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         multipart.Add(fileContent, "file", "matching-download-fixed-artifact.xlsx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -337,6 +344,7 @@ public class MatchingTaskDownloadRegressionTests : IClassFixture<ApiWebApplicati
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
