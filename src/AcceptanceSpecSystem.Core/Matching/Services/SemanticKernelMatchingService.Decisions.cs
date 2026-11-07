@@ -329,9 +329,9 @@ public partial class SemanticKernelMatchingService : IMatchingService
             return false;
 
         var sourceByDim = sourceValues.GroupBy(value => value.Dimension)
-            .ToDictionary(group => group.Key, group => group.Select(value => value.BaseValue).OrderBy(value => value).ToList());
+            .ToDictionary(group => group.Key, group => group.OrderBy(value => value.BaseValue).ToList());
         var candidateByDim = candidateValues.GroupBy(value => value.Dimension)
-            .ToDictionary(group => group.Key, group => group.Select(value => value.BaseValue).OrderBy(value => value).ToList());
+            .ToDictionary(group => group.Key, group => group.OrderBy(value => value.BaseValue).ToList());
 
         if (!sourceByDim.Keys.OrderBy(key => key, StringComparer.Ordinal)
                 .SequenceEqual(candidateByDim.Keys.OrderBy(key => key, StringComparer.Ordinal), StringComparer.Ordinal))
@@ -347,7 +347,11 @@ public partial class SemanticKernelMatchingService : IMatchingService
 
             for (var i = 0; i < sourceList.Count; i++)
             {
-                if (IsNumericOutsideEngineeringTolerance(sourceList[i], candidateList[i]))
+                if (NumericToleranceRules.IsOutsideTolerance(
+                        sourceList[i].BaseValue,
+                        candidateList[i].BaseValue,
+                        sourceList[i].OriginalExpression,
+                        candidateList[i].OriginalExpression))
                     return false;
             }
         }
@@ -363,15 +367,6 @@ public partial class SemanticKernelMatchingService : IMatchingService
         canonical = Regex.Replace(canonical, @"#+", "#");
         canonical = Regex.Replace(canonical, @"\s+", string.Empty);
         return canonical;
-    }
-
-    private static bool IsNumericOutsideEngineeringTolerance(double left, double right)
-    {
-        if (left == 0 && right == 0)
-            return false;
-
-        var maxAbs = Math.Max(Math.Abs(left), Math.Abs(right));
-        return Math.Abs(left - right) / maxAbs > 1e-3;
     }
 
     private static List<MatchIssue> BuildCandidateIssues(MatchSource source, EvaluatedCandidate candidate)

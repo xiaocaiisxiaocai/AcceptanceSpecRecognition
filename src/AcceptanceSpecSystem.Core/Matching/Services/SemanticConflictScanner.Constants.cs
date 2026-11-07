@@ -32,7 +32,7 @@ public sealed partial class SemanticConflictScanner
     ];
 
     private static readonly Regex UnsupportedChineseNumberRegex = new(
-        @"(?:约|不多于|不少于|大约|超过|低于|高于)?[零一二三四五六七八九十百千半]+(?:毫米|厘米|米|度|%|％)",
+        @"(?:约|不多于|不少于|大约|超过|低于|高于)?[零一二两三四五六七八九十百千万半]+(?:毫米|厘米|米|度|%|％|毫秒|秒|分钟|小时|天|日|周|个月|年|次|倍|台|件|套)",
         RegexOptions.Compiled);
 
     private static readonly Regex UnsupportedNaturalFormatRegex = new(
@@ -79,8 +79,6 @@ public sealed partial class SemanticConflictScanner
         "不包含", "不含", "无", "无需", "免", "非", "不带", "禁止", "禁用", "不得", "不可", "不允许"
     ];
 
-    // ── 量纲组合：温度特殊处理（跨温标不自动比较） ──────────────────────
-    private const double NumericCompareToleranceRatio = 1e-3;
 
     public SemanticConflictScanner(ISpecCanonicalizer canonicalizer)
     {

@@ -20,3 +20,11 @@
 - [x] 4.1 新增 `MatchingRiskRegressionTests` 覆盖上述每条风险，并保持既有匹配测试通过。
 - [x] 4.2 `dotnet test AcceptanceSpecSystem.sln -m:1` 全量通过。
 - [x] 4.3 将超过 500 行的 `SemanticKernelMatchingService.Decisions.cs` 中问题分类判断拆到 `.IssueClassification.cs`，满足架构边界测试。
+
+## 5. 残余风险补修
+
+- [x] 5.1 原文精确层扫出硬冲突时不再直接命中，也不写入等价裁决结论（与规范化层一致）。
+- [x] 5.2 新增 `NumericToleranceRules`：同单位比较只吸收浮点误差，跨单位换算才套用 0.1% 工程容差；冲突扫描、近似层带单位数值与裸数字比对统一使用。
+- [x] 5.3 中文数字识别补充时间、周期、次数、倍数及台/件/套等单位，并支持“两”“万”。
+- [x] 5.4 `MatchingRiskRegressionTests` 补充对应回归测试；仅规格歧义用例改为跨单位换算取整场景。
+

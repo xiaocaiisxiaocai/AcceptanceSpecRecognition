@@ -93,7 +93,12 @@ public sealed partial class SemanticConflictScanner
 
         for (var i = 0; i < srcSorted.Count; i++)
         {
-            if (AreNumericConflict(srcSorted[i].BaseValue, candSorted[i].BaseValue))
+            // 同单位（未换算）严格比较，跨单位换算才放宽到工程容差，见 NumericToleranceRules。
+            if (NumericToleranceRules.IsOutsideTolerance(
+                    srcSorted[i].BaseValue,
+                    candSorted[i].BaseValue,
+                    srcSorted[i].OriginalExpression,
+                    candSorted[i].OriginalExpression))
             {
                 srcExpr = srcSorted[i].OriginalExpression;
                 candExpr = candSorted[i].OriginalExpression;
@@ -130,9 +135,7 @@ public sealed partial class SemanticConflictScanner
 
     private static bool AreNumericConflict(double a, double b)
     {
-        if (a == 0 && b == 0) return false;
-        var maxAbs = Math.Max(Math.Abs(a), Math.Abs(b));
-        return Math.Abs(a - b) / maxAbs > NumericCompareToleranceRatio;
+        return NumericToleranceRules.IsOutsideTolerance(a, b, NumericToleranceRules.ConvertedUnitToleranceRatio);
     }
 
     // ── 尺寸元组冲突（位置敏感） ───────────────────────────────────────────
