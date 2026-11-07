@@ -72,7 +72,8 @@ public static class DatabaseInitializer
         "20260805032114_AddAcceptanceSpecReferenceCount",
         "20260806065524_AddAcceptanceSpecReferenceHistory",
         "20260811033921_AddAcceptanceSpecContentVersionHistory",
-        "20260811064828_AddAcceptanceSpecCleanupScanner"
+        "20260811064828_AddAcceptanceSpecCleanupScanner",
+        "20260811093630_AddSmartFillResultArchive"
     };
 
     /// <summary>
