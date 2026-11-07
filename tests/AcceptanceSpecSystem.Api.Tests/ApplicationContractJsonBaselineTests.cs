@@ -11,7 +11,8 @@ public class ApplicationContractJsonBaselineTests
     public void SharedApplicationContracts_ShouldKeepExistingCamelCaseJsonPropertyNames()
     {
         AssertPropertyNames(new FileUploadResponse(),
-            "fileId", "fileName", "fileType", "fileHash", "isDuplicate", "tableCount", "tableCountReady");
+            "fileId", "fileName", "fileType", "fileHash", "isDuplicate", "tableCount", "tableCountReady",
+            "ownerOrgUnitId", "ownerOrgUnitName");
 
         AssertPropertyNames(new CreateAuthRoleRequest(),
             "code", "name", "description", "isActive", "permissionCodes", "dataScopes");

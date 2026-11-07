@@ -44,6 +44,7 @@ public class CrudFlowTests : IClassFixture<ApiWebApplicationFactory>
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -77,6 +78,7 @@ public class CrudFlowTests : IClassFixture<ApiWebApplicationFactory>
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 machineModelId,

@@ -133,6 +133,7 @@ public class AutoApplyPreviewConsistencyTests : IClassFixture<AutoApplyPreviewCo
 
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -147,6 +148,7 @@ public class AutoApplyPreviewConsistencyTests : IClassFixture<AutoApplyPreviewCo
 
         var primarySpecResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "项目A",
@@ -158,6 +160,7 @@ public class AutoApplyPreviewConsistencyTests : IClassFixture<AutoApplyPreviewCo
 
         var secondarySpecResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "项目A",

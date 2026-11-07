@@ -307,7 +307,7 @@ public class ImportSpecificationOnlyBackfillTests : IClassFixture<ApiWebApplicat
             Acceptance = acceptance,
             Remark = remark,
             WordFileId = wordFile.Id,
-            OwnerOrgUnitId = 1,
+            OwnerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(db),
             CreatedByUserId = 1,
             ImportedAt = DateTime.UtcNow
         });
@@ -322,6 +322,7 @@ public class ImportSpecificationOnlyBackfillTests : IClassFixture<ApiWebApplicat
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", $"spec-only-{Guid.NewGuid():N}.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -334,6 +335,7 @@ public class ImportSpecificationOnlyBackfillTests : IClassFixture<ApiWebApplicat
         using var content = new MultipartFormDataContent();
         content.Add(new ByteArrayContent(bytes), "file", $"spec-only-{Guid.NewGuid():N}.docx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

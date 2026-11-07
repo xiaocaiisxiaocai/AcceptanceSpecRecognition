@@ -35,6 +35,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "packet-limit-regression.xlsx");
 
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -49,6 +50,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         var longRemark = BuildLongText("备注信息", 280);
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -159,6 +161,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "packet-limit-slim-playback.xlsx");
 
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -171,6 +174,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -251,6 +255,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "packet-limit-1431-rows.xlsx");
 
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -263,6 +268,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -342,6 +348,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         uploadContent.Add(fileContent, "file", "packet-limit-full-playback.xlsx");
 
+        await uploadContent.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", uploadContent);
         var uploadBody = await uploadResp.Content.ReadAsStringAsync();
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK, uploadBody);
@@ -357,6 +364,7 @@ public class ExcelFillPacketLimitRegressionTests : IClassFixture<PacketLimitedEx
         var longRemark = BuildLongText("完整备注信息", 280);
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -623,6 +631,7 @@ internal sealed class ThrowOnLargePendingJsonUnitOfWork : IUnitOfWork
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
     public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
+    public IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions => _inner.AcceptanceSpecContentVersions;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;

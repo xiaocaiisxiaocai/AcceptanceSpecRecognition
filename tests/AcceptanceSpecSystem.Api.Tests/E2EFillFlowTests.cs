@@ -31,6 +31,7 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         // 2) Upload document
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(originalDoc), "file", "e2e.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -44,11 +45,11 @@ public class E2EFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         var processId = (await (await _client.PostAsync("/api/processes", ApiClientJson.ToJsonContent(new { name = "E2E-P" })))
             .ReadAsAsync<ApiResponse<JsonElement>>()).Data.GetProperty("id").GetInt32();
 
-        var spec1 = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new { customerId, processId, project = "P1", specification = "S1", acceptance = "OK-1", remark = "R1" })))
+        var spec1 = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "P1", specification = "S1", acceptance = "OK-1", remark = "R1" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
         spec1.Code.Should().Be(0);
 
-        var spec2 = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new { customerId, processId, project = "P2", specification = "S2", acceptance = "OK-2", remark = "R2" })))
+        var spec2 = await (await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new { businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client), customerId, processId, project = "P2", specification = "S2", acceptance = "OK-2", remark = "R2" })))
             .ReadAsAsync<ApiResponse<JsonElement>>();
         spec2.Code.Should().Be(0);
 

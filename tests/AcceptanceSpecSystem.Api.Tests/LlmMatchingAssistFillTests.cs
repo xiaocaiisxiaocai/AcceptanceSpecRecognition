@@ -360,6 +360,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         previewBestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
 
         var reviewApprovalToken = await RequestReviewApprovalTokenAsync(
+            setup.FileId,
             setup.CustomerId,
             setup.ProcessId,
             rowIndex: 1,
@@ -417,6 +418,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         previewBestMatch.GetProperty("decision").GetString().Should().Be("manualReview");
 
         var reviewApprovalToken = await RequestReviewApprovalTokenAsync(
+            setup.FileId,
             setup.CustomerId,
             setup.ProcessId,
             rowIndex: 1,
@@ -716,6 +718,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId = setup.FileId,
                 customerId = setup.CustomerId,
                 processId = setup.ProcessId,
                 items = new[]
@@ -758,6 +761,8 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();
         json.Code.Should().Be(400);
+        // 必须因重复复核行被拒绝，而不是因缺少源文件业务归属等前置校验失败
+        json.Message.Should().Be("同一行存在重复的复核请求，请刷新预览后重试");
     }
 
     #region Helpers
@@ -772,6 +777,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -786,6 +792,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -808,6 +815,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -822,6 +830,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -844,6 +853,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -858,6 +868,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var bestSpecResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "项目A",
@@ -869,6 +880,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var nonBestSpecResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "项目A",
@@ -891,6 +903,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         var multipart = new MultipartFormDataContent();
         multipart.Add(new ByteArrayContent(docxBytes), "file", $"{prefix}.docx");
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", multipart);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -905,6 +918,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = ReviewScenarioSamples.ApprovedBestProject,
@@ -917,6 +931,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
 
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = ReviewScenarioSamples.ApprovedAltProject,
@@ -967,6 +982,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
     }
 
     private async Task<string> RequestReviewApprovalTokenAsync(
+        int fileId,
         int customerId,
         int processId,
         int rowIndex,
@@ -978,6 +994,7 @@ public class LlmMatchingAssistFillTests : IClassFixture<ApiWebApplicationFactory
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId,
                 customerId,
                 processId,
                 items = new[]

@@ -68,7 +68,7 @@ public sealed class ExcelImportCleanupFailureTests
                 Project = "已有项目",
                 Specification = "已有规格",
                 WordFileId = existingFile.Id,
-                OwnerOrgUnitId = 1,
+                OwnerOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(db),
                 CreatedByUserId = 1,
                 ImportedAt = DateTime.UtcNow
             });
@@ -140,6 +140,7 @@ public sealed class ExcelImportCleanupFailureTests
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "cleanup-failed-source.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         using var response = await _client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

@@ -369,6 +369,7 @@ public sealed class AcceptanceSpecReferenceCountTests : IClassFixture<ApiWebAppl
             new StringContent((await GetBusinessOrgUnitIdAsync()).ToString()),
             "businessOrgUnitId");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         var rawResponse = await response.Content.ReadAsStringAsync();
         response.StatusCode.Should().Be(HttpStatusCode.OK, rawResponse);

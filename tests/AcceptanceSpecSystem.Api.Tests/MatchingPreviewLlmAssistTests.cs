@@ -40,6 +40,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -83,6 +84,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -95,6 +97,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -165,6 +168,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -224,6 +228,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "历史项目A",
@@ -287,6 +292,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "历史项目A",
@@ -299,6 +305,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "历史项目B",
@@ -348,6 +355,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(client),
                 customerId,
                 processId,
                 project = "传送速度",
@@ -363,6 +371,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(client),
                 customerId,
                 processId,
                 project = "传送速度",
@@ -420,6 +429,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -432,6 +442,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -499,6 +510,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
                 "/api/specs",
                 ApiClientJson.ToJsonContent(new
                 {
+                    businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                     customerId,
                     processId,
                     project = "项目A",
@@ -545,6 +557,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -587,6 +600,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedBestProject,
@@ -599,6 +613,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedAltProject,
@@ -607,7 +622,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
                 remark = "R2"
             }));
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -626,6 +641,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
 
         var streamRequest = new
         {
+            fileId = sourceFileId,
             customerId,
             processId,
             items = new[]
@@ -682,6 +698,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -693,7 +710,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
         var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>())
             .Data.GetProperty("id").GetInt32();
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -707,6 +724,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
 
         var streamRequest = new
         {
+            fileId = sourceFileId,
             customerId,
             processId,
             items = new[]
@@ -755,6 +773,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "安装要求",
@@ -766,7 +785,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
         var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>())
             .Data.GetProperty("id").GetInt32();
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -786,6 +805,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
 
         var streamRequest = new
         {
+            fileId = sourceFileId,
             customerId,
             processId,
             items = new[]
@@ -846,6 +866,7 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -857,8 +878,10 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
         var specId = (await specResp.ReadAsAsync<ApiResponse<JsonElement>>())
             .Data.GetProperty("id").GetInt32();
 
+        var sourceFileId = await BatchPreviewTestHelper.UploadSourceDocumentAsync(_client, ("流式复核源项目", "流式复核源规格"));
         var streamRequest = new
         {
+            fileId = sourceFileId,
             customerId,
             processId,
             items = new[]
@@ -902,8 +925,10 @@ public class MatchingPreviewLlmAssistTests : IClassFixture<ApiWebApplicationFact
     [Fact]
     public async Task LlmStream_ShouldIgnoreNoMatchRows_WithoutReviewTargets()
     {
+        var sourceFileId = await BatchPreviewTestHelper.UploadSourceDocumentAsync(_client, ("流式复核源项目", "流式复核源规格"));
         var streamRequest = new
         {
+            fileId = sourceFileId,
             items = new[]
             {
                 new
@@ -998,6 +1023,7 @@ public class MatchingPreviewEmbeddingFailureTests : IClassFixture<FailingEmbeddi
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "项目A",
@@ -1046,6 +1072,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedBestProject,
@@ -1058,6 +1085,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedAltProject,
@@ -1066,7 +1094,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
                 remark = "R2"
             }));
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -1087,6 +1115,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId = sourceFileId,
                 customerId,
                 processId,
                 items = new[]
@@ -1135,6 +1164,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedBestProject,
@@ -1147,6 +1177,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedAltProject,
@@ -1159,6 +1190,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -1167,7 +1199,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
                 remark = "R3"
             }));
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -1191,6 +1223,7 @@ public class MatchingPreviewLlmAssistCircuitBreakTests : IClassFixture<FailingRe
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId = sourceFileId,
                 customerId,
                 processId,
                 items = new object[]
@@ -1303,6 +1336,7 @@ public class MatchingPreviewLlmAssistRetryTests : IClassFixture<RetryThenSuccess
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedBestProject,
@@ -1315,6 +1349,7 @@ public class MatchingPreviewLlmAssistRetryTests : IClassFixture<RetryThenSuccess
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedAltProject,
@@ -1323,7 +1358,7 @@ public class MatchingPreviewLlmAssistRetryTests : IClassFixture<RetryThenSuccess
                 remark = "R2"
             }));
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -1344,6 +1379,7 @@ public class MatchingPreviewLlmAssistRetryTests : IClassFixture<RetryThenSuccess
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId = sourceFileId,
                 customerId,
                 processId,
                 items = new[]
@@ -1404,6 +1440,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedBestProject,
@@ -1416,6 +1453,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.ApprovedAltProject,
@@ -1428,6 +1466,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.FailingBestProject,
@@ -1440,6 +1479,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = ReviewScenarioSamples.FailingAltProject,
@@ -1448,7 +1488,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
                 remark = "R4"
             }));
 
-        var previewResp = await BatchPreviewTestHelper.PostAsync(
+        var (previewResp, sourceFileId) = await BatchPreviewTestHelper.PostWithFileIdAsync(
             _client,
             customerId,
             processId,
@@ -1473,6 +1513,7 @@ public class MatchingPreviewLlmAssistConcurrentCircuitTests : IClassFixture<Conc
         {
             Content = ApiClientJson.ToJsonContent(new
             {
+                fileId = sourceFileId,
                 customerId,
                 processId,
                 items = new object[]
@@ -1774,6 +1815,39 @@ internal static class BatchPreviewTestHelper
         return await PostInternalAsync(client, customerId, processId, config, previewRequestId, items);
     }
 
+    /// <summary>
+    /// 上传源文档并执行批量预览，同时返回源文件 Id。
+    /// 前端流式复核会携带源文件 Id，由服务端按源文件的业务归属确定候选范围。
+    /// </summary>
+    internal static async Task<(HttpResponseMessage Response, int FileId)> PostWithFileIdAsync(
+        HttpClient client,
+        int customerId,
+        int processId,
+        object config,
+        params (string Project, string Specification)[] items)
+    {
+        var fileId = await UploadSourceDocumentAsync(client, items);
+        var response = await PostPreviewAsync(client, fileId, customerId, processId, config, previewRequestId: null);
+        return (response, fileId);
+    }
+
+    /// <summary>
+    /// 上传一份源文档到当前身份的默认业务部门，返回文件 Id。
+    /// </summary>
+    internal static async Task<int> UploadSourceDocumentAsync(
+        HttpClient client,
+        params (string Project, string Specification)[] items)
+    {
+        using var multipart = new MultipartFormDataContent();
+        multipart.Add(new ByteArrayContent(CreateDocxBytes(items)), "file", $"preview-{Guid.NewGuid():N}.docx");
+
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(client);
+        var uploadResp = await client.PostAsync("/api/documents/upload", multipart);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
+        return uploadJson.Data.GetProperty("fileId").GetInt32();
+    }
+
     private static async Task<HttpResponseMessage> PostInternalAsync(
         HttpClient client,
         int customerId,
@@ -1782,14 +1856,18 @@ internal static class BatchPreviewTestHelper
         string? previewRequestId,
         params (string Project, string Specification)[] items)
     {
-        using var multipart = new MultipartFormDataContent();
-        multipart.Add(new ByteArrayContent(CreateDocxBytes(items)), "file", $"preview-{Guid.NewGuid():N}.docx");
+        var fileId = await UploadSourceDocumentAsync(client, items);
+        return await PostPreviewAsync(client, fileId, customerId, processId, config, previewRequestId);
+    }
 
-        var uploadResp = await client.PostAsync("/api/documents/upload", multipart);
-        uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
-        var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
-        var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
-
+    private static async Task<HttpResponseMessage> PostPreviewAsync(
+        HttpClient client,
+        int fileId,
+        int customerId,
+        int processId,
+        object config,
+        string? previewRequestId)
+    {
         return await client.PostAsync(
             "/api/matching/batch-preview",
             ApiClientJson.ToJsonContent(new

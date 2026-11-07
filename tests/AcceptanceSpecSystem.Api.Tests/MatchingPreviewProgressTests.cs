@@ -65,6 +65,7 @@ public class MatchingPreviewProgressTests : IClassFixture<DelayedPreviewProgress
                 "/api/specs",
                 ApiClientJson.ToJsonContent(new
                 {
+                    businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                     customerId,
                     processId,
                     project = $"项目{index}",

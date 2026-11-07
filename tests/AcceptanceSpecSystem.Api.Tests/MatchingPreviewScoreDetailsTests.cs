@@ -34,6 +34,7 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = "P1",
@@ -95,6 +96,7 @@ public class MatchingPreviewScoreDetailsTests : IClassFixture<ApiWebApplicationF
             new[] { project, specification, "", "" }
         })), "file", "score-details-preview.docx");
 
+        await multipart.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", multipart);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.ReadAsAsync<ApiResponse<JsonElement>>();

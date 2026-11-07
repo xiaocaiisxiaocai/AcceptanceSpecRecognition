@@ -57,6 +57,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         content.Add(fileContent, "file", "e2e.xlsx");
         content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -204,6 +205,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "manual-confirmed-ai-reject.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         uploadResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
@@ -221,6 +223,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         var specResp = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "设备安装",
@@ -334,6 +337,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "multi-region-target-columns.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var upload = await _client.PostAsync("/api/documents/upload", content);
         var uploadBody = await upload.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadBody.Data.GetProperty("fileId").GetInt32();
@@ -351,6 +355,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         {
             var createSpec = await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
                 customerId,
                 processId,
                 project = source.Project,
@@ -529,6 +534,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
             fileContent.Headers.ContentType = new MediaTypeHeaderValue(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             content.Add(fileContent, "file", fileName);
+            await content.AddDefaultBusinessOrgUnitIdAsync(_client);
             var upload = await _client.PostAsync("/api/documents/upload", content);
             upload.StatusCode.Should().Be(HttpStatusCode.OK);
             return (await upload.ReadAsAsync<ApiResponse<JsonElement>>())
@@ -633,6 +639,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "canonical-region-target.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var upload = await _client.PostAsync("/api/documents/upload", content);
         var uploadBody = await upload.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadBody.Data.GetProperty("fileId").GetInt32();
@@ -704,6 +711,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "clear-remark.xlsx");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         var fileId = uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -715,6 +723,7 @@ public class ExcelFillFlowTests : IClassFixture<ApiWebApplicationFactory>
 
         await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project = "P1",
@@ -887,6 +896,7 @@ public class ExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFailure
         var fileContent = new ByteArrayContent(ExcelFillFlowTests.CreateExcelBytes(rows));
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "snapshot-fail.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -901,10 +911,11 @@ public class ExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFailure
         return (customerId, processId);
     }
 
-    private Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
+    private async Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
     {
-        return _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        return await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project,
@@ -1017,6 +1028,7 @@ public class ExcelFillExecutionHistoryFailureOrderTests : IClassFixture<FinalSav
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "history-fail.xlsx");
         content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -1178,6 +1190,7 @@ public class BatchExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFa
         var fileContent = new ByteArrayContent(ExcelFillFlowTests.CreateExcelBytes(rows));
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "batch-snapshot-fail.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -1192,10 +1205,11 @@ public class BatchExcelFillSnapshotFailureOrderTests : IClassFixture<FinalSaveFa
         return (customerId, processId);
     }
 
-    private Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
+    private async Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
     {
-        return _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        return await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project,
@@ -1305,6 +1319,7 @@ public class BatchExcelFillExecutionHistoryFailureOrderTests : IClassFixture<Fin
         var fileContent = new ByteArrayContent(ExcelFillFlowTests.CreateExcelBytes(rows));
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         content.Add(fileContent, "file", "batch-history-fail.xlsx");
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var uploadResp = await _client.PostAsync("/api/documents/upload", content);
         var uploadJson = await uploadResp.ReadAsAsync<ApiResponse<JsonElement>>();
         return uploadJson.Data.GetProperty("fileId").GetInt32();
@@ -1319,10 +1334,11 @@ public class BatchExcelFillExecutionHistoryFailureOrderTests : IClassFixture<Fin
         return (customerId, processId);
     }
 
-    private Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
+    private async Task<HttpResponseMessage> CreateSpecAsync(int customerId, int processId, string project, string specification, string acceptance, string remark)
     {
-        return _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
+        return await _client.PostAsync("/api/specs", ApiClientJson.ToJsonContent(new
         {
+            businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client),
             customerId,
             processId,
             project,
@@ -1440,6 +1456,7 @@ internal sealed class ThrowOnSaveChangesUnitOfWork : IUnitOfWork
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
     public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
+    public IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions => _inner.AcceptanceSpecContentVersions;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;
@@ -1485,6 +1502,7 @@ internal sealed class ThrowOnWorkflowFinalSaveUnitOfWork : IUnitOfWork
     public IMachineModelRepository MachineModels => _inner.MachineModels;
     public IAcceptanceSpecRepository AcceptanceSpecs => _inner.AcceptanceSpecs;
     public IAcceptanceSpecReferenceEventRepository AcceptanceSpecReferenceEvents => _inner.AcceptanceSpecReferenceEvents;
+    public IAcceptanceSpecContentVersionRepository AcceptanceSpecContentVersions => _inner.AcceptanceSpecContentVersions;
     public IEmbeddingCacheRepository EmbeddingCaches => _inner.EmbeddingCaches;
     public IWordFileRepository WordFiles => _inner.WordFiles;
     public IAiServiceConfigRepository AiServiceConfigs => _inner.AiServiceConfigs;

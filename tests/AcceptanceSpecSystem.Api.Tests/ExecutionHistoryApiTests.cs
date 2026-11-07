@@ -876,6 +876,7 @@ public class ExecutionHistoryApiTests : IClassFixture<ApiWebApplicationFactory>
         content.Add(fileContent, "file", fileName);
         content.Add(new StringContent(businessOrgUnitId.ToString()), "businessOrgUnitId");
 
+        await content.AddDefaultBusinessOrgUnitIdAsync(_client);
         var response = await _client.PostAsync("/api/documents/upload", content);
         response.StatusCode.Should().Be(
             HttpStatusCode.OK,

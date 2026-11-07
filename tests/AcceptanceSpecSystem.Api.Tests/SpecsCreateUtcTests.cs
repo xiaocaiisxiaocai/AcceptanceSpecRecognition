@@ -36,10 +36,13 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
         var process = await processResponse.ReadAsAsync<ApiResponse<JsonElement>>();
         var processId = process.Data.GetProperty("id").GetInt32();
 
+        var businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client);
+
         var specResponse = await _client.PostAsync(
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId,
                 customerId,
                 processId,
                 project = "UTC 项目",
@@ -67,7 +70,7 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
     {
         var customerId = await CreateCustomerAsync(_client, "更新时间-客户");
         var processId = await CreateProcessAsync(_client, "更新时间-制程");
-        var businessOrgUnitId = await GetBusinessOrgUnitIdAsync();
+        var businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(_client);
 
         var createResponse = await _client.PostAsync(
             "/api/specs",
@@ -172,10 +175,12 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
 
     private static async Task CreateSpecAsync(HttpClient client, int customerId, int processId, string project)
     {
+        var businessOrgUnitId = await TestBusinessOrg.GetDefaultBusinessOrgUnitIdAsync(client);
         var response = await client.PostAsync(
             "/api/specs",
             ApiClientJson.ToJsonContent(new
             {
+                businessOrgUnitId,
                 customerId,
                 processId,
                 project,
@@ -186,15 +191,4 @@ public class SpecsCreateUtcTests : IClassFixture<ApiWebApplicationFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private async Task<int> GetBusinessOrgUnitIdAsync()
-    {
-        using var scope = _factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        return await dbContext.OrgUnits
-            .Where(orgUnit =>
-                orgUnit.ParentId != null &&
-                !dbContext.OrgUnits.Any(child => child.ParentId == orgUnit.Id))
-            .Select(orgUnit => orgUnit.Id)
-            .FirstAsync();
-    }
 }
