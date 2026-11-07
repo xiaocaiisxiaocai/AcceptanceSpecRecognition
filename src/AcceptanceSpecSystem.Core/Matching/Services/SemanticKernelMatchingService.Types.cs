@@ -91,6 +91,12 @@ public partial class SemanticKernelMatchingService : IMatchingService
         public MatchEvidence? Evidence { get; set; }
         public List<MatchIssue>? Issues { get; set; }
         public LlmEquivalenceAdjudicationResult? LlmEquivalence { get; set; }
+
+        /// <summary>
+        /// LLM 等价裁决是否因超时/熔断/额度耗尽/异常而"未实际裁决"（回退为 Uncertain）。
+        /// 与 LLM 真实返回 Uncertain 区分：失败回退不允许被高 Embedding 自动通过路径放行（避免 fail-open）。
+        /// </summary>
+        public bool LlmAdjudicationFailed { get; set; }
     }
 
 }

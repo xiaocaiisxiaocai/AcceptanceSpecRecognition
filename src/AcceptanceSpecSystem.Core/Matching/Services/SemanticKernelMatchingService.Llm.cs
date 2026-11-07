@@ -318,6 +318,11 @@ public partial class SemanticKernelMatchingService : IMatchingService
                     "LLM 调用已达批次上限，灰区行转人工确认");
             }
 
+            if (result == null)
+            {
+                best.LlmAdjudicationFailed = true;
+            }
+
             best.LlmEquivalence = result ?? new LlmEquivalenceAdjudicationResult
             {
                 Verdict = LlmEquivalenceVerdict.Uncertain,
@@ -338,6 +343,7 @@ public partial class SemanticKernelMatchingService : IMatchingService
         catch (Exception ex)
         {
             _logger.LogWarning("AI 等价裁决失败，按 uncertain 回退: exceptionType={ExceptionType}", ex.GetType().Name);
+            best.LlmAdjudicationFailed = true;
             best.LlmEquivalence = new LlmEquivalenceAdjudicationResult
             {
                 Verdict = LlmEquivalenceVerdict.Uncertain,

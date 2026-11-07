@@ -159,6 +159,12 @@ public partial class SemanticKernelMatchingService : IMatchingService
         return Math.Clamp(finalScore, 0, 1);
     }
 
+    /// <summary>
+    /// 项目子串包含时，较短者长度须达到较长者该比例才视为"接近"。
+    /// 防止短项目名被长项目名"包含"（如"A机" vs "A机型B"）拿到接近分而抬高跨项目候选。
+    /// </summary>
+    private const double ProjectContainmentLengthRatio = 0.7;
+
     private static double ComputeProjectScore(string sourceProject, string candidateProject)
     {
         var source = NormalizeComparableText(sourceProject);
@@ -175,7 +181,11 @@ public partial class SemanticKernelMatchingService : IMatchingService
 
         if (source.Contains(candidate, StringComparison.OrdinalIgnoreCase) ||
             candidate.Contains(source, StringComparison.OrdinalIgnoreCase))
-            return 0.85;
+        {
+            var shorterLength = Math.Min(source.Length, candidate.Length);
+            var longerLength = Math.Max(source.Length, candidate.Length);
+            return shorterLength >= longerLength * ProjectContainmentLengthRatio ? 0.85 : 0.5;
+        }
 
         return 0;
     }

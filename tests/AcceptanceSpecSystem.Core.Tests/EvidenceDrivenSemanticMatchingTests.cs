@@ -3389,9 +3389,10 @@ public class EvidenceDrivenSemanticMatchingTests
     // ── LLM 语义优先模式测试 ──────────────────────────────────────────────
 
     [Fact]
-    public async Task BatchMatch_WhenLlmSemanticPriority_AndHardConflict_LlmEquivalentShouldAutoApply()
+    public async Task BatchMatch_WhenLlmSemanticPriority_AndDimensionalHardConflict_ShouldManualReview()
     {
-        // 语义优先模式下，LLM 裁决 Equivalent 应覆盖确定性硬冲突规则 → AutoApply
+        // 量纲型硬冲突（数值/单位）是确定性铁律，任何模式（含语义优先）都不可被 LLM Equivalent 覆盖，
+        // 避免 LLM 幻觉把"100V vs 220V"这类数值差异判成等价后直接填错。
         var source = new MatchSource
         {
             Project = "安装要求",
@@ -3430,9 +3431,9 @@ public class EvidenceDrivenSemanticMatchingTests
             });
 
         result.Results.Should().ContainSingle();
-        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply,
-            "语义优先模式下 LLM Equivalent 应覆盖硬冲突规则");
-        result.Results[0].LlmEquivalence?.Verdict.Should().Be(LlmEquivalenceVerdict.Equivalent);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview,
+            "量纲型硬冲突（数值/单位）在任何模式下都不可被 LLM Equivalent 覆盖");
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "numeric_unit_conflict");
         equivalenceService.Requests.Should().ContainSingle();
     }
 

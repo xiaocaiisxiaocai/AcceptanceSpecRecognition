@@ -77,6 +77,23 @@ public sealed partial class SpecCanonicalizer
                 .Select(Regex.Escape));
     }
 
+    /// <summary>
+    /// 构建"区分大小写"的正则 alternation（去重用 <see cref="StringComparer.Ordinal"/>）。
+    /// 单位 token 大小写敏感（如 mΩ=毫欧 vs MΩ=兆欧、mW=毫瓦 vs MW=兆瓦），
+    /// 若用不区分大小写去重会把它们合并，导致大写变体无法被 <see cref="SpecCanonicalizer._numericUnitRegex"/>
+    /// 匹配、退化为单字母前缀而归一失败，最终漏掉本可检出的量纲硬冲突。
+    /// </summary>
+    private static string BuildCaseSensitiveRegexAlternation(IEnumerable<string> values)
+    {
+        return string.Join(
+            "|",
+            values
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(value => value.Length)
+                .Select(Regex.Escape));
+    }
+
     private static bool IsKnownPlainSuffix(string unit)
     {
         return string.Equals(unit, "%", StringComparison.Ordinal) ||

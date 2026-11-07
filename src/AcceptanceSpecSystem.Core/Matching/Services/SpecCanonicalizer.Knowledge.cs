@@ -158,6 +158,8 @@ public sealed partial class SpecCanonicalizer
             // 电阻 (基准: Ω)
             ["Ω"] = ("resistance", 1),
             ["ohm"] = ("resistance", 1),
+            ["mΩ"] = ("resistance", 1e-3),
+            ["μΩ"] = ("resistance", 1e-6),
             ["kΩ"] = ("resistance", 1e3),
             ["KΩ"] = ("resistance", 1e3),
             ["MΩ"] = ("resistance", 1e6),
