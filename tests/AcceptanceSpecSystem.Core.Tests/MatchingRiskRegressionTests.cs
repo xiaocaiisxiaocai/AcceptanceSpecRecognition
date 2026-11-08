@@ -1,4 +1,4 @@
-using AcceptanceSpecSystem.Core.Matching.Interfaces;
+﻿using AcceptanceSpecSystem.Core.Matching.Interfaces;
 using AcceptanceSpecSystem.Core.Matching.Models;
 using AcceptanceSpecSystem.Core.Matching.Services;
 using FluentAssertions;
@@ -9,7 +9,7 @@ namespace AcceptanceSpecSystem.Core.Tests;
 /// <summary>
 /// 智能填充误匹配风险回归测试。
 /// 逐条覆盖 N1（大小写合并单位前缀）、N2（语义优先覆盖硬冲突）、N3（fail-open）、
-/// 风险4（近似层裸数字）、风险5（项目子串包含）、风险6（近似层歧义）的修复。
+/// 风险4（近似层裸数字、中文数字）、风险5（项目子串包含）、风险6（近似层歧义）、风险9（同单位容差）的修复。
 /// </summary>
 public class MatchingRiskRegressionTests
 {
@@ -131,10 +131,11 @@ public class MatchingRiskRegressionTests
         var service = CreateService(embeddingSimilarity: 0.5);
 
         var result = await service.BatchMatchAsync(
-            [new MatchSource { Project = "项目", Specification = "外径 10mm" }],
+            // 跨单位换算取整（1in = 25.4mm）才走工程容差，两条候选都落在容差内。
+            [new MatchSource { Project = "项目", Specification = "外径 1in" }],
             [
-                new MatchCandidate { SpecId = 1, Project = "项目A", Specification = "外径 10.005mm", Acceptance = "OK" },
-                new MatchCandidate { SpecId = 2, Project = "项目B", Specification = "外径 10.004mm", Acceptance = "NG需返工" }
+                new MatchCandidate { SpecId = 1, Project = "项目A", Specification = "外径 25.42mm", Acceptance = "OK" },
+                new MatchCandidate { SpecId = 2, Project = "项目B", Specification = "外径 25.39mm", Acceptance = "NG需返工" }
             ],
             new MatchingConfig
             {
@@ -161,6 +162,80 @@ public class MatchingRiskRegressionTests
 
         result.Results.Should().HaveCount(1);
         result.Results[0].ScoreDetails["ProjectMatch"].Should().Be(0.5);
+    }
+
+    // ── N1/N2：精确键大小写归一合并了 mΩ/MΩ，精确层扫出硬冲突时不得以"精确一致"命中 ──
+
+    [Fact]
+    public async Task BatchMatch_ExactKeyCaseFolding_WithHardConflict_ShouldNotUseExactShortcut()
+    {
+        var service = CreateService(embeddingSimilarity: 0.5);
+
+        var result = await service.BatchMatchAsync(
+            [new MatchSource { Project = "电阻", Specification = "阻值 10mΩ" }],
+            [new MatchCandidate { SpecId = 1, Project = "电阻", Specification = "阻值 10MΩ", Acceptance = "OK" }],
+            new MatchingConfig { MinScoreThreshold = 0.0 });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].SelectionMode.Should().NotBe(MatchSelectionMode.ExactShortcut);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "numeric_unit_conflict");
+    }
+
+    // ── 风险9：同单位未换算的数值差异不再被 0.1% 工程容差吞掉 ──
+
+    [Fact]
+    public async Task BatchMatch_SameUnitSmallDifference_ShouldManualReviewWithNumericConflict()
+    {
+        var service = CreateService(embeddingSimilarity: 0.5);
+
+        var result = await service.BatchMatchAsync(
+            [new MatchSource { Project = "轴", Specification = "外径 25.000mm" }],
+            [new MatchCandidate { SpecId = 1, Project = "轴", Specification = "外径 25.020mm", Acceptance = "OK" }],
+            new MatchingConfig { MinScoreThreshold = 0.0 });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].SelectionMode.Should().NotBe(MatchSelectionMode.ExactShortcut);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "numeric_unit_conflict");
+    }
+
+    // ── 风险9 保留能力：跨单位换算取整误差仍在工程容差内确定性命中 ──
+
+    [Fact]
+    public async Task BatchMatch_CrossUnitRoundingWithinTolerance_ShouldDeterministicAutoApply()
+    {
+        var service = CreateService(embeddingSimilarity: 0.5);
+
+        var result = await service.BatchMatchAsync(
+            [new MatchSource { Project = "轴", Specification = "外径 1in" }],
+            [new MatchCandidate { SpecId = 1, Project = "轴", Specification = "外径 25.42mm", Acceptance = "OK" }],
+            new MatchingConfig { MinScoreThreshold = 0.0 });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].SelectionMode.Should().Be(MatchSelectionMode.ExactShortcut);
+        result.Results[0].Decision.Should().Be(MatchDecision.AutoApply);
+    }
+
+    // ── 风险4：中文数字差异（三十天 vs 三天）须产生阻断警告，不能凭高 Embedding 自动通过 ──
+
+    [Fact]
+    public async Task BatchMatch_ChineseNumberDifference_ShouldNotAutoApplyByEmbedding()
+    {
+        var service = CreateService(embeddingSimilarity: 0.98);
+
+        var result = await service.BatchMatchAsync(
+            [new MatchSource { Project = "设备", Specification = "保修期三十天" }],
+            [new MatchCandidate { SpecId = 1, Project = "设备", Specification = "保修期三天", Acceptance = "OK" }],
+            new MatchingConfig
+            {
+                MinScoreThreshold = 0.0,
+                EmbeddingSemanticAutoApplyThreshold = 0.9
+            });
+
+        result.Results.Should().HaveCount(1);
+        result.Results[0].Decision.Should().Be(MatchDecision.ManualReview);
+        result.Results[0].Issues.Should().Contain(issue => issue.Code == "unsupported_format_token");
     }
 
     // ── N1 底层能力：mΩ 可归一到电阻量纲 ──

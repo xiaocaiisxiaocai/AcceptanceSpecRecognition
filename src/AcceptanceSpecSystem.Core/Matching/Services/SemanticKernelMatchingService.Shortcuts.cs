@@ -60,6 +60,16 @@ public partial class SemanticKernelMatchingService : IMatchingService
         exactCandidate.Evidence = _evidenceBuilder.Build(source, candidate);
         exactCandidate.NumericScore = ComputeNumericScore(source, exactCandidate);
         exactCandidate.Issues = BuildCandidateIssues(source, exactCandidate);
+
+        // 精确键做了大小写归一（项目名 ABC/abc 视为同一），会把 mΩ/MΩ、mW/MW 这类仅大小写不同的单位前缀合并。
+        // 与规范化层一致：证据里扫出硬冲突时不按"精确一致"直接命中，交后续流程按冲突转人工，
+        // 也避免写入伪造的 Equivalent 结论误导审核员。
+        if (HasHardConflict(exactCandidate.Issues))
+        {
+            result = null!;
+            return false;
+        }
+
         exactCandidate.FinalScore = ComputeFinalScore(exactCandidate);
         exactCandidate.LlmEquivalence = CreateExactMatchEquivalenceResult(config);
         exactCandidate.SelectionMode = MatchSelectionMode.ExactShortcut;
@@ -354,8 +364,8 @@ public partial class SemanticKernelMatchingService : IMatchingService
     }
 
     /// <summary>
-    /// 比较两组裸数字（无单位数字）是否在工程容差内构成同一集合。
-    /// 用于近似规范化层：裸数字没有量纲、不存在单位换算，直接用工程容差逐项比较。
+    /// 比较两组裸数字（无单位数字）是否构成同一集合。
+    /// 用于近似规范化层：裸数字没有量纲、不存在单位换算，按同单位严格比较（只吸收浮点误差）。
     /// 数量不同或任一对应项超容差即视为不等（如 300 vs 3000 差 10 倍，必判不等）。
     /// </summary>
     private static bool BareNumberSetsEqual(
@@ -372,7 +382,10 @@ public partial class SemanticKernelMatchingService : IMatchingService
         var sortedCandidate = candidateBareNumbers.OrderBy(value => value).ToList();
         for (var i = 0; i < sortedSource.Count; i++)
         {
-            if (IsNumericOutsideEngineeringTolerance(sortedSource[i], sortedCandidate[i]))
+            if (NumericToleranceRules.IsOutsideTolerance(
+                    sortedSource[i],
+                    sortedCandidate[i],
+                    NumericToleranceRules.SameUnitToleranceRatio))
                 return false;
         }
 
